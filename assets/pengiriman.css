@@ -1,0 +1,108 @@
+/* ---------- Umum: halaman master & pengiriman ---------- */
+body.scroll-page { display: block; overflow: auto; }
+.error { color: #b42318; font-size: 13px; min-height: 1em; margin: 6px 0 0; }
+.empty { color: var(--muted); text-align: center; padding: 24px 0; }
+.btn-row.right { justify-content: flex-end; margin-top: 12px; }
+
+.master-wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+.master-head { display: flex; justify-content: space-between; align-items: center; }
+.master-head h2 { margin: 0; font-size: 16px; }
+.master-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.master-item:first-child { border-top: 0; }
+.master-item.inactive { opacity: .55; }
+.master-info { flex: 1; min-width: 0; }
+.master-info .hint { margin-top: 2px; }
+.master-act { display: flex; gap: 6px; }
+.logo-box {
+  width: 140px; height: 60px; border: 1px solid var(--line); border-radius: 6px; background: #fff;
+  display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; overflow: hidden; flex: none;
+}
+.logo-box.sm { width: 96px; height: 40px; }
+.logo-box img { max-width: 92%; max-height: 88%; object-fit: contain; }
+.logo-edit { display: flex; gap: 12px; align-items: center; }
+.logo-edit input[type=file] { border: 0; padding: 0; }
+
+dialog { border: 1px solid var(--line); border-radius: 10px; padding: 18px; width: min(440px, 94vw); box-shadow: 0 10px 40px rgba(0,0,0,.2); }
+dialog::backdrop { background: rgba(20, 25, 35, .35); }
+dialog h2 { margin: 0 0 12px; font-size: 16px; text-transform: capitalize; }
+
+/* ---------- Form pengiriman ---------- */
+.item-row { display: grid; grid-template-columns: 1fr 70px 52px 46px 26px; gap: 4px; margin-bottom: 6px; }
+.item-row input { width: 100%; padding: 5px 6px; border: 1px solid var(--line); border-radius: 5px; font-size: 13px; min-width: 0; }
+.item-row button { padding: 0; color: #b42318; }
+.item-head { font-size: 11px; color: var(--muted); }
+.item-head span { padding-left: 2px; }
+
+.preview-area { padding: 20px 16px 40px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.ppage { background: #fff; position: relative; overflow: hidden; flex: none; }
+@media screen { .ppage { box-shadow: var(--sheet-shadow); } }
+.pcell { position: absolute; display: flex; align-items: flex-start; justify-content: center; }
+
+table.hist { border-collapse: collapse; background: #fff; font-size: 13px; margin-top: 10px; width: 100%; }
+table.hist th, table.hist td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; white-space: nowrap; }
+table.hist th { background: #f3f5f8; }
+table.hist td.wrap { white-space: normal; }
+table.hist tr.current td { background: #f4f7fd; }
+.badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #eef0f3; color: var(--muted); }
+.badge.ok { background: #e3f4e8; color: #1e7b3c; }
+.badge.cod { background: #fff1e0; color: #a35a00; }
+
+/* ---------- Desain label pengiriman (lebar dasar 100 mm) ---------- */
+.sl {
+  width: 100mm; background: #fff; color: #333;
+  font-family: Arial, Helvetica, sans-serif; font-size: 2.45mm; line-height: 1.38;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.sl.framed { border: 0.25mm solid #8a8a8a; }
+.sl-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 3mm;
+  padding: 2.4mm 3mm; min-height: 11mm; border-bottom: 0.25mm solid #c4c4c4;
+}
+.sl-head img { max-height: 6.6mm; max-width: 48mm; object-fit: contain; display: block; }
+.sl-shop { font-size: 4.4mm; font-weight: 700; color: #42b549; }
+.sl-pay { font-size: 3.5mm; font-weight: 700; color: #333; white-space: nowrap; }
+
+.sl-top { display: grid; grid-template-columns: 42% 1fr; gap: 3mm; padding: 3mm 3mm 0; }
+.sl-inv { font-size: 2.3mm; word-break: break-all; }
+.sl-courier { display: flex; align-items: center; gap: 3mm; margin: 2.6mm 0 3mm; min-height: 7mm; }
+.sl-courier img { max-height: 7mm; max-width: 17mm; object-fit: contain; display: block; }
+.sl-courier .nm { font-size: 2.3mm; line-height: 1.5; }
+.sl-courier .nm b { display: block; }
+.sl-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 2mm; }
+.sl-meta span { font-size: 2.25mm; }
+.sl-meta b { display: block; font-size: 2.4mm; }
+.sl-meta s { text-decoration-thickness: 0.25mm; }
+
+.sl-code { text-align: center; }
+.sl-code svg { display: block; width: 100%; height: 14.5mm; }
+.sl-code .code { font-size: 3.8mm; font-weight: 700; letter-spacing: 0.15mm; margin-top: 1.6mm; word-break: break-all; }
+.sl-code .note { font-size: 1.95mm; font-style: italic; margin-top: 0.6mm; }
+
+.sl-box {
+  margin: 3.2mm 3mm; padding: 2mm 2.5mm; border: 0.25mm solid #9a9a9a; border-radius: 0.8mm;
+  display: flex; align-items: center; justify-content: center; gap: 1.6mm;
+  font-size: 2.3mm; font-style: italic; text-align: center;
+}
+.sl-box svg { width: 4.6mm; height: 4.6mm; flex: none; }
+.sl-box.cod { font-style: normal; font-weight: 700; border-width: 0.4mm; border-color: #333; }
+
+.sl-addr { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; padding: 0 3mm 3mm; }
+.sl-addr .t { font-size: 2.3mm; }
+.sl-addr b { display: block; font-size: 2.45mm; }
+.sl-addr div { font-size: 2.3mm; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+
+.sl-items { border-top: 0.3mm dashed #bdbdbd; padding: 2.6mm 3mm 3mm; }
+.sl-items table { width: 100%; border-collapse: collapse; font-size: 2.3mm; }
+.sl-items th { font-weight: 400; text-align: left; padding-bottom: 1.4mm; }
+.sl-items td { vertical-align: top; padding: 0.4mm 0; overflow-wrap: anywhere; }
+.sl-items .sku { width: 20%; padding-left: 1.5mm; }
+.sl-items .qty { width: 13%; text-align: right; white-space: nowrap; }
+
+/* ---------- Cetak ---------- */
+.print-only { display: none; }
+@media print {
+  body > *:not(#print-area) { display: none !important; }
+  #print-area { display: block !important; }
+  .ppage { page-break-after: always; break-after: page; }
+  .ppage:last-child { page-break-after: auto; break-after: auto; }
+}

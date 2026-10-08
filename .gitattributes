@@ -1,0 +1,10 @@
+# Normalisasi akhir baris teks; file model & biner jangan diubah.
+* text=auto
+*.tflite binary
+*.wasm binary
+*.xlsx binary
+*.png binary
+*.jpg binary
+
+# Library pihak ketiga disimpan apa adanya (byte-identik dengan rilis aslinya).
+vendor/** -text

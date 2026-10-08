@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Foto hanya diproses di browser: halaman ini dilarang mengirim data ke server lain maupun lewat form. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self' blob:; form-action 'none'; base-uri 'self'; object-src 'none'">
+<title>Cetak Foto</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/foto.css">
+<style id="page-style"></style>
+</head>
+<body>
+<header class="topbar no-print">
+  <h1>Cetak Label</h1>
+  <nav class="menu">
+    <a href="index.html">Label dari Excel</a>
+    <a href="pengiriman.html">Label Pengiriman</a>
+    <a href="master.html">Toko &amp; Ekspedisi</a>
+    <a href="foto.html" class="active">Cetak Foto</a>
+    <a href="crop.html">Crop Massal</a>
+  </nav>
+  <div class="topbar-actions">
+    <button id="btn-print" type="button" class="primary" disabled>Cetak</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel no-print">
+    <section class="card privacy" role="note" aria-label="Disclaimer privasi foto">
+      <h2><span aria-hidden="true">🔒</span> Privasi foto</h2>
+      <p>Foto yang Anda pilih atau unggah di halaman ini <b>hanya diproses di browser komputer ini</b> untuk keperluan edit dan cetak.</p>
+      <ul>
+        <li>Foto <b>tidak diunggah ke server</b> dan <b>tidak disimpan di database</b> mana pun.</li>
+        <li>Foto tidak disimpan di penyimpanan browser. Yang diingat hanya pengaturan kertas.</li>
+        <li>Deteksi &amp; penggantian background juga berjalan di browser, tanpa mengirim foto ke layanan lain.</li>
+        <li>Semua foto terhapus dari memori saat halaman ditutup atau dimuat ulang, atau saat menekan <b>Hapus semua foto</b>.</li>
+      </ul>
+      <p class="hint">Saat menekan Cetak, foto dikirim langsung ke printer melalui sistem cetak komputer. Bila Anda memilih “Simpan sebagai PDF”, file PDF itu tersimpan di komputer Anda sendiri.</p>
+    </section>
+
+    <section class="card">
+      <h2>1. Foto</h2>
+      <label class="file-btn block" id="drop">Pilih atau seret foto ke sini…
+        <input type="file" id="file-photo" accept="image/*" multiple hidden>
+      </label>
+      <div class="grid2" style="margin-top:10px">
+        <label class="field"><span>Ukuran untuk foto baru</span><select id="sel-default-size"></select></label>
+        <label class="field"><span>Jumlah cetak</span><input type="number" id="inp-default-qty" min="1" value="4"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>2. Daftar cetak <span id="item-count" class="hint"></span></h2>
+        <button type="button" id="btn-clear-all" class="danger" hidden>Hapus semua foto</button>
+      </div>
+      <div id="items" class="photo-items"><p class="empty">Belum ada foto.</p></div>
+    </section>
+
+    <section class="card">
+      <h2>3. Kertas</h2>
+      <div class="grid2">
+        <label class="field"><span>Ukuran kertas</span><select id="sel-paper"></select></label>
+        <label class="field"><span>Orientasi</span>
+          <select id="sel-orient"><option value="portrait">Tegak</option><option value="landscape">Mendatar</option></select>
+        </label>
+        <label class="field"><span>Lebar (mm)</span><input type="number" id="inp-pw" step="0.1" min="20"></label>
+        <label class="field"><span>Tinggi (mm)</span><input type="number" id="inp-ph" step="0.1" min="20"></label>
+        <label class="field"><span>Margin kertas (mm)</span><input type="number" id="inp-margin" step="0.5" min="0"></label>
+        <label class="field"><span>Jarak antar foto (mm)</span><input type="number" id="inp-gap" step="0.5" min="0"></label>
+        <label class="field span2"><span>Garis bantu potong</span>
+          <select id="sel-guide-mode">
+            <option value="crop">Tanda potong standar cetak (bleed + crop marks)</option>
+            <option value="box">Kotak garis di sekeliling foto</option>
+            <option value="none">Tanpa garis potong</option>
+          </select>
+        </label>
+        <label class="field guide-crop"><span>Bleed / lebihan gambar (mm)</span><input type="number" id="inp-bleed" min="0" max="10" step="0.5"></label>
+        <label class="field guide-crop"><span>Panjang tanda potong (mm)</span><input type="number" id="inp-mark-len" min="2" max="15" step="0.5"></label>
+        <p class="hint span2 guide-crop" style="margin-top:0">Gambar dicetak melebihi ukuran foto sebesar <b>bleed</b> di tiap sisi. Tanda potong di sudut (tebal 0,25 pt) menunjukkan ukuran asli foto dan tidak pernah menimpa gambar; untuk foto yang berdempetan, ikuti tanda di tepi luar susunan. Standar percetakan: bleed 3 mm.</p>
+        <label class="field guide-box span2"><span>Jarak garis dari foto (mm)</span><input type="number" id="inp-guide-offset" min="0" max="20" step="0.5"></label>
+        <label class="field check span2"><input type="checkbox" id="chk-rotate"> <span>Boleh putar foto agar lebih hemat kertas</span></label>
+      </div>
+      <p class="hint">Saat mencetak, pilih ukuran kertas yang sama dan skala <b>100%</b> (bukan “Fit to page”) agar ukuran foto tepat.</p>
+    </section>
+
+    <section class="card">
+      <h2>Tabel ukuran foto</h2>
+      <table class="size-table" id="size-table"></table>
+    </section>
+  </aside>
+
+  <section class="workspace">
+    <div class="tabs no-print">
+      <span class="tab active">Pratinjau</span>
+      <div class="tab-spacer"></div>
+      <label class="zoom">Zoom <input type="range" id="inp-zoom" min="0.3" max="1.5" step="0.05" value="0.7"></label>
+    </div>
+    <div class="tabpanel">
+      <div id="summary" class="summary no-print"></div>
+      <div id="pages" class="pages"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-crop">
+  <h2>Atur potongan foto</h2>
+  <p class="hint" id="crop-info"></p>
+  <div class="crop-wrap"><div id="crop-stage" class="crop-stage"></div></div>
+  <label class="field"><span>Perbesar</span><input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="1"></label>
+  <div class="field border-field">
+    <span>Border <small>(di luar foto — ukuran cetak bertambah 2 × tebal border; 0 = tanpa border)</small></span>
+    <div class="border-row">
+      <input type="range" id="crop-border" min="0" max="10" step="0.5" value="0">
+      <b id="crop-border-val">0 mm</b>
+    </div>
+    <div class="border-row">
+      <div class="swatches" id="border-swatches"></div>
+      <button type="button" id="crop-border-all">Terapkan ke semua foto</button>
+    </div>
+  </div>
+  <div class="btn-row">
+    <button type="button" id="crop-rotate">Putar 90°</button>
+    <button type="button" id="crop-flip">Tegak / mendatar</button>
+    <button type="button" id="crop-reset">Reset</button>
+    <button type="button" id="crop-bg">Ganti background…</button>
+  </div>
+  <p class="hint">Geser foto dengan mouse/jari untuk mengatur posisi. Roda mouse untuk perbesar/perkecil.</p>
+  <div class="btn-row right"><button type="button" class="primary" id="crop-done">Selesai</button></div>
+</dialog>
+
+<dialog id="dlg-bg">
+  <div class="bg-head">
+    <h2>Ganti background</h2>
+    <span id="bg-status" class="hint"></span>
+  </div>
+  <p class="hint privacy-line">🔒 Diproses di browser ini saja — foto tidak diunggah dan tidak disimpan.</p>
+  <div class="bg-body">
+    <div class="bg-canvas-wrap"><canvas id="bg-canvas"></canvas></div>
+    <div class="bg-controls">
+      <div class="bg-group">
+        <div class="bg-title">Background baru</div>
+        <div class="swatches" id="bg-swatches"></div>
+        <div class="btn-row" style="margin-top:6px">
+          <label class="file-btn" style="margin:0">Gambar…<input type="file" id="bg-image" accept="image/*" hidden></label>
+          <button type="button" data-bgtype="blur">Blur latar asli</button>
+        </div>
+      </div>
+      <div class="bg-group">
+        <div class="bg-title">Deteksi</div>
+        <label class="field"><span>Kepekaan <small>(kanan = hapus lebih banyak)</small></span><input type="range" id="bg-threshold" min="0.15" max="0.85" step="0.01" value="0.5"></label>
+        <label class="field"><span>Kehalusan tepi</span><input type="range" id="bg-feather" min="0" max="10" step="0.5" value="2"></label>
+        <button type="button" id="bg-detect">Deteksi ulang</button>
+      </div>
+      <div class="bg-group">
+        <div class="bg-title">Kuas koreksi</div>
+        <div class="seg" id="bg-mode">
+          <button type="button" data-mode="erase" class="on">Hapus</button>
+          <button type="button" data-mode="restore">Pulihkan</button>
+        </div>
+        <label class="field"><span>Ukuran kuas</span><input type="range" id="bg-brush" min="0.5" max="15" step="0.5" value="4"></label>
+        <label class="field check"><input type="checkbox" id="bg-overlay"> <span>Tandai area terhapus (merah)</span></label>
+        <div class="btn-row">
+          <button type="button" id="bg-undo">Batalkan</button>
+          <button type="button" id="bg-clear">Reset koreksi</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="btn-row right">
+    <button type="button" id="bg-remove" class="danger">Pakai foto asli</button>
+    <span style="flex:1"></span>
+    <button type="button" id="bg-cancel">Batal</button>
+    <button type="button" id="bg-apply" class="primary">Terapkan</button>
+  </div>
+</dialog>
+
+<script src="assets/foto-bg.js"></script>
+<script src="assets/foto.js"></script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Foto hanya diproses di browser: halaman ini dilarang mengirim data ke server lain maupun lewat form. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self' blob:; form-action 'none'; base-uri 'self'; object-src 'none'">
+<title>Crop Massal</title>
+<link rel="stylesheet" href="assets/style.css?v=3">
+<link rel="stylesheet" href="assets/foto.css?v=3">
+<link rel="stylesheet" href="assets/crop.css?v=3">
+</head>
+<body>
+<header class="topbar">
+  <h1>Cetak Label</h1>
+  <nav class="menu">
+    <a href="index.html">Label dari Excel</a>
+    <a href="pengiriman.html">Label Pengiriman</a>
+    <a href="master.html">Toko &amp; Ekspedisi</a>
+    <a href="foto.html">Cetak Foto</a>
+    <a href="crop.html" class="active">Crop Massal</a>
+  </nav>
+  <div class="topbar-actions">
+    <button id="btn-process" type="button" class="accent" disabled>Proses semua</button>
+    <button id="btn-zip" type="button" class="primary" disabled>Unduh ZIP</button>
+    <button id="btn-to-print" type="button" disabled title="Buka hasil di halaman Cetak Foto">Kirim ke Cetak Foto</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel">
+    <section class="card privacy" role="note" aria-label="Disclaimer privasi foto">
+      <h2><span aria-hidden="true">🔒</span> Privasi foto</h2>
+      <p>Foto dan folder yang Anda pilih <b>hanya diproses di browser komputer ini</b>. Foto <b>tidak diunggah ke server</b>, <b>tidak disimpan di database</b>, dan tidak disimpan di penyimpanan browser. Semua foto hilang saat halaman ditutup atau dimuat ulang. Hasil crop hanya tersimpan bila Anda sendiri mengunduh file ZIP-nya.</p>
+    </section>
+
+    <section class="card">
+      <h2>1. Pilih foto</h2>
+      <div id="drop" class="dropzone">
+        <p>Seret <b>folder</b> atau foto ke sini<br><small>subfolder ikut dibaca</small></p>
+        <div class="btn-row" style="justify-content:center">
+          <label class="file-btn" style="margin:0">Pilih folder…<input type="file" id="pick-folder" webkitdirectory directory multiple hidden></label>
+          <label class="file-btn" style="margin:0">Pilih file…<input type="file" id="pick-files" accept="image/*" multiple hidden></label>
+        </div>
+      </div>
+      <p class="hint" id="pick-info"></p>
+    </section>
+
+    <section class="card">
+      <h2>2. Ukuran hasil</h2>
+      <div id="size-list" class="size-list"></div>
+      <div class="custom-size">
+        <label class="field check"><input type="checkbox" id="chk-custom"> <span>Ukuran kustom</span></label>
+        <div class="grid3">
+          <label class="field"><span>Lebar</span><input type="number" id="inp-cw" min="1" step="0.1" value="35"></label>
+          <label class="field"><span>Tinggi</span><input type="number" id="inp-ch" min="1" step="0.1" value="45"></label>
+          <label class="field"><span>Satuan</span><select id="sel-unit"><option value="mm">mm</option><option value="px">piksel</option></select></label>
+        </div>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Resolusi (DPI) untuk mm</span><input type="number" id="inp-dpi" min="72" max="1200" step="1" value="300"></label>
+        <label class="field"><span>Format</span>
+          <select id="sel-format"><option value="jpg">JPG</option><option value="png">PNG</option></select>
+        </label>
+      </div>
+      <p class="hint" id="size-info"></p>
+    </section>
+
+    <section class="card">
+      <h2>3. Posisi wajah</h2>
+      <label class="field"><span>Tinggi kepala (dagu–ubun-ubun): <b id="v-head"></b> dari tinggi foto</span><input type="range" id="inp-head" min="40" max="85" step="1"></label>
+      <label class="field"><span>Posisi mata dari atas: <b id="v-eye"></b></span><input type="range" id="inp-eye" min="30" max="55" step="1"></label>
+      <label class="field check"><input type="checkbox" id="chk-straighten"> <span>Luruskan kepala yang miring</span></label>
+      <label class="field"><span>Bila wajah tidak ditemukan</span>
+        <select id="sel-noface"><option value="center">Crop tengah (bisa diatur manual)</option><option value="skip">Lewati, jangan dimasukkan ke ZIP</option></select>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>4. Background</h2>
+      <div class="swatches" id="bg-swatches"></div>
+      <p class="hint">Pilih “Asli” untuk mempertahankan background foto. Penggantian background otomatis paling baik untuk foto orang dengan latar yang kontras.</p>
+    </section>
+  </aside>
+
+  <section class="workspace">
+    <div class="tabs">
+      <span class="tab active">Hasil</span>
+      <div class="tab-spacer"></div>
+      <span id="progress-text" class="hint"></span>
+    </div>
+    <div class="progress" id="progress" hidden><div id="progress-bar"></div></div>
+    <div class="tabpanel">
+      <div id="filters" class="filters" hidden>
+        <button type="button" data-filter="all" class="on">Semua <span></span></button>
+        <button type="button" data-filter="ok">Wajah terdeteksi <span></span></button>
+        <button type="button" data-filter="warn">Perlu dicek <span></span></button>
+        <button type="button" data-filter="none">Tanpa wajah <span></span></button>
+        <button type="button" data-filter="manual">Diatur manual <span></span></button>
+        <span style="flex:1"></span>
+        <button type="button" id="btn-clear" class="danger">Hapus semua</button>
+      </div>
+      <p id="filter-empty" class="empty" style="padding:40px" hidden></p>
+      <div id="grid" class="crop-grid"><div class="empty" style="padding:60px">Pilih folder atau foto untuk mulai.</div></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-edit">
+  <div class="bg-head"><h2>Atur crop manual</h2><span class="hint" id="edit-info"></span></div>
+  <div class="edit-body">
+    <div class="edit-canvas-wrap"><canvas id="edit-canvas"></canvas></div>
+    <div class="edit-side">
+      <div class="bg-title">Hasil</div>
+      <canvas id="edit-preview"></canvas>
+      <label class="field"><span>Ukuran crop</span><input type="range" id="edit-scale" min="0.2" max="3" step="0.01"></label>
+      <label class="field"><span>Kemiringan: <b id="edit-rot-v"></b></span><input type="range" id="edit-rot" min="-30" max="30" step="0.5"></label>
+      <div class="btn-row">
+        <button type="button" id="edit-auto">Kembali ke otomatis</button>
+      </div>
+      <p class="hint">Seret kotak untuk memindahkan, roda mouse untuk memperbesar/memperkecil. Garis merah = posisi mata, garis hijau = perkiraan ubun-ubun &amp; dagu.</p>
+    </div>
+  </div>
+  <div class="btn-row right">
+    <button type="button" id="edit-cancel">Batal</button>
+    <button type="button" id="edit-save" class="primary">Simpan</button>
+  </div>
+</dialog>
+
+<script src="vendor/jszip.min.js?v=3"></script>
+<script src="assets/foto-bg.js?v=3"></script>
+<script src="assets/crop.js?v=3"></script>
+</body>
+</html>

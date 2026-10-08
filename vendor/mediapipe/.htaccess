@@ -1,0 +1,3 @@
+AddType text/javascript .mjs
+AddType application/wasm .wasm
+AddType application/octet-stream .tflite

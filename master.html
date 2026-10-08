@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toko &amp; Ekspedisi</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/pengiriman.css">
+</head>
+<body class="scroll-page">
+<header class="topbar">
+  <h1>Cetak Label</h1>
+  <nav class="menu">
+    <a href="index.html">Label dari Excel</a>
+    <a href="pengiriman.html">Label Pengiriman</a>
+    <a href="master.html" class="active">Toko &amp; Ekspedisi</a>
+    <a href="foto.html">Cetak Foto</a>
+    <a href="crop.html">Crop Massal</a>
+  </nav>
+  <div class="topbar-actions"></div>
+</header>
+
+<main class="master-wrap">
+  <section class="card master" data-type="toko">
+    <div class="master-head">
+      <h2>Toko</h2>
+      <button type="button" class="primary btn-add">+ Tambah toko</button>
+    </div>
+    <p class="hint">Logo toko tampil di kiri atas label. Data pengirim otomatis mengisi kolom “Dari”.</p>
+    <div class="master-list"></div>
+  </section>
+
+  <section class="card master" data-type="ekspedisi">
+    <div class="master-head">
+      <h2>Ekspedisi</h2>
+      <button type="button" class="primary btn-add">+ Tambah ekspedisi</button>
+    </div>
+    <p class="hint">Logo ekspedisi tampil di bawah nomor invoice, di samping nama &amp; layanan.</p>
+    <div class="master-list"></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <form id="frm" method="dialog">
+    <h2 id="dlg-title">Tambah</h2>
+    <input type="hidden" name="id">
+    <label class="field"><span>Nama *</span><input name="nama" required maxlength="100"></label>
+    <div class="only-toko">
+      <label class="field"><span>Nama pengirim</span><input name="pengirim_nama" maxlength="150"></label>
+      <label class="field"><span>Alamat pengirim</span><textarea name="pengirim_alamat" rows="2"></textarea></label>
+      <label class="field"><span>Telepon pengirim</span><input name="pengirim_telepon" maxlength="30"></label>
+    </div>
+    <div class="only-ekspedisi">
+      <label class="field"><span>Layanan bawaan (mis. Reguler)</span><input name="layanan_default" maxlength="50"></label>
+    </div>
+    <div class="field">
+      <span>Logo (PNG/JPG/SVG/WEBP, maks 1 MB)</span>
+      <div class="logo-edit">
+        <div class="logo-box"><img id="logo-preview" alt=""><span id="logo-empty">Belum ada logo</span></div>
+        <div>
+          <input type="file" name="logo" id="inp-logo" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+          <label class="field check" id="lbl-hapus-logo"><input type="checkbox" name="hapus_logo" value="1"> <span>Hapus logo</span></label>
+        </div>
+      </div>
+    </div>
+    <label class="field check"><input type="checkbox" name="aktif" value="1" checked> <span>Aktif (muncul di pilihan)</span></label>
+    <p id="frm-error" class="error"></p>
+    <div class="btn-row right">
+      <button type="button" id="btn-cancel">Batal</button>
+      <button type="submit" class="primary" id="btn-save">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="assets/master.js"></script>
+</body>
+</html>

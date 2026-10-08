@@ -1,0 +1,95 @@
+/* ---------- Cetak foto ---------- */
+.file-btn.drag { border-color: var(--accent); background: #eef4ff; }
+
+.photo-items { display: flex; flex-direction: column; gap: 8px; }
+.photo-item { display: grid; grid-template-columns: 56px 1fr; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.photo-item .thumb { width: 56px; height: 70px; border-radius: 4px; overflow: hidden; position: relative; background: #eee; cursor: pointer; }
+.photo-item .name { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.photo-item .row { display: flex; gap: 4px; margin-top: 4px; align-items: center; flex-wrap: wrap; }
+.photo-item select, .photo-item input { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; background: #fff; }
+.photo-item select { flex: 1; min-width: 0; }
+.photo-item input[type=number] { width: 52px; }
+.photo-item button { padding: 2px 8px; font-size: 12px; }
+.photo-item .warn { font-size: 11px; color: #a35a00; margin-top: 3px; }
+.photo-item .custom { display: flex; gap: 4px; align-items: center; font-size: 11px; color: var(--muted); }
+
+.size-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.size-table th, .size-table td { border: 1px solid var(--line); padding: 3px 6px; text-align: center; }
+.size-table th { background: #f3f5f8; }
+
+/* Foto di dalam sel: gambar diposisikan dalam persen terhadap sel */
+.photo { position: absolute; overflow: hidden; background: #fff; }
+.photo .inner { position: absolute; left: 50%; top: 50%; overflow: hidden; }
+.photo img, .crop-stage img {
+  position: absolute; max-width: none; max-height: none; display: block;
+  user-select: none; -webkit-user-drag: none; pointer-events: none;
+}
+.slot { position: absolute; }
+.slot.guides { outline: 0.1mm solid #9a9a9a; outline-offset: -0.1mm; }
+.slot.bad { outline: 0.6mm solid #d92d20; }
+
+.crop-wrap { display: flex; justify-content: center; background: #2b2f36; border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+.crop-stage { position: relative; overflow: hidden; background: #fff; cursor: grab; touch-action: none; box-shadow: 0 0 0 1px #fff; }
+.crop-stage:active { cursor: grabbing; }
+.crop-stage::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(rgba(255,255,255,.35) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.35) 1px, transparent 1px);
+  background-size: 33.333% 33.333%;
+}
+#dlg-crop { width: min(520px, 96vw); }
+
+.empty { color: var(--muted); text-align: center; padding: 16px 0; margin: 0; }
+.btn-row.right { justify-content: flex-end; margin-top: 12px; }
+dialog { border: 1px solid var(--line); border-radius: 10px; padding: 18px; box-shadow: 0 10px 40px rgba(0,0,0,.2); }
+dialog::backdrop { background: rgba(20, 25, 35, .45); }
+dialog h2 { margin: 0 0 6px; font-size: 16px; }
+
+/* ---------- Ganti background ---------- */
+#dlg-bg { width: min(980px, 96vw); }
+.bg-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.bg-body { display: grid; grid-template-columns: 1fr 260px; gap: 16px; }
+.bg-canvas-wrap {
+  display: flex; align-items: center; justify-content: center; min-height: 300px; border-radius: 8px; padding: 10px;
+  background: repeating-conic-gradient(#d9dce1 0% 25%, #f4f5f7 0% 50%) 50% / 18px 18px;
+}
+#bg-canvas { display: block; max-width: 100%; cursor: none; touch-action: none; box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+.bg-controls { display: flex; flex-direction: column; gap: 12px; }
+.bg-group { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.bg-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); cursor: pointer; padding: 0; }
+.swatch.on, [data-bgtype].on, .file-btn.on { box-shadow: 0 0 0 2px var(--accent); }
+.swatch.picker { position: relative; overflow: hidden; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+.swatch.picker input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.seg { display: flex; margin-bottom: 8px; }
+.seg button { flex: 1; border-radius: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+.seg button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.photo-item .badge-bg { font-size: 10px; background: #e3f4e8; color: #1e7b3c; border-radius: 8px; padding: 0 6px; margin-left: 4px; }
+@media (max-width: 760px) { .bg-body { grid-template-columns: 1fr; } }
+
+/* ---------- Disclaimer privasi ---------- */
+.card.privacy { background: #f2f8f4; border-color: #b9dcc4; }
+.card.privacy h2 { color: #1e6b37; }
+.card.privacy p { margin: 0 0 6px; font-size: 13px; }
+.card.privacy ul { margin: 0 0 6px; padding-left: 18px; font-size: 13px; }
+.card.privacy li { margin-bottom: 3px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+.card-head h2 { margin: 0; }
+.card-head button { padding: 3px 10px; font-size: 12px; }
+.privacy-line { margin: -4px 0 10px; color: #1e6b37; }
+
+/* ---------- Tanda potong (crop marks) ---------- */
+.sheet .marks { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+
+/* ---------- Border foto ---------- */
+.pborder { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; display: block; }
+.border-field { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.border-row { display: flex; align-items: center; gap: 10px; }
+.border-row input[type=range] { flex: 1; }
+.border-row + .border-row { margin-top: 6px; justify-content: space-between; }
+.border-row button { padding: 3px 10px; font-size: 12px; }
+.swatch.sm { width: 22px; height: 22px; }
+.photo-item .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; box-shadow: 0 0 0 1px #bbb; vertical-align: 0; }
+.slot .frame { position: absolute; pointer-events: none; }

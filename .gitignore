@@ -1,0 +1,21 @@
+# Kredensial database lokal
+api/db.local.php
+
+# Data runtime (konfigurasi tersimpan dari halaman "Label dari Excel"), dibuat otomatis oleh aplikasi
+data/*
+!data/.htaccess
+
+# File uji / sementara
+_t/
+_test*.html
+_ptest*
+
+# Editor & sistem operasi
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+Desktop.ini
+.DS_Store
+~$*
+*.tmp

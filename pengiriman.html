@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label Pengiriman</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/pengiriman.css">
+<style id="page-style"></style>
+</head>
+<body>
+<header class="topbar no-print">
+  <h1>Cetak Label</h1>
+  <nav class="menu">
+    <a href="index.html">Label dari Excel</a>
+    <a href="pengiriman.html" class="active">Label Pengiriman</a>
+    <a href="master.html">Toko &amp; Ekspedisi</a>
+    <a href="foto.html">Cetak Foto</a>
+    <a href="crop.html">Crop Massal</a>
+  </nav>
+  <div class="topbar-actions">
+    <span id="save-status" class="hint"></span>
+    <button id="btn-new" type="button">Baru</button>
+    <button id="btn-save" type="button" class="accent">Simpan</button>
+    <button id="btn-save-print" type="button" class="primary">Simpan &amp; Cetak</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel no-print">
+    <form id="frm" autocomplete="off">
+      <input type="hidden" name="id">
+
+      <section class="card">
+        <h2>Toko &amp; ekspedisi</h2>
+        <label class="field"><span>Toko</span><select name="toko_id"></select></label>
+        <div class="grid2">
+          <label class="field"><span>Ekspedisi</span><select name="ekspedisi_id"></select></label>
+          <label class="field"><span>Layanan</span><input name="layanan" maxlength="50" placeholder="Reguler"></label>
+        </div>
+        <p class="hint">Belum ada pilihan? Tambahkan di menu <a href="master.html">Toko &amp; Ekspedisi</a>.</p>
+      </section>
+
+      <section class="card">
+        <h2>Pesanan</h2>
+        <label class="field"><span>No. invoice</span><input name="no_invoice" maxlength="100" placeholder="INV/20230131/MPL/3015860663"></label>
+        <label class="field"><span>Kode barcode / resi *</span><input name="kode_barcode" maxlength="100" placeholder="TAA-000001TH3JM"></label>
+        <label class="field"><span>Keterangan di bawah barcode</span><input name="keterangan_barcode" maxlength="150"></label>
+        <div class="grid2">
+          <label class="field"><span>Berat (kg)</span><input name="berat_kg" type="number" min="0" step="0.01" value="0"></label>
+          <label class="field"><span>Ongkir (Rp)</span><input name="ongkir" type="number" min="0" step="1" value="0"></label>
+          <label class="field"><span>Pembayaran</span>
+            <select name="metode_bayar"><option value="non_tunai">Non Tunai</option><option value="cod">COD (bayar di tempat)</option></select>
+          </label>
+          <label class="field" id="fld-cod"><span>Tagihan COD (Rp)</span><input name="nilai_cod" type="number" min="0" step="1" value="0"></label>
+        </div>
+        <label class="field"><span>Catatan di kotak (kosongkan = otomatis)</span><input name="catatan" maxlength="255"></label>
+      </section>
+
+      <section class="card">
+        <h2>Kepada (penerima)</h2>
+        <label class="field"><span>Nama *</span><input name="penerima_nama" maxlength="150"></label>
+        <label class="field"><span>Alamat</span><textarea name="penerima_alamat" rows="3"></textarea></label>
+        <label class="field"><span>Telepon</span><input name="penerima_telepon" maxlength="30"></label>
+      </section>
+
+      <section class="card">
+        <h2>Dari (pengirim)</h2>
+        <label class="field"><span>Nama</span><input name="pengirim_nama" maxlength="150"></label>
+        <label class="field"><span>Alamat</span><textarea name="pengirim_alamat" rows="2"></textarea></label>
+        <label class="field"><span>Telepon</span><input name="pengirim_telepon" maxlength="30"></label>
+        <label class="field check"><input type="checkbox" name="samarkan_telepon" value="1" checked> <span>Samarkan nomor telepon (628*****887)</span></label>
+      </section>
+
+      <section class="card">
+        <h2>Produk</h2>
+        <div id="items"></div>
+        <button type="button" id="btn-add-item">+ Tambah produk</button>
+      </section>
+    </form>
+
+    <section class="card">
+      <h2>Kertas cetak</h2>
+      <label class="field"><span>Ukuran</span>
+        <select id="sel-paper">
+          <option value="100x100">Label thermal 100 × 100 mm</option>
+          <option value="100x150">Label thermal 100 × 150 mm</option>
+          <option value="105x148">A6 (105 × 148 mm)</option>
+          <option value="102x152">Label TJ No. 119 (102 × 152 mm)</option>
+          <option value="78x118">Label TJ No. 120 (78 × 118 mm)</option>
+          <option value="a4x4">A4, 4 label per lembar</option>
+        </select>
+      </label>
+      <label class="field check"><input type="checkbox" id="chk-frame" checked> <span>Cetak bingkai luar label</span></label>
+    </section>
+  </aside>
+
+  <section class="workspace">
+    <div class="tabs no-print">
+      <button class="tab active" data-tab="preview">Pratinjau</button>
+      <button class="tab" data-tab="history">Riwayat</button>
+      <div class="tab-spacer"></div>
+      <label class="zoom">Zoom <input type="range" id="inp-zoom" min="0.5" max="3" step="0.1" value="1.6"></label>
+    </div>
+
+    <div id="tab-preview" class="tabpanel">
+      <div class="preview-area" id="preview"></div>
+    </div>
+
+    <div id="tab-history" class="tabpanel no-print" hidden>
+      <div class="data-tools">
+        <input type="search" id="inp-search" placeholder="Cari invoice, resi, penerima…">
+        <button type="button" id="btn-print-selected" class="primary" disabled>Cetak terpilih</button>
+        <span id="hist-count" class="hint"></span>
+      </div>
+      <div class="table-wrap"><table id="hist-table" class="hist"></table></div>
+    </div>
+  </section>
+</main>
+
+<div id="print-area" class="print-only"></div>
+
+<script src="vendor/JsBarcode.all.min.js"></script>
+<script src="assets/pengiriman.js"></script>
+</body>
+</html>

@@ -47,6 +47,43 @@ Semua library pihak ketiga sudah ada di folder `vendor/` sehingga aplikasi bisa 
 > Buka lewat `http://localhost/...`, bukan dengan klik ganda file HTML (`file://`), karena file ukuran
 > label, model deteksi wajah, dan API database hanya bisa dimuat melalui web server.
 
+## Upload ke cPanel
+
+### 1. Siapkan database
+1. cPanel → **MySQL® Databases** → *Create New Database*, mis. `extradata` (nama lengkapnya menjadi `userhosting_extradata`).
+2. Di halaman yang sama, *Add New User* (buat password kuat), lalu *Add User To Database* → centang **ALL PRIVILEGES**.
+3. cPanel → **phpMyAdmin** → pilih database tadi → tab **Import** → pilih `database/extradata.sql` → **Go**.
+
+### 2. Upload file aplikasi — pilih salah satu
+
+**Cara A — Git (disarankan, mudah diperbarui)**
+1. Bila perlu, ubah `DEPLOYPATH` di `.cpanel.yml` (bawaan: `public_html/extrashot/`), commit & push.
+2. cPanel → **Git™ Version Control** → *Create* → aktifkan *Clone a Repository* →
+   Clone URL `https://github.com/atigadev/extrashot.git`, Repository Path mis. `repositories/extrashot` → *Create*.
+3. *Manage* → tab **Pull or Deploy** → **Deploy HEAD Commit**.
+4. Pembaruan berikutnya: push ke GitHub, lalu di cPanel klik **Update from Remote** kemudian **Deploy HEAD Commit**.
+
+**Cara B — File Manager (tanpa Git)**
+1. Di komputer, buat ZIP dari isi folder proyek: `git archive -o extrashot.zip HEAD`
+   (atau kompres manual semua file kecuali folder `.git`).
+2. cPanel → **File Manager** → buka `public_html` → buat folder `extrashot` → **Upload** ZIP → klik kanan → **Extract**.
+
+### 3. Atur koneksi database
+Di File Manager, salin `api/db.local.example.php` menjadi `api/db.local.php`, lalu isi:
+```php
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'userhosting_extradata');
+define('DB_USER', 'userhosting_namauser');
+define('DB_PASS', 'password-database');
+```
+
+### 4. Periksa
+- cPanel → **Select PHP Version / MultiPHP Manager**: PHP **7.4 atau lebih baru**, ekstensi `pdo_mysql`, `mbstring`, `fileinfo` aktif.
+- Folder `data/` harus bisa ditulis PHP (permission `755`; file di dalamnya `644`).
+- Pasang SSL (cPanel → **SSL/TLS Status** / AutoSSL) lalu buka `https://domain-anda/extrashot/`.
+- Uji: `https://domain-anda/extrashot/api/master.php?type=toko` harus menampilkan `{"ok":true,...}`, dan
+  `https://domain-anda/extrashot/database/extradata.sql` harus **403 Forbidden**.
+
 ## Struktur folder
 
 ```

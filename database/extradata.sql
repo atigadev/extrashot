@@ -1,8 +1,7 @@
 -- Skema database untuk fitur Label Pengiriman.
--- Jalankan: mysql -uroot extradata < database/extradata.sql
-
-CREATE DATABASE IF NOT EXISTS extradata CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE extradata;
+-- Impor ke database yang sudah dibuat (XAMPP: extradata, cPanel: mis. user_extradata):
+--   mysql -uroot extradata < database/extradata.sql   atau lewat menu Import di phpMyAdmin.
+-- Sengaja tanpa CREATE DATABASE / USE agar bisa diimpor di hosting (cPanel) yang nama databasenya berawalan.
 
 -- Toko / marketplace: logo tampil di kiri atas label, data pengirim dipakai sebagai "Dari".
 CREATE TABLE IF NOT EXISTS toko (

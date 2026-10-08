@@ -1,0 +1,13 @@
+---
+# Deploy otomatis dari cPanel > Git™ Version Control > Manage > Pull or Deploy > "Deploy HEAD Commit".
+# Ubah DEPLOYPATH bila aplikasi ingin dipasang di lokasi lain, mis. $HOME/public_html/ (domain utama)
+# atau $HOME/nama-subdomain/ (subdomain). Akhiri dengan garis miring.
+# File yang tidak ada di Git (api/db.local.php, data/konfigurasi.json) tidak ikut tertimpa.
+# Bila menambah halaman .html baru di root, tambahkan juga namanya di baris cp di bawah.
+deployment:
+  tasks:
+    - export DEPLOYPATH=$HOME/public_html/extrashot/
+    - /bin/mkdir -p $DEPLOYPATH ${DEPLOYPATH}data
+    - /bin/cp index.html pengiriman.html master.html foto.html crop.html Ukuran_Label_TJ_No100-129.xlsx $DEPLOYPATH
+    - /bin/cp -R api assets database vendor $DEPLOYPATH
+    - /bin/cp data/.htaccess ${DEPLOYPATH}data/

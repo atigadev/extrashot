@@ -57,7 +57,8 @@ Semua library pihak ketiga sudah ada di folder `vendor/` sehingga aplikasi bisa 
 ### 2. Upload file aplikasi — pilih salah satu
 
 **Cara A — Git (disarankan, mudah diperbarui)**
-1. Bila perlu, ubah `DEPLOYPATH` di `.cpanel.yml` (bawaan: `public_html/extrashot/`), commit & push.
+1. `DEPLOYPATH` di `.cpanel.yml` harus sama dengan **Document Root** domain/subdomain di cPanel → Domains
+   (bawaan: `extrashot.saturegis.com/`). Jangan pernah mengarahkan Document Root ke folder `repositories/`.
 2. cPanel → **Git™ Version Control** → *Create* → aktifkan *Clone a Repository* →
    Clone URL `https://github.com/atigadev/extrashot.git`, Repository Path mis. `repositories/extrashot` → *Create*.
 3. *Manage* → tab **Pull or Deploy** → **Deploy HEAD Commit**.

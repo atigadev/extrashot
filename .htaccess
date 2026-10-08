@@ -1,0 +1,10 @@
+# Halaman utama aplikasi (didahulukan dari index.php bawaan hosting).
+DirectoryIndex index.html index.php
+
+# Jangan tampilkan daftar isi folder.
+Options -Indexes
+
+# Folder .git dan file konfigurasi repo tidak boleh diakses dari browser
+# (penting bila repo Git berada langsung di folder web).
+RedirectMatch 404 /\.git(/|$)
+RedirectMatch 404 /\.(gitignore|gitattributes|cpanel\.yml)$

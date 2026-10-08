@@ -1,14 +1,14 @@
 ---
 # Deploy otomatis dari cPanel > Git™ Version Control > Manage > Pull or Deploy > "Deploy HEAD Commit".
-# DEPLOYPATH = Document Root subdomain extrashot.saturegis.com (cPanel > Domains). Akhiri dengan garis miring.
+# DEPLOYPATH = Document Root subdomain extrashot.saturegis.com (folder: extrashot.saturegis) (cPanel > Domains). Akhiri dengan garis miring.
 # JANGAN arahkan Document Root ke folder repositories/: folder itu tidak bisa dibaca web server
 # dan berisi .git (kode + riwayat) yang tidak boleh terbuka ke publik.
 # File yang tidak ada di Git (api/db.local.php, data/konfigurasi.json) tidak ikut tertimpa.
 # Bila menambah halaman .html baru di root, tambahkan juga namanya di baris cp di bawah.
 deployment:
   tasks:
-    - export DEPLOYPATH=$HOME/extrashot.saturegis.com/
+    - export DEPLOYPATH=$HOME/extrashot.saturegis/
     - /bin/mkdir -p $DEPLOYPATH ${DEPLOYPATH}data
-    - /bin/cp index.html pengiriman.html master.html foto.html crop.html Ukuran_Label_TJ_No100-129.xlsx $DEPLOYPATH
+    - /bin/cp .htaccess index.html pengiriman.html master.html foto.html crop.html Ukuran_Label_TJ_No100-129.xlsx $DEPLOYPATH
     - /bin/cp -R api assets database vendor $DEPLOYPATH
     - /bin/cp data/.htaccess ${DEPLOYPATH}data/

@@ -1,0 +1,13 @@
+DirectoryIndex index.html index.php
+Options -Indexes
+
+# File konfigurasi lokal & contoh tidak boleh dibuka dari browser.
+<FilesMatch "^(config\.local.*\.php|README\.md)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>

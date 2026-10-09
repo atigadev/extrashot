@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Live Vote — Admin</title>
+<link rel="stylesheet" href="assets/lv.css">
+</head>
+<body>
+
+<div class="overlay" id="login" hidden>
+  <form class="card" id="login-form">
+    <h2>Live Vote — Admin</h2>
+    <label class="field">
+      <span>Password admin</span>
+      <input type="password" id="login-pass" autocomplete="current-password" required autofocus>
+    </label>
+    <button class="primary" type="submit" style="width:100%">Masuk</button>
+    <p class="muted" id="login-err" style="color:var(--danger);margin:10px 0 0" hidden></p>
+  </form>
+</div>
+
+<header class="topbar">
+  <h1><span class="dot"></span> Live Vote</h1>
+  <span class="spacer"></span>
+  <button class="primary" id="btn-new" type="button">+ Sesi baru</button>
+  <button id="btn-logout" type="button">Keluar</button>
+</header>
+
+<div class="admin">
+  <aside class="sidebar" id="list"></aside>
+  <main class="main" id="main">
+    <p class="placeholder">Pilih sesi di kiri, atau buat <b>Sesi baru</b>.</p>
+  </main>
+</div>
+
+<!-- Form buat/ubah sesi -->
+<template id="tpl-form">
+  <form class="card" id="sesi-form" autocomplete="off">
+    <h2 id="form-title">Sesi baru</h2>
+    <label class="field">
+      <span>Judul sesi</span>
+      <input type="text" name="judul" maxlength="150" required placeholder="mis. Pemilihan Ketua Panitia 2026">
+    </label>
+    <label class="field">
+      <span>Pertanyaan</span>
+      <textarea name="pertanyaan" rows="2" maxlength="500" required placeholder="mis. Siapa yang Anda pilih sebagai ketua panitia?"></textarea>
+    </label>
+
+    <span class="link-label">Pilihan</span>
+    <div class="opt-list" id="opt-list"></div>
+    <div class="btn-row" style="margin-bottom:16px">
+      <button type="button" class="small" id="opt-add">+ Tambah pilihan</button>
+      <button type="button" class="small" id="opt-paste">Tempel banyak…</button>
+    </div>
+
+    <span class="link-label">Cara membatasi 1 suara per pemilih</span>
+    <div class="radio-cards">
+      <label><input type="radio" name="mode" value="terbuka" checked>
+        <span><b>Link terbuka</b><small>Satu link untuk semua. Tiap perangkat hanya bisa memilih sekali.</small></span></label>
+      <label><input type="radio" name="mode" value="undangan">
+        <span><b>Link undangan</b><small>Tiap pemilih dapat link pribadi yang hanya bisa dipakai sekali. Paling ketat.</small></span></label>
+    </div>
+
+    <label class="check" id="row-nama"><input type="checkbox" name="minta_nama">
+      <span>Pemilih wajib mengisi nama<small>Nama tercatat bersama suaranya (hanya terlihat oleh admin).</small></span></label>
+    <label class="check"><input type="checkbox" name="hasil_pemilih">
+      <span>Tampilkan hasil ke pemilih setelah memilih<small>Bila tidak dicentang, hasil hanya terlihat di layar hasil &amp; admin.</small></span></label>
+
+    <div class="btn-row" style="margin-top:16px">
+      <button type="submit" class="primary">Simpan</button>
+      <button type="button" id="form-cancel">Batal</button>
+    </div>
+  </form>
+</template>
+
+<script src="vendor/qrcode.min.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/admin.js"></script>
+</body>
+</html>

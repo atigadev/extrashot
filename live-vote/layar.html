@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Layar Hasil — Live Vote</title>
+<link rel="stylesheet" href="assets/lv.css">
+<link rel="stylesheet" href="assets/layar.css">
+</head>
+<body class="layar">
+<div class="screen">
+  <header class="l-head">
+    <div class="l-titles">
+      <div class="l-judul" id="judul">Memuat…</div>
+      <h1 class="l-tanya" id="tanya"></h1>
+    </div>
+    <div class="l-stats">
+      <span class="l-status" id="status"></span>
+      <div class="l-total"><b id="total">0</b><span id="total-label">suara</span></div>
+    </div>
+  </header>
+
+  <div class="l-body">
+    <div class="l-bars" id="bars"></div>
+    <aside class="l-join" id="join">
+      <div class="l-qr" id="qr"></div>
+      <div class="l-join-text">Pindai QR atau buka</div>
+      <div class="l-url" id="url"></div>
+      <div class="l-join-text">masukkan kode</div>
+      <div class="l-kode" id="kode"></div>
+    </aside>
+  </div>
+
+  <div class="l-msg" id="msg" hidden></div>
+</div>
+
+<nav class="l-ctrl" id="ctrl" aria-label="Kontrol layar">
+  <button type="button" data-k="h" title="Sembunyikan / tampilkan hasil (H)">👁 Hasil</button>
+  <button type="button" data-k="s" title="Urutkan berdasarkan suara terbanyak (S)">⇅ Urutkan</button>
+  <button type="button" data-k="q" title="Tampilkan / sembunyikan QR (Q)">▦ QR</button>
+  <button type="button" data-k="f" title="Layar penuh (F)">⛶ Layar penuh</button>
+</nav>
+
+<script src="vendor/qrcode.min.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/layar.js"></script>
+</body>
+</html>

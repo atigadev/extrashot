@@ -1,9 +1,12 @@
 # Kredensial database lokal
 api/db.local.php
+other/api/db.local.php
 
 # Data runtime (konfigurasi tersimpan dari halaman "Label dari Excel"), dibuat otomatis oleh aplikasi
 data/*
+other/data/*
 !data/.htaccess
+!other/data/.htaccess
 
 # File uji / sementara
 _t/
@@ -19,3 +22,6 @@ Desktop.ini
 .DS_Store
 ~$*
 *.tmp
+
+# Live Vote: kredensial & password admin lokal
+live-vote/api/config.local.php

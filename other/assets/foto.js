@@ -38,12 +38,18 @@
 
   function loadSettings() {
     // guideMode: 'crop' = tanda potong standar cetak (bleed + crop marks), 'box' = kotak garis, 'none' = tanpa garis
-    var def = { paper: 'a4', orient: 'portrait', pw: 210, ph: 297, margin: 10, gap: 2, guideMode: 'crop', bleed: 2, markLen: 5,
-      guideOffset: 2, rotate: true, defSize: '3x4', defQty: 4, zoom: 0.7 };
+    var def = { paper: 'a4', orient: 'portrait', pw: 210, ph: 297, margin: 10, gap: 2, guideMode: 'crop', bleed: 0, markLen: 5, ruler: true, ver: 2,
+      guideOffset: 2, rotate: true, defSize: '3x4', defQty: 4, zoom: 0.7,
+      // kertas sisa: lembar pertama hanya memakai bagian kertas yang tersisa setelah dipotong
+      leftover: false, leftSide: 'bottom', leftSize: 150, cutSafe: 3, leftFeed: 'inplace',
+      // kalibrasi posisi cetak (mm), berlaku untuk semua lembar
+      offX: 0, offY: 0 };
     try {
       var s = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
       for (var k in def) if (s[k] !== undefined) def[k] = s[k];
       if (s.guideMode === undefined && s.guides === false) def.guideMode = 'none'; // pengaturan versi lama
+      // versi 2: hasil cetak harus persis ukuran pilihan → bleed lama (gambar melebar 2 mm) dikembalikan ke 0
+      if (!(s.ver >= 2)) { def.bleed = 0; def.ver = 2; }
     } catch (e) { /* abaikan */ }
     return def;
   }
@@ -71,13 +77,22 @@
   }
 
   function sizeLabel(it) {
-    var d = photoSize(it), b = borderOf(it);
+    var d = photoSize(it), b = borderOf(it), a = imageArea(it);
     return (it.size === 'custom' ? 'Kustom' : it.size) + ' · ' + (d.w / 10).toFixed(2) + ' × ' + (d.h / 10).toFixed(2) + ' cm' +
-      (b ? ' (dengan border ' + ((d.w + 2 * b) / 10).toFixed(2) + ' × ' + ((d.h + 2 * b) / 10).toFixed(2) + ' cm)' : '');
+      (b ? ' (gambar ' + (a.w / 10).toFixed(2) + ' × ' + (a.h / 10).toFixed(2) + ' cm di dalam border)' : '');
   }
 
-  // Tebal border (mm). Border berada di luar foto, jadi menambah ukuran cetak sebesar 2 × tebal.
-  function borderOf(it) { return Math.max(0, num(it.borderW, 0)); }
+  // Tebal border (mm). Ukuran hasil potong SELALU = ukuran pilihan: border berada di dalamnya, mengelilingi
+  // gambar (gambar diperkecil, tidak tertutup border).
+  function borderOf(it) {
+    var d = photoSize(it);
+    return Math.max(0, Math.min(num(it.borderW, 0), Math.min(d.w, d.h) / 2 - 1));
+  }
+  // Area gambar (mm, orientasi foto) = ukuran foto dikurangi border di tiap sisi.
+  function imageArea(it) {
+    var d = photoSize(it), b = borderOf(it);
+    return { w: d.w - 2 * b, h: d.h - 2 * b };
+  }
 
   // Posisi gambar di dalam bingkai (persen), mode "isi penuh" + perbesar + geser.
   function imgBox(it, w, h) {
@@ -90,8 +105,8 @@
     return 'width:' + b.w.toFixed(3) + '%;height:' + b.h.toFixed(3) + '%;left:' + b.l.toFixed(3) + '%;top:' + b.t.toFixed(3) + '%';
   }
   function dpi(it) {
-    var d = photoSize(it), b = imgBox(it, d.w, d.h);
-    return Math.round(it.iw * (100 / b.w) / (d.w / 25.4));
+    var a = imageArea(it), b = imgBox(it, a.w, a.h);
+    return Math.round(it.iw * (100 / b.w) / (a.w / 25.4));
   }
 
   // Pas foto (2x3, 3x4, 4x6) selalu tegak; ukuran R mengikuti arah foto aslinya.
@@ -211,17 +226,17 @@
       '<path d="' + d + '" fill="' + esc(it.borderColor || '#ffffff') + '" fill-rule="evenodd"/></svg>';
   }
 
-  // Foto (ukuran asli) dengan border di luarnya, digambar dalam piksel dengan skala k px/mm.
+  // Foto ukuran pilihan (termasuk border) digambar dalam piksel dengan skala k px/mm; gambar di dalam border.
   function framedPx(it, k, cls) {
-    var d = photoSize(it), bw = borderOf(it), W = d.w + 2 * bw, H = d.h + 2 * bw;
-    return { w: W * k, h: H * k, html:
-      '<div class="photo ' + (cls || '') + '" style="left:' + (bw * k) + 'px;top:' + (bw * k) + 'px;width:' + (d.w * k) + 'px;height:' + (d.h * k) + 'px">' +
-      '<img src="' + it.src + '" style="' + imgStyle(imgBox(it, d.w, d.h)) + '"></div>' + borderHtml(it, 0, W, H) };
+    var d = photoSize(it), bw = borderOf(it), a = imageArea(it);
+    return { w: d.w * k, h: d.h * k, html:
+      '<div class="photo ' + (cls || '') + '" style="left:' + (bw * k) + 'px;top:' + (bw * k) + 'px;width:' + (a.w * k) + 'px;height:' + (a.h * k) + 'px">' +
+      '<img src="' + it.src + '" style="' + imgStyle(imgBox(it, a.w, a.h)) + '"></div>' + borderHtml(it, 0, d.w, d.h) };
   }
 
   function thumbHtml(it) {
-    var d = photoSize(it), bw = borderOf(it), W = d.w + 2 * bw, H = d.h + 2 * bw;
-    var k = Math.min(56 / W, 70 / H), f = framedPx(it, k);
+    var d = photoSize(it);
+    var k = Math.min(56 / d.w, 70 / d.h), f = framedPx(it, k);
     return '<div class="thumb" data-crop="' + it.id + '" title="Atur potongan" style="width:' + f.w + 'px;height:' + f.h + 'px">' + f.html + '</div>';
   }
 
@@ -237,7 +252,7 @@
         '<div style="display:flex;justify-content:center;align-items:center">' + thumbHtml(it) + '</div>' +
         '<div style="min-width:0">' +
           '<div class="name" title="' + esc(it.name) + '">' + esc(it.name) + (it.bgUrl ? '<span class="badge-bg">BG diganti</span>' : '') +
-            (it.borderW > 0 ? '<span class="badge-bg" style="background:#eef0f3;color:#333"><i class="dot" style="background:' + esc(it.borderColor) + '"></i>Border ' + it.borderW + ' mm di luar</span>' : '') + '</div>' +
+            (it.borderW > 0 ? '<span class="badge-bg" style="background:#eef0f3;color:#333"><i class="dot" style="background:' + esc(it.borderColor) + '"></i>Border ' + it.borderW + ' mm</span>' : '') + '</div>' +
           '<div class="row"><select data-f="size">' + sizeOptions(it.size) + '</select>' +
             '<input type="number" data-f="qty" min="0" value="' + it.qty + '" title="Jumlah cetak"></div>' +
           (it.size === 'custom' ? '<div class="row custom">L <input type="number" data-f="cw" min="5" step="0.5" value="' + it.cw + '"> × T ' +
@@ -308,12 +323,44 @@
   // Penyusunan MaxRects (aturan kiri-atas): tiap foto ditaruh di ruang kosong paling atas lalu paling kiri,
   // sehingga celah di samping foto besar ikut terisi foto kecil. Jarak antar foto ditangani dengan
   // "menggembungkan" tiap foto dan area kertas sebesar jarak tersebut.
+  // Tata letak lembar ke-i: ukuran halaman, area yang boleh diisi foto, batas kertas fisik, dan bagian yang
+  // sudah terpotong. Bila "kertas sisa" aktif, lembar pertama hanya memakai bagian kertas yang tersisa.
+  //  - leftFeed 'inplace': sisa kertas diletakkan di posisi asalnya pada kertas utuh → halaman tetap ukuran penuh
+  //  - leftFeed 'small'  : sisa kertas dimasukkan langsung → halaman = ukuran sisa kertas
+  function pageLayout(i) {
+    var P = paperDims(), m = Math.max(0, num(settings.margin, 0));
+    if (!settings.leftover || i > 0) {
+      return { w: P.w, h: P.h, area: { x: m, y: m, w: P.w - 2 * m, h: P.h - 2 * m }, bounds: { x0: 0, y0: 0, x1: P.w, y1: P.h }, cut: [], leftover: false };
+    }
+    var side = settings.leftSide, vert = side === 'top' || side === 'bottom';
+    var S = Math.max(5, Math.min(vert ? P.h : P.w, num(settings.leftSize, 100)));
+    var cs = Math.max(0, num(settings.cutSafe, 0)), R, cut;
+    if (side === 'bottom') { R = { x: 0, y: P.h - S, w: P.w, h: S }; cut = { x: 0, y: 0, w: P.w, h: P.h - S }; }
+    else if (side === 'top') { R = { x: 0, y: 0, w: P.w, h: S }; cut = { x: 0, y: S, w: P.w, h: P.h - S }; }
+    else if (side === 'right') { R = { x: P.w - S, y: 0, w: S, h: P.h }; cut = { x: 0, y: 0, w: P.w - S, h: P.h }; }
+    else { R = { x: 0, y: 0, w: S, h: P.h }; cut = { x: S, y: 0, w: P.w - S, h: P.h }; }
+    // tepi asli kertas memakai margin kertas, tepi bekas potongan memakai jarak aman potongan
+    var il = side === 'right' ? cs : m, ir = side === 'left' ? cs : m, it = side === 'bottom' ? cs : m, ib = side === 'top' ? cs : m;
+    var area = { x: R.x + il, y: R.y + it, w: R.w - il - ir, h: R.h - it - ib };
+    if (settings.leftFeed === 'small') {
+      return { w: R.w, h: R.h, area: { x: area.x - R.x, y: area.y - R.y, w: area.w, h: area.h }, bounds: { x0: 0, y0: 0, x1: R.w, y1: R.h },
+        cut: [], leftover: true, small: true, R: R };
+    }
+    return { w: P.w, h: P.h, area: area, bounds: { x0: R.x, y0: R.y, x1: R.x + R.w, y1: R.y + R.h }, cut: cut.w > 0 && cut.h > 0 ? [cut] : [],
+      leftover: true, R: R };
+  }
+
   function pack(pieces, firstPageOnly) {
-    var P = paperDims(), m = Math.max(0, settings.margin), g = Math.max(0, settings.gap);
-    var aw = P.w - 2 * m, ah = P.h - 2 * m, eps = 0.01;
+    var g = Math.max(0, settings.gap), eps = 0.01;
+    var full = pageLayout(1).area, aw = full.w, ah = full.h;
     // tiap halaman menyimpan daftar ruang kosongnya sendiri, jadi halaman sebelumnya tetap bisa diisi
     var pages = [];
-    function newPage() { var pg = { cells: [], free: [{ x: 0, y: 0, w: aw + g, h: ah + g }] }; pages.push(pg); return pg; }
+    function newPage() {
+      var L = pageLayout(pages.length);
+      var pg = { L: L, cells: [], free: L.area.w > 0 && L.area.h > 0 ? [{ x: 0, y: 0, w: L.area.w + g, h: L.area.h + g }] : [] };
+      pages.push(pg);
+      return pg;
+    }
 
     function options(p) {
       var o = [{ w: p.w, h: p.h, rot: false }];
@@ -363,19 +410,27 @@
         if (firstPageOnly && pages.length) return false;
         pg = newPage();
         spot = findSpot(pg.free, opts);
+        // tidak muat di kertas sisa: pakai lembar utuh berikutnya
+        if (!spot && pg.L.leftover && !firstPageOnly) { pg = newPage(); spot = findSpot(pg.free, opts); }
       }
       if (!spot) {
+        if (firstPageOnly) return false;
         // lebih besar dari kertas: taruh sendiri di satu lembar (ditandai merah)
-        pg.cells.push({ item: p.item, x: m, y: m, w: p.w, h: p.h, rot: false, tooBig: true });
+        pg.cells.push({ item: p.item, x: pg.L.area.x, y: pg.L.area.y, w: p.w, h: p.h, rot: false, tooBig: true });
         pg.free = [];
-        return !firstPageOnly;
+        return true;
       }
-      pg.cells.push({ item: p.item, x: m + spot.x, y: m + spot.y, w: spot.o.w, h: spot.o.h, rot: spot.o.rot, tooBig: false });
+      pg.cells.push({ item: p.item, x: pg.L.area.x + spot.x, y: pg.L.area.y + spot.y, w: spot.o.w, h: spot.o.h, rot: spot.o.rot, tooBig: false });
       place(pg, { x: spot.x, y: spot.y, w: spot.o.w + g, h: spot.o.h + g });
       return true;
     });
-    return pages.length ? pages.map(function (pg) { return pg.cells; }) : [[]];
+    // kertas sisa yang tidak terisi apa pun tidak perlu dicetak
+    leftoverUnused = !!(pages.length > 1 && pages[0].L.leftover && !pages[0].cells.length);
+    if (leftoverUnused) pages.shift();
+    if (!pages.length) newPage();
+    return pages.map(function (pg) { var a = pg.cells; a.L = pg.L; return a; });
   }
+  var leftoverUnused = false;
 
   // Ruang tambahan di tiap sisi foto (mm) yang ikut dihitung saat menyusun foto:
   // bleed untuk tanda potong standar, atau jarak kotak garis untuk mode kotak.
@@ -389,8 +444,7 @@
     var pieces = [], pad = guidePad();
     list.forEach(function (it, order) {
       var d = photoSize(it);
-      var bw = borderOf(it);
-      for (var k = 0; k < it.qty; k++) pieces.push({ item: it, w: d.w + 2 * (pad + bw), h: d.h + 2 * (pad + bw), order: order });
+      for (var k = 0; k < it.qty; k++) pieces.push({ item: it, w: d.w + 2 * pad, h: d.h + 2 * pad, order: order });
     });
     // tertinggi dulu agar baris rapat; foto yang sama tetap berurutan
     pieces.sort(function (a, b) { return Math.max(b.w, b.h) - Math.max(a.w, a.h) || b.h - a.h || a.order - b.order; });
@@ -411,17 +465,18 @@
   // Slot = ukuran potong foto + ruang tambahan di tiap sisi.
   //  - mode crop: gambar mengisi seluruh slot (bleed), ukuran potong ditunjukkan tanda potong di sudut
   //  - mode box : foto di tengah slot, kotak garis di tepi slot
-  //  - border (bila ada) berada di luar foto: foto tetap ukuran standar, border mengelilinginya;
-  //    pada mode crop, bleed ikut berwarna border.
+  //  - border (bila ada) berada DI DALAM ukuran potong dan mengelilingi gambar (gambar diperkecil), sehingga
+  //    hasil potong tetap persis ukuran pilihan; pada mode crop, bleed ikut berwarna border.
   function cellHtml(c) {
     var it = c.item, d = photoSize(it), pad = guidePad(), bleed = settings.guideMode === 'crop', bw = borderOf(it);
     var inset = bleed ? 0 : pad;                       // tepi bingkai (area berwarna) di dalam slot
     var fw = c.w - 2 * inset, fh = c.h - 2 * inset;    // ukuran bingkai
     var px, py, pw, ph, iw, ih;                        // posisi & ukuran area gambar (orientasi lembar), ukuran gambar (orientasi foto)
     if (bw > 0) {
+      var a = imageArea(it);
       px = py = pad + bw;
-      pw = c.rot ? d.h : d.w; ph = c.rot ? d.w : d.h;
-      iw = d.w; ih = d.h;
+      pw = c.rot ? a.h : a.w; ph = c.rot ? a.w : a.h;
+      iw = a.w; ih = a.h;
     } else {
       px = py = inset; pw = fw; ph = fh;
       iw = bleed ? d.w + 2 * pad : d.w; ih = bleed ? d.h + 2 * pad : d.h;
@@ -440,7 +495,9 @@
   // dimulai di luar area bleed. Tanda dipendekkan/dihilangkan bila mengenai gambar foto lain atau
   // keluar kertas, sehingga foto yang berdempetan memakai tanda di tepi luar susunan (step & repeat).
   var MARK_STROKE = 0.088; // 0,25 pt
-  function marksSvg(cells, P) {
+  // L = tata letak lembar (ukuran halaman & batas kertas fisik); tanda tidak keluar dari kertas yang ada.
+  function marksSvg(cells, L) {
+    var P = { w: L.w, h: L.h }, B = L.bounds;
     var b = Math.max(0, num(settings.bleed, 0)), L = Math.max(1, num(settings.markLen, 5));
     var off = Math.max(b, 2), eps = 0.3, minLen = 1;
     var rects = cells.map(function (c) { return { l: c.x - eps, t: c.y - eps, r: c.x + c.w + eps, b: c.y + c.h + eps }; });
@@ -448,9 +505,9 @@
 
     // garis mendatar (horiz) atau tegak di koordinat tetap `at`, dari `a` menuju `z`
     function add(horiz, at, a, z, own) {
-      var dir = z > a ? 1 : -1, max = horiz ? P.w : P.h;
-      if (a < 0 || a > max) return;
-      z = Math.max(0, Math.min(max, z));
+      var dir = z > a ? 1 : -1, min = horiz ? B.x0 : B.y0, max = horiz ? B.x1 : B.y1;
+      if (a < min || a > max) return;
+      z = Math.max(min, Math.min(max, z));
       rects.forEach(function (R, i) {
         if (i === own) return;
         var lo = horiz ? R.t : R.l, hi = horiz ? R.b : R.r;
@@ -481,6 +538,23 @@
       '<path d="' + d.join('') + '" stroke="#000" stroke-width="' + MARK_STROKE + '" fill="none"/></svg>';
   }
 
+  // Penggaris 50 mm di margin bawah: ukur hasil cetak untuk memastikan printer mencetak skala 100%.
+  var RULER_MM = 50;
+  function rulerSvg(cells, L) {
+    if (!settings.ruler) return '';
+    var B = L.bounds, x0 = B.x0 + 3, y = B.y1 - 3.5;
+    if (B.x1 - B.x0 < RULER_MM + 10) return '';
+    // jangan menimpa foto: perlu ruang kosong ±7 mm di atas tepi bawah kertas
+    var clash = cells.some(function (c) { return c.y + c.h > y - 4 && c.x < x0 + RULER_MM + 2; });
+    if (clash) return '';
+    var d = 'M' + x0 + ' ' + y + 'H' + (x0 + RULER_MM);
+    for (var i = 0; i <= RULER_MM; i += 5) d += 'M' + (x0 + i) + ' ' + y + 'V' + (y - (i % 10 === 0 ? 2.5 : 1.5));
+    return '<svg class="ruler" viewBox="0 0 ' + L.w + ' ' + L.h + '" style="width:' + L.w + 'mm;height:' + L.h + 'mm">' +
+      '<path d="' + d + '" stroke="#000" stroke-width="0.15" fill="none"/>' +
+      '<text x="' + (x0 + RULER_MM + 1.5) + '" y="' + (y + 0.6) + '" font-size="2.2" font-family="Arial" fill="#000">' + RULER_MM +
+      ' mm — bila tidak tepat 50 mm, atur skala cetak 100%</text></svg>';
+  }
+
   var renderTimer = null;
   function render() {
     clearTimeout(renderTimer);
@@ -489,7 +563,10 @@
   function doRender() {
     saveSettings();
     var P = paperDims();
-    $('page-style').textContent = '@page { size: ' + P.w + 'mm ' + P.h + 'mm; margin: 0; }';
+    var L0 = pageLayout(0);
+    $('page-style').textContent = '@page { size: ' + P.w + 'mm ' + P.h + 'mm; margin: 0; }' +
+      (L0.small ? ' @page sisa { size: ' + L0.w + 'mm ' + L0.h + 'mm; margin: 0; }' : '');
+    updateLeftoverUi();
     var active = items.filter(function (it) { return it.qty > 0; });
     if (!active.length) {
       $('pages').innerHTML = '<div class="empty" style="padding:60px">Tambahkan foto untuk mulai.</div>';
@@ -498,17 +575,133 @@
       return;
     }
     var pages = pack(buildPieces(active));
+    lastPages = pages;
     var count = pages.reduce(function (s, p) { return s + p.length; }, 0);
     var bad = pages.some(function (p) { return p.some(function (c) { return c.tooBig; }); });
-    $('summary').innerHTML = '<b>' + count + '</b> foto · <b>' + pages.length + '</b> lembar kertas ' +
-      P.w + ' × ' + P.h + ' mm' + (bad ? ' · <span style="color:#c0392b">⚠ ada foto yang lebih besar dari kertas (bertanda merah)</span>' : '');
+    var first = pages[0].L;
+    $('summary').innerHTML = '<b>' + count + '</b> foto · <b>' + pages.length + '</b> lembar kertas ' + P.w + ' × ' + P.h + ' mm' +
+      (first.leftover ? ' · lembar 1 = <b>sisa kertas ' + round1(first.R.w) + ' × ' + round1(first.R.h) + ' mm</b> (' + pages[0].length + ' foto)' : '') +
+      (settings.leftover && leftoverUnused ? ' · <span style="color:#c0392b">⚠ tidak ada foto yang muat di sisa kertas</span>' : '') +
+      (bad ? ' · <span style="color:#c0392b">⚠ ada foto yang lebih besar dari kertas (bertanda merah)</span>' : '');
+    var ox = num(settings.offX, 0), oy = num(settings.offY, 0);
     $('pages').innerHTML = pages.map(function (p, i) {
-      return '<div class="sheet" style="width:' + P.w + 'mm;height:' + P.h + 'mm">' + p.map(cellHtml).join('') +
-        (settings.guideMode === 'crop' ? marksSvg(p, P) : '') +
-        '<div class="sheet-no">Lembar ' + (i + 1) + '/' + pages.length + '</div></div>';
+      var L = p.L;
+      return '<div class="sheet' + (L.leftover ? ' is-leftover' : '') + '" style="width:' + L.w + 'mm;height:' + L.h + 'mm' + (L.small ? ';page:sisa' : '') + '">' +
+        L.cut.map(function (c) {
+          return '<div class="cutoff" style="left:' + c.x + 'mm;top:' + c.y + 'mm;width:' + c.w + 'mm;height:' + c.h + 'mm"><span>Bagian sudah terpotong</span></div>';
+        }).join('') +
+        '<div class="sheet-content" style="left:' + ox + 'mm;top:' + oy + 'mm;width:' + L.w + 'mm;height:' + L.h + 'mm">' +
+          p.map(cellHtml).join('') +
+          (settings.guideMode === 'crop' ? marksSvg(p, L) : '') +
+          rulerSvg(p, L) +
+          '<div class="region" style="left:' + L.bounds.x0 + 'mm;top:' + L.bounds.y0 + 'mm;width:' + (L.bounds.x1 - L.bounds.x0) + 'mm;height:' +
+            (L.bounds.y1 - L.bounds.y0) + 'mm"></div>' +
+        '</div>' +
+        '<div class="sheet-no">Lembar ' + (i + 1) + '/' + pages.length + (L.leftover ? ' · sisa kertas' : '') + '</div></div>';
     }).join('');
     $('pages').style.zoom = settings.zoom;
     $('btn-print').disabled = false;
+  }
+
+  /* ------------------------- Kertas sisa & posisi cetak ------------------------- */
+
+  var LAST_KEY = STORE_KEY + '.last'; // hanya koordinat area terpakai, tanpa foto
+  var lastPages = null;
+  function round1(n) { return Math.round(n * 10) / 10; }
+
+  function updateLeftoverUi() {
+    var vert = settings.leftSide === 'top' || settings.leftSide === 'bottom';
+    $('lbl-left-size').textContent = (vert ? 'Tinggi' : 'Lebar') + ' sisa kertas (mm)';
+    $('leftover-fields').hidden = !settings.leftover;
+    $('leftover-feed-hint').innerHTML = settings.leftFeed === 'small'
+      ? 'Masukkan potongan sisa langsung ke printer dan pilih ukuran kertas <b>kustom ' + round1(pageLayout(0).w) + ' × ' + round1(pageLayout(0).h) +
+        ' mm</b> di dialog cetak. Lembar berikutnya (bila ada) memakai kertas utuh. Tidak semua printer bisa menarik kertas kecil.'
+      : 'Letakkan potongan sisa <b>tepat di posisi asalnya</b> di atas selembar kertas utuh (rapatkan ke tepi asli kertas), rekatkan sedikit selotip di bagian belakang, lalu masukkan ke printer seperti biasa.';
+  }
+
+  // Simpan area yang terpakai pada lembar terakhir yang dicetak (koordinat kertas utuh, mm).
+  function rememberLastPrint() {
+    if (!lastPages || !lastPages.length) return;
+    var p = lastPages[lastPages.length - 1], L = p.L;
+    if (!p.length) return;
+    var ext = settings.guideMode === 'crop' ? Math.max(num(settings.bleed, 0), 2) + Math.max(1, num(settings.markLen, 5)) : 0;
+    var dx = (L.small ? L.R.x : 0) + num(settings.offX, 0), dy = (L.small ? L.R.y : 0) + num(settings.offY, 0);
+    var P = paperDims(), b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    p.forEach(function (c) {
+      b.minX = Math.min(b.minX, c.x - ext + dx); b.minY = Math.min(b.minY, c.y - ext + dy);
+      b.maxX = Math.max(b.maxX, c.x + c.w + ext + dx); b.maxY = Math.max(b.maxY, c.y + c.h + ext + dy);
+    });
+    var rec = { at: new Date().toISOString(), pw: P.w, ph: P.h,
+      minX: Math.max(0, b.minX), minY: Math.max(0, b.minY), maxX: Math.min(P.w, b.maxX), maxY: Math.min(P.h, b.maxY) };
+    try { localStorage.setItem(LAST_KEY, JSON.stringify(rec)); } catch (e) { /* abaikan */ }
+    showLastInfo();
+  }
+
+  function readLast() {
+    try { return JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); } catch (e) { return null; }
+  }
+
+  function showLastInfo() {
+    var r = readLast();
+    $('btn-from-last').disabled = !r;
+    $('last-print-info').textContent = r
+      ? 'Cetakan terakhir (' + new Date(r.at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + ', kertas ' +
+        round1(r.pw) + ' × ' + round1(r.ph) + ' mm): area terpakai ' + round1(r.minX) + '–' + round1(r.maxX) + ' mm dari kiri, ' +
+        round1(r.minY) + '–' + round1(r.maxY) + ' mm dari atas.'
+      : 'Belum ada catatan cetakan sebelumnya di browser ini.';
+  }
+
+  // Perkirakan sisa kertas terbesar dari cetakan terakhir (dipotong lurus di luar area terpakai).
+  function fillFromLast() {
+    var r = readLast(), P = paperDims(), kerf = 1;
+    if (!r) return;
+    if (Math.abs(r.pw - P.w) > 1 || Math.abs(r.ph - P.h) > 1) {
+      if (!confirm('Cetakan terakhir memakai kertas ' + round1(r.pw) + ' × ' + round1(r.ph) + ' mm, berbeda dengan kertas sekarang. Tetap pakai?')) return;
+    }
+    var opts = [
+      { side: 'bottom', size: P.h - r.maxY - kerf, area: P.w * (P.h - r.maxY) },
+      { side: 'top', size: r.minY - kerf, area: P.w * r.minY },
+      { side: 'right', size: P.w - r.maxX - kerf, area: P.h * (P.w - r.maxX) },
+      { side: 'left', size: r.minX - kerf, area: P.h * r.minX }
+    ].sort(function (a, b) { return b.area - a.area; });
+    var best = opts[0];
+    if (best.size < 10) { alert('Sisa kertas dari cetakan terakhir terlalu kecil (' + round1(Math.max(0, best.size)) + ' mm).'); return; }
+    settings.leftover = true;
+    settings.leftSide = best.side;
+    settings.leftSize = Math.floor(best.size * 2) / 2;
+    syncLeftoverInputs();
+    render();
+  }
+
+  function syncLeftoverInputs() {
+    $('chk-leftover').checked = !!settings.leftover;
+    $('sel-left-side').value = settings.leftSide;
+    $('inp-left-size').value = settings.leftSize;
+    $('inp-cut-safe').value = settings.cutSafe;
+    $('sel-left-feed').value = settings.leftFeed;
+    $('inp-offx').value = settings.offX;
+    $('inp-offy').value = settings.offY;
+  }
+
+  function initLeftover() {
+    syncLeftoverInputs();
+    showLastInfo();
+    $('chk-leftover').addEventListener('change', function () { settings.leftover = this.checked; render(); });
+    $('sel-left-side').addEventListener('change', function () { settings.leftSide = this.value; render(); });
+    $('inp-left-size').addEventListener('input', function () { settings.leftSize = Math.max(5, num(this.value, settings.leftSize)); render(); });
+    $('inp-cut-safe').addEventListener('input', function () { settings.cutSafe = Math.max(0, num(this.value, 0)); render(); });
+    $('sel-left-feed').addEventListener('change', function () { settings.leftFeed = this.value; render(); });
+    $('inp-offx').addEventListener('input', function () { settings.offX = num(this.value, 0); render(); });
+    $('inp-offy').addEventListener('input', function () { settings.offY = num(this.value, 0); render(); });
+    $('btn-from-last').addEventListener('click', fillFromLast);
+    // Cetak uji: hanya garis batas kertas sisa & tanda potong, tanpa foto — untuk mengecek posisi di kertas biasa.
+    $('btn-test-print').addEventListener('click', function () {
+      clearTimeout(renderTimer);
+      doRender();
+      document.body.classList.add('test-print');
+      window.print();
+      setTimeout(function () { document.body.classList.remove('test-print'); }, 500);
+    });
   }
 
   /* ------------------------- Privasi: hapus semua foto dari memori ------------------------- */
@@ -567,7 +760,7 @@
   function drawCrop() {
     var it = cropItem, d = photoSize(it), bw = borderOf(it);
     var maxW = Math.min(460, window.innerWidth - 80), maxH = Math.min(380, window.innerHeight - 320);
-    var s = Math.min(maxW / (d.w + 2 * bw), maxH / (d.h + 2 * bw));
+    var s = Math.min(maxW / d.w, maxH / d.h);
     var stage = $('crop-stage'), f = framedPx(it, s, 'crop-photo');
     stage.style.width = f.w + 'px';
     stage.style.height = f.h + 'px';
@@ -587,12 +780,12 @@
   });
   $('crop-stage').addEventListener('pointermove', function (e) {
     if (!drag) return;
-    var it = cropItem, d = photoSize(it), b = imgBox(it, d.w, d.h), area = this.querySelector('.crop-photo');
+    var it = cropItem, a = imageArea(it), b = imgBox(it, a.w, a.h), area = this.querySelector('.crop-photo');
     var st = area.getBoundingClientRect();
     var dxPct = (e.clientX - drag.x) / st.width * 100, dyPct = (e.clientY - drag.y) / st.height * 100;
     if (b.w > 100.001) it.px = Math.min(1, Math.max(0, drag.px + dxPct / (100 - b.w)));
     if (b.h > 100.001) it.py = Math.min(1, Math.max(0, drag.py + dyPct / (100 - b.h)));
-    area.querySelector('img').setAttribute('style', imgStyle(imgBox(it, d.w, d.h)));
+    area.querySelector('img').setAttribute('style', imgStyle(imgBox(it, a.w, a.h)));
   });
   $('crop-stage').addEventListener('pointerup', function () { drag = null; });
   $('crop-stage').addEventListener('wheel', function (e) {
@@ -662,6 +855,7 @@
     $('inp-pw').value = settings.pw; $('inp-ph').value = settings.ph;
     $('inp-margin').value = settings.margin; $('inp-gap').value = settings.gap;
     $('chk-rotate').checked = settings.rotate;
+    $('chk-ruler').checked = settings.ruler;
     $('sel-guide-mode').value = settings.guideMode;
     $('inp-bleed').value = settings.bleed;
     $('inp-mark-len').value = settings.markLen;
@@ -697,6 +891,7 @@
     $('inp-mark-len').addEventListener('input', function () { settings.markLen = Math.max(1, num(this.value, 5)); render(); });
     $('inp-guide-offset').addEventListener('input', function () { settings.guideOffset = Math.max(0, num(this.value, 0)); render(); });
     $('chk-rotate').addEventListener('change', function () { settings.rotate = this.checked; render(); });
+    $('chk-ruler').addEventListener('change', function () { settings.ruler = this.checked; render(); });
     $('inp-zoom').addEventListener('input', function () { settings.zoom = num(this.value, 0.7); $('pages').style.zoom = settings.zoom; saveSettings(); });
 
     $('file-photo').addEventListener('change', function () { addFiles(this.files); this.value = ''; });
@@ -715,8 +910,9 @@
       var imgs = $('pages').querySelectorAll('img');
       Promise.all(Array.prototype.map.call(imgs, function (img) {
         return img.complete ? null : new Promise(function (r) { img.onload = img.onerror = r; });
-      })).then(function () { window.print(); });
+      })).then(function () { window.print(); rememberLastPrint(); });
     });
+    initLeftover();
   }
 
   initSettings();

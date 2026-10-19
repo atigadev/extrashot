@@ -93,3 +93,21 @@ dialog h2 { margin: 0 0 6px; font-size: 16px; }
 .swatch.sm { width: 22px; height: 22px; }
 .photo-item .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; box-shadow: 0 0 0 1px #bbb; vertical-align: 0; }
 .slot .frame { position: absolute; pointer-events: none; }
+
+/* ---------- Kertas sisa & posisi cetak ---------- */
+.sheet-content { position: absolute; top: 0; left: 0; }
+.cutoff {
+  position: absolute; display: flex; align-items: center; justify-content: center; text-align: center;
+  background: repeating-linear-gradient(45deg, #e6e9ee 0 3mm, #f5f6f8 3mm 6mm);
+  color: #8a94a6; font-size: 11px; box-shadow: inset 0 0 0 1px #c5ccd6;
+}
+.region { position: absolute; pointer-events: none; display: none; }
+.sheet.is-leftover .region { display: block; outline: 1px dashed #e08a00; outline-offset: -1px; }
+@media print {
+  .cutoff { display: none !important; }
+  .region { display: none !important; }
+  /* cetak uji: hanya garis batas kertas sisa & tanda potong, tanpa foto */
+  body.test-print .slot { visibility: hidden; }
+  body.test-print .region { display: block !important; outline: 0.2mm solid #000; outline-offset: -0.1mm; }
+}
+.sheet .ruler { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }

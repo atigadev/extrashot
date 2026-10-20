@@ -1,12 +1,16 @@
 /* Analisis topologi: jalur ke WAN, bandwidth efektif, estimasi kabel, pemeriksaan desain, kebutuhan perangkat. */
 (function () {
   'use strict';
-  const { TYPES, TYPE_ORDER, fmtBw, fmtM } = NP;
+  const { TYPES, TYPE_ORDER, fmtBw, fmtM, poeKelas, sektor } = NP;
 
   /** Batas panjang kabel UTP tembaga (standar 100 m, sisakan untuk patch cord). */
   const UTP_MAX_M = 90;
 
-  function create(proyek, list) {
+  function create(proyek, list, katalog) {
+    const katById = new Map((katalog || []).map(k => [k.id, k]));
+    /** Item katalog perangkat (atau null bila diisi manual). */
+    const kat = d => (d && d.katalog_id != null && katById.get(d.katalog_id)) || null;
+    const spec = d => { const k = kat(d); return (k && k.spesifikasi) || {}; };
     const byId = new Map(list.map(d => [d.id, d]));
     const children = new Map();
     for (const d of list) {
@@ -132,6 +136,15 @@
       return sortDev(list.filter(d => !parentOf(d)));
     }
 
+    /** Apakah pancaran A mengarah ke B: omni selalu; sektoral bila B ada dalam lebar sektor (+20° toleransi). */
+    function mengarah(A, B) {
+      const sk = sektor(A);
+      if (!sk) return true;
+      const deg = (Math.atan2(B.x - A.x, -(B.y - A.y)) * 180 / Math.PI + 360) % 360;
+      const beda = Math.abs(((deg - sk.arah) % 360 + 540) % 360 - 180);
+      return beda <= sk.lebar / 2 + 20;
+    }
+
     function apRadiusPx(d) {
       const r = parseFloat(d.atribut && d.atribut.radius_m);
       return r > 0 && proyek.skala ? r / proyek.skala : null;
@@ -191,6 +204,10 @@
         if (d.jenis === 'switch' && nPort > 0 && ch.length + (p ? 1 : 0) > nPort) {
           add('err', d, `${d.nama}: ${ch.length + (p ? 1 : 0)} koneksi (termasuk uplink) melebihi ${nPort} port`);
         }
+        // Titik LAN: jumlah port = jumlah perangkat (laptop, printer, ...) yang bisa dicolok langsung.
+        if (d.jenis === 'lan' && nPort > 0 && ch.length > nPort) {
+          add('warn', [d].concat(ch), `${d.nama}: ${ch.length} endpoint tersambung, titik LAN hanya ${nPort} port — tambah kabel/port atau switch kecil`);
+        }
         const portMap = new Map();
         for (const c of ch) {
           const port = (c.port_uplink || '').trim().toLowerCase();
@@ -208,6 +225,48 @@
         }
       }
 
+      // PoE: kebutuhan daya perangkat (katalog) vs yang disediakan uplink (katalog PoE out / isian PoE switch).
+      const poeNama = k => ({ 1: '802.3af (PoE)', 2: '802.3at (PoE+)', 3: '802.3bt (PoE++)', p24: 'passive 24V', p48: 'passive 48V' }[k] || '');
+      for (const d of list) {
+        const p = parentOf(d);
+        const need = poeKelas(spec(d).poe_in);
+        if (!p || !need || d.media === 'wireless' || d.media === 'fiber') continue;
+        const give = poeKelas(spec(p).poe_out) != null ? poeKelas(spec(p).poe_out) : poeKelas(p.atribut && p.atribut.poe);
+        if (give == null) continue;
+        if (give === 0) {
+          add('warn', [d, p], `${d.nama}: butuh daya ${poeNama(need)}, tetapi ${p.nama} tidak menyediakan PoE — siapkan injector/adaptor`);
+        } else if (typeof need === 'string' || typeof give === 'string') {
+          if (need !== give) add('warn', [d, p], `${d.nama}: butuh ${poeNama(need)}, ${p.nama} menyediakan ${poeNama(give)} — tidak cocok, siapkan injector`);
+        } else if (give < need) {
+          add('warn', [d, p], `${d.nama}: butuh ${poeNama(need)}, ${p.nama} hanya ${poeNama(give)} — daya bisa kurang`);
+        }
+      }
+      // Budget PoE switch/router: total konsumsi perangkat ber-PoE di bawahnya.
+      for (const p of list) {
+        const budget = parseFloat(spec(p).poe_budget_w) || parseFloat(p.atribut && p.atribut.budget_poe);
+        if (!budget) continue;
+        const pakai = kids(p.id).filter(c => poeKelas(spec(c).poe_in) && c.media !== 'wireless' && c.media !== 'fiber');
+        const watt = pakai.reduce((s, c) => s + (parseFloat(spec(c).daya_w) || 0), 0);
+        if (!watt) continue;
+        const pct = Math.round(watt / budget * 100);
+        if (watt > budget) add('err', [p].concat(pakai), `${p.nama}: total daya PoE ${Math.round(watt)} W melebihi budget ${budget} W (${pct}%)`);
+        else if (pct >= 80) add('info', p, `${p.nama}: daya PoE terpakai ${Math.round(watt)} dari ${budget} W (${pct}%) — sisakan cadangan`);
+      }
+      // Stok katalog vs kebutuhan event ini.
+      const perKat = new Map();
+      for (const d of list) {
+        const k = kat(d);
+        if (!k) continue;
+        if (!perKat.has(k.id)) perKat.set(k.id, []);
+        perKat.get(k.id).push(d);
+      }
+      for (const [kid, ds] of perKat) {
+        const k = katById.get(kid);
+        if (k.stok != null && ds.length > k.stok) {
+          add('warn', ds, `${[k.merek, k.model].filter(Boolean).join(' ')}: dibutuhkan ${ds.length} unit, stok ${k.stok} (kurang ${ds.length - k.stok})`);
+        }
+      }
+
       // Co-channel AP yang cakupannya bertumpuk
       const aps = list.filter(d => d.jenis === 'ap' && d.atribut && d.atribut.channel);
       for (let i = 0; i < aps.length; i++) {
@@ -216,7 +275,8 @@
           if (String(A.atribut.channel).trim() !== String(B.atribut.channel).trim()) continue;
           const ra = apRadiusPx(A), rb = apRadiusPx(B);
           if (ra == null || rb == null) continue;
-          if (distPx(A, B) < (ra + rb) * 0.8) {
+          // Sektoral: dianggap bertumpuk hanya bila salah satu AP memancar ke arah AP lainnya (omni selalu).
+          if (distPx(A, B) < (ra + rb) * 0.8 && (mengarah(A, B) || mengarah(B, A))) {
             add('warn', [A, B], `${A.nama} & ${B.nama}: channel sama (${A.atribut.channel}) dengan cakupan bertumpuk — potensi interferensi co-channel`);
           }
         }
@@ -230,8 +290,16 @@
     function bom() {
       const m = new Map();
       for (const d of list) {
-        const key = d.jenis + '\u0000' + (d.model || '').trim().toLowerCase();
-        if (!m.has(key)) m.set(key, { jenis: d.jenis, model: (d.model || '').trim(), jumlah: 0, nama: [] });
+        // Dari katalog: dikelompokkan per item katalog (beserta stok); manual: per nama alat.
+        const k = kat(d);
+        // Endpoint tanpa katalog dikelompokkan per tipe (Laptop, Printer, ...) + nama alat.
+        const e = NP.tipeEp(d);
+        const key = k ? 'k' + k.id : [d.jenis, e ? e.id : '', (d.model || '').trim().toLowerCase()].join('|');
+        if (!m.has(key)) {
+          const model = (d.model || '').trim();
+          m.set(key, { jenis: d.jenis, model: k ? [k.merek, k.model].filter(Boolean).join(' ') : e ? e.nama + (model ? ' · ' + model : '') : model,
+            jumlah: 0, nama: [], katalog: k, stok: k ? k.stok : null });
+        }
         const r = m.get(key);
         r.jumlah++;
         r.nama.push(d.nama);
@@ -273,7 +341,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, ssids };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, ssids };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

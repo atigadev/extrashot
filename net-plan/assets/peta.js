@@ -8,7 +8,7 @@
  */
 (function () {
   'use strict';
-  const { TYPES, STATUS, MEDIA, KONEKSI, esc, fmtM } = NP;
+  const { TYPES, STATUS, MEDIA, KONEKSI, sektor, polar, wedgePath, esc, fmtM } = NP;
   const SVGNS = 'http://www.w3.org/2000/svg';
   const DEFAULT_W = 2000;
   const DEFAULT_H = 1250;
@@ -19,6 +19,8 @@
   const WP = COARSE ? 20 : 12; // sisi kotak lekukan
   const BADGE = COARSE ? 6.5 : 5.5; // jari-jari lencana status internet
   const UNLINK_R = COARSE ? 13 : 9; // tombol ✕ hapus koneksi di garis
+  const ROT_R = COARSE ? 11 : 7; // pegangan putar arah sektor AP
+  const ROT_D = 34; // jarak pegangan putar dari tepi titik
 
   function Peta(svg, cb) {
     svg.innerHTML = `
@@ -99,16 +101,29 @@
         linkEls.set(d.id, g);
       }
       for (const d of ordered) {
-        const t = TYPES[d.jenis] || TYPES.lainnya;
+        const t = NP.tampil(d);
         const s = STATUS[d.status] || STATUS.rencana;
         const kon = m.koneksi(d);
         const k = KONEKSI[kon];
         const b = Math.round(R * 0.78); // posisi lencana status internet (kanan atas titik)
         const g = el('g', { class: 'node st-' + d.status + ' k-' + kon, 'data-id': d.id });
-        g.innerHTML = `<circle class="halo" r="${R + 8}"/>
-          <circle class="ring" r="${R + 3}" stroke="${s.color}"/>
+        // AP sektoral: kipas kecil + panah arah di titik (tetap terlihat walau skala belum dikalibrasi).
+        const sk = d.jenis === 'ap' ? sektor(d) : null;
+        const arahHtml = sk ? `<g class="dir">
+            <path class="beam" d="${wedgePath(0, 0, R + 16, sk.arah, sk.lebar)}"/>
+            <path class="tip" d="M${polar(0, 0, R + 2, sk.arah - 22).x.toFixed(1)} ${polar(0, 0, R + 2, sk.arah - 22).y.toFixed(1)}L${polar(0, 0, R + 15, sk.arah).x.toFixed(1)} ${polar(0, 0, R + 15, sk.arah).y.toFixed(1)}L${polar(0, 0, R + 2, sk.arah + 22).x.toFixed(1)} ${polar(0, 0, R + 2, sk.arah + 22).y.toFixed(1)}Z"/>
+          </g>` : '';
+        // Endpoint (laptop, printer, ...): kotak berikon; perangkat jaringan: lingkaran berteks.
+        const ikon = t.ikon ? (() => {
+          const e = R - 1, s2 = (e - 2) * 2;
+          return `<rect class="ring" x="${-(e + 3)}" y="${-(e + 3)}" width="${(e + 3) * 2}" height="${(e + 3) * 2}" rx="7" stroke="${s.color}"/>
+            <rect class="dot" x="${-e}" y="${-e}" width="${e * 2}" height="${e * 2}" rx="5" fill="${t.color}"/>
+            <g class="ico" transform="translate(${-s2 / 2},${-s2 / 2})">${NP.ikonSvg(t.ikon, s2)}</g>`;
+        })() : '';
+        g.innerHTML = `<circle class="halo" r="${R + 8}"/>${arahHtml}
+          ${ikon || `<circle class="ring" r="${R + 3}" stroke="${s.color}"/>
           <circle class="dot" r="${R}" fill="${t.color}"/>
-          <text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>
+          <text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>`}
           <g class="net" transform="translate(${b},${-b})"><circle r="${BADGE}" fill="${k.color}"/><text dy="0.36em">${k.icon}</text></g>
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
           <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
@@ -127,7 +142,11 @@
         if (d.jenis !== 'ap' || st.hidden.has(d.jenis)) continue;
         const r = m.apRadiusPx(d);
         if (!r) continue;
-        gCov.appendChild(el('circle', { cx: d.x, cy: d.y, r, class: 'cov-c' + (d.id === st.sel ? ' sel' : ''), 'data-id': d.id }));
+        const sk = sektor(d);
+        const cls = 'cov-c' + (sk ? ' sektor' : '') + (d.id === st.sel ? ' sel' : '');
+        // Omni = lingkaran; sektoral = kipas ke arah antena.
+        gCov.appendChild(sk ? el('path', { d: wedgePath(d.x, d.y, r, sk.arah, sk.lebar), class: cls, 'data-id': d.id })
+          : el('circle', { cx: d.x, cy: d.y, r, class: cls, 'data-id': d.id }));
       }
     }
 
@@ -227,11 +246,32 @@
      * (tarik = lekukan baru), tombol ✕ merah = hapus koneksi ke uplink.
      */
     function drawHandles() {
+      gHandles.innerHTML = linkHandles() + rotHandle();
+    }
+
+    /** AP sektoral terpilih yang arahnya bisa diputar di denah. */
+    function sektorDev() {
+      const m = st.model;
+      if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || st.hidden.has('ap')) return null;
+      const d = m.byId.get(st.sel);
+      return d && d.jenis === 'ap' && sektor(d) ? d : null;
+    }
+
+    /** Pegangan putar arah sektor: bulatan di ujung garis dari titik AP. */
+    function rotHandle() {
+      const d = sektorDev();
+      if (!d) return '';
+      const sk = sektor(d);
+      const cx = sx(d.x), cy = sy(d.y);
+      const p = polar(cx, cy, R + ROT_D, sk.arah);
+      return `<g class="rot"><line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}"/>` +
+        `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${ROT_R}"/><text x="${p.x.toFixed(1)}" y="${(p.y - ROT_R - 5).toFixed(1)}">${Math.round(sk.arah)}°</text>` +
+        `<title>Geser untuk memutar arah sektor (${Math.round(sk.arah)}°) · tahan Alt = tanpa snap 5°</title></g>`;
+    }
+
+    function linkHandles() {
       const d = linkedDev();
-      if (!d) {
-        gHandles.textContent = '';
-        return;
-      }
+      if (!d) return '';
       const pts = st.model.routePts(d).map(q => ({ x: sx(q.x), y: sy(q.y) }));
       let h = '';
       const taken = [];
@@ -267,7 +307,7 @@
         h += `<g class="unlink" transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)})"><circle r="${UNLINK_R}"/>` +
           `<path d="M${-k} ${-k}L${k} ${k}M${k} ${-k}L${-k} ${k}"/><title>Hapus koneksi ke uplink</title></g>`;
       }
-      gHandles.innerHTML = h;
+      return h;
     }
 
     function drawTool() {
@@ -413,6 +453,12 @@
       }
       const hit = nodeIdAt(e);
       const middle = e.button === 1;
+      const rot = !middle && e.target.closest && e.target.closest('.rot');
+      const sd = rot && sektorDev();
+      if (sd) {
+        gesture = { type: 'rot', id: sd.id, start: p, moved: false, orig: sd.atribut };
+        return;
+      }
       const unlink = !middle && e.target.closest && e.target.closest('.unlink');
       const ld = unlink && linkedDev();
       if (ld) {
@@ -481,6 +527,17 @@
         svg.classList.add('dragging');
         layout();
         if (d.jenis === 'ap') buildCoverage();
+      } else if (gesture.type === 'rot') {
+        // Putar arah sektor: sudut dari titik AP ke pointer (0° = atas, searah jarum jam), snap 5°.
+        const d = st.model.byId.get(gesture.id);
+        let deg = Math.atan2(p.x - sx(d.x), -(p.y - sy(d.y))) * 180 / Math.PI;
+        deg = ((deg % 360) + 360) % 360;
+        if (!e.altKey) deg = (Math.round(deg / 5) * 5) % 360;
+        d.atribut = Object.assign({}, d.atribut, { arah_deg: String(Math.round(deg)) });
+        st.dragging = true;
+        svg.classList.add('dragging');
+        build();
+        layout();
       } else if (gesture.type === 'route') {
         const d = st.model.byId.get(gesture.id);
         const pts = gesture.pts;
@@ -514,6 +571,17 @@
       gesture = null;
       st.dragging = false;
       svg.classList.remove('dragging');
+      if (g.type === 'rot') {
+        const d = st.model.byId.get(g.id);
+        if (g.moved && e.type !== 'pointercancel') {
+          cb.onAtribut(d.id, d.atribut);
+        } else if (g.moved) {
+          d.atribut = g.orig;
+          build();
+          layout();
+        }
+        return;
+      }
       if (g.type === 'route') {
         const d = st.model.byId.get(g.id);
         if (g.moved && e.type !== 'pointercancel') {

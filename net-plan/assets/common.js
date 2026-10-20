@@ -2,6 +2,9 @@
 (function () {
   'use strict';
 
+  /** Pola pancaran antena AP/bridge: omni = lingkaran, sektoral = kipas sesuai arah & lebar sektor. */
+  const POLA_OPT = ['', 'Omni (360°)', 'Sektoral'];
+
   /**
    * Jenis perangkat. fields = isian khusus jenis (disimpan di kolom atribut JSON).
    * secret: true -> disamarkan di link lihat-saja (lihat NP_RAHASIA di api/db.php).
@@ -63,7 +66,10 @@
         { k: 'lebar_kanal', label: 'Lebar kanal', type: 'select', options: ['', '20 MHz', '40 MHz', '80 MHz', '160 MHz'] },
         { k: 'tx_power', label: 'TX power', ph: 'mis. 17 dBm / medium' },
         { k: 'maks_user', label: 'Target user', type: 'number', ph: 'klien bersamaan' },
-        { k: 'radius_m', label: 'Radius cakupan (m)', type: 'number', ph: 'untuk lingkaran di denah' },
+        { k: 'radius_m', label: 'Radius / jangkauan (m)', type: 'number', ph: 'untuk ilustrasi cakupan di denah' },
+        { k: 'pola_antena', label: 'Pola pancaran', type: 'select', options: POLA_OPT },
+        { k: 'arah_deg', label: 'Arah sektor (°)', type: 'number', ph: '0 = atas, searah jarum jam' },
+        { k: 'lebar_sektor', label: 'Lebar sektor (°)', type: 'number', ph: 'mis. 60, 90, 120' },
         { k: 'mounting', label: 'Pemasangan', ph: 'mis. tiang 3 m, plafon, tripod' },
         { k: 'controller', label: 'Controller', ph: 'mis. Omada OC200, UniFi cloud, standalone' },
       ],
@@ -83,7 +89,7 @@
       ],
     },
     lan: {
-      label: 'Titik LAN', short: 'LAN', prefix: 'LAN', color: '#d97706',
+      label: 'Titik LAN', short: 'LAN', prefix: 'LAN', color: '#d97706', parent: true, // endpoint terhubung ke titik LAN
       bwLabel: 'Limit bandwidth (Mbps)',
       fields: [
         { k: 'peruntukan', label: 'Peruntukan', ph: 'mis. Booth Vespa, kasir, LED panggung' },
@@ -110,6 +116,20 @@
         { k: 'tujuan', label: 'Tujuan stream', ph: 'mis. NVR SRV-01, YouTube Live' },
       ],
     },
+    endpoint: {
+      label: 'Endpoint (klien)', short: 'EP', prefix: 'EP', color: '#0f766e',
+      bwLabel: 'Limit bandwidth (Mbps)',
+      // Tipe (laptop, PC, printer, pinpad, ...) diambil dari daftar tipe endpoint yang bisa diubah pengguna.
+      fields: [
+        { k: 'tipe_endpoint', label: 'Tipe endpoint', type: 'endpoint' },
+        { k: 'hostname', label: 'Hostname' },
+        { k: 'mac', label: 'MAC address', ph: 'mis. AA:BB:CC:DD:EE:FF' },
+        { k: 'mode_ip', label: 'Mode IP', type: 'select', options: ['', 'DHCP', 'Statis', 'DHCP reserved'] },
+        { k: 'os', label: 'OS / firmware' },
+        { k: 'pengguna', label: 'Pengguna / unit', ph: 'mis. Kasir booth A, Registrasi' },
+        { k: 'aset', label: 'No. aset / SN' },
+      ],
+    },
     lainnya: {
       label: 'Perangkat lain', short: '•', prefix: 'DEV', color: '#64748b',
       bwLabel: 'Bandwidth (Mbps)',
@@ -118,7 +138,7 @@
       ],
     },
   };
-  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'lainnya'];
+  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'endpoint', 'lainnya'];
 
   const STATUS = {
     rencana: { label: 'Rencana', color: '#94a3b8' },
@@ -144,6 +164,141 @@
     gangguan: { label: 'Ada gangguan di jalur', short: 'Gangguan', color: '#d97706', icon: '!' },
     offline: { label: 'Belum terhubung internet', short: 'Belum terhubung', color: '#dc2626', icon: '✕' },
   };
+
+  /**
+   * Isian spesifikasi katalog perangkat. untuk = kategori yang memakai isian ini (kosong = semua).
+   * Nilai PoE memakai standar IEEE (af/at/bt) atau passive; dipakai pemeriksaan PoE & budget daya.
+   */
+  const POE_OPT = ['', 'Tidak', '802.3af (PoE)', '802.3at (PoE+)', '802.3bt (PoE++)', 'Passive 24V', 'Passive 48V'];
+  const SPEC = [
+    { k: 'port_lan', label: 'Port Ethernet', type: 'number', ph: 'jumlah port RJ45' },
+    { k: 'kecepatan_port', label: 'Kecepatan port', type: 'select', options: ['', '100 Mbps', '1 Gbps', '2.5 Gbps', '10 Gbps'] },
+    { k: 'port_sfp', label: 'Port SFP/SFP+', type: 'number', untuk: ['isp', 'router', 'switch', 'server'] },
+    { k: 'poe_in', label: 'Daya masuk (PoE in)', type: 'select', options: POE_OPT.concat(['Adaptor DC']), untuk: ['router', 'switch', 'ap', 'bridge', 'cctv', 'lainnya'] },
+    { k: 'poe_out', label: 'PoE out', type: 'select', options: POE_OPT, untuk: ['router', 'switch'] },
+    { k: 'poe_port', label: 'Jumlah port PoE out', type: 'number', untuk: ['router', 'switch'] },
+    { k: 'poe_budget_w', label: 'Budget PoE (W)', type: 'number', untuk: ['router', 'switch'] },
+    { k: 'daya_w', label: 'Konsumsi daya maks. (W)', type: 'number' },
+    { k: 'throughput_mbps', label: 'Throughput (Mbps)', type: 'number', untuk: ['isp', 'router', 'switch', 'ap', 'bridge'] },
+    { k: 'standar_wifi', label: 'Standar WiFi', type: 'select', options: ['', 'WiFi 4 (802.11n)', 'WiFi 5 (802.11ac)', 'WiFi 6 (802.11ax)', 'WiFi 6E', 'WiFi 7 (802.11be)'], untuk: ['ap', 'bridge', 'router'] },
+    { k: 'band', label: 'Band', type: 'select', options: ['', '2.4 GHz', '5 GHz', '2.4 + 5 GHz', '6 GHz', 'Tri-band', '60 GHz'], untuk: ['ap', 'bridge', 'router'] },
+    { k: 'maks_client', label: 'Klien maks.', type: 'number', untuk: ['ap', 'router'] },
+    { k: 'antena', label: 'Antena / gain', ph: 'mis. 2×2 MIMO, 16 dBi sektor', untuk: ['ap', 'bridge'] },
+    { k: 'pola_antena', label: 'Pola pancaran', type: 'select', options: POLA_OPT, untuk: ['ap', 'bridge'] },
+    { k: 'lebar_beam', label: 'Beamwidth horizontal (°)', type: 'number', ph: 'sektoral, mis. 90', untuk: ['ap', 'bridge'] },
+    { k: 'jarak_maks_m', label: 'Jangkauan link maks. (m)', type: 'number', untuk: ['bridge'] },
+    { k: 'pemasangan', label: 'Bentuk / pemasangan', type: 'select', options: ['', 'Indoor', 'Outdoor (IP65+)', 'Rack 19"', 'Desktop', 'Ceiling / wall'] },
+    { k: 'os', label: 'OS / firmware', ph: 'mis. RouterOS 7, Omada, UniFi', untuk: ['router', 'switch', 'ap', 'bridge', 'server'] },
+  ];
+  const specFields = jenis => SPEC.filter(f => !f.untuk || f.untuk.includes(jenis));
+
+  /** Ringkasan spesifikasi singkat, mis. "8× 1 Gbps + 2 SFP · PoE+ out 8 port 120 W · maks. 15 W". */
+  function specSummary(spec) {
+    const s = spec || {};
+    const out = [];
+    if (s.port_lan || s.port_sfp) {
+      out.push([s.port_lan ? s.port_lan + '×' + (s.kecepatan_port ? ' ' + s.kecepatan_port : ' port') : '', s.port_sfp ? s.port_sfp + ' SFP' : ''].filter(Boolean).join(' + '));
+    }
+    if (s.poe_out && s.poe_out !== 'Tidak') out.push(`PoE out ${s.poe_out.replace(/^802\.3\w+ /, '').replace(/[()]/g, '')}${s.poe_port ? ' ' + s.poe_port + ' port' : ''}${s.poe_budget_w ? ' ' + s.poe_budget_w + ' W' : ''}`);
+    if (s.poe_in && s.poe_in !== 'Tidak') out.push('daya: ' + s.poe_in);
+    if (s.standar_wifi) out.push(s.standar_wifi.replace(/ \(.*\)/, ''));
+    if (s.band) out.push(s.band);
+    if (/^sektor/i.test(s.pola_antena || '')) out.push('sektoral' + (s.lebar_beam ? ' ' + s.lebar_beam + '°' : ''));
+    else if (s.pola_antena) out.push('omni');
+    if (s.throughput_mbps) out.push(fmtBw(s.throughput_mbps));
+    if (s.maks_client) out.push(s.maks_client + ' klien');
+    if (s.daya_w) out.push('maks. ' + s.daya_w + ' W');
+    if (s.pemasangan) out.push(s.pemasangan);
+    return out.join(' · ');
+  }
+
+  /**
+   * Pola pancaran perangkat: null bila omni/tidak diisi, atau {arah, lebar} untuk sektoral.
+   * Arah dalam derajat: 0 = atas denah, searah jarum jam. Lebar bawaan 90°.
+   */
+  function sektor(d) {
+    const a = (d && d.atribut) || {};
+    if (!/^sektor/i.test(a.pola_antena || '')) return null;
+    const lebar = Math.max(5, Math.min(359, parseFloat(a.lebar_sektor) || 90));
+    const arah = ((parseFloat(a.arah_deg) || 0) % 360 + 360) % 360;
+    return { arah, lebar };
+  }
+
+  /** Titik di arah (derajat, 0 = atas, searah jarum jam) sejauh r dari (cx, cy). */
+  function polar(cx, cy, r, deg) {
+    const t = deg * Math.PI / 180;
+    return { x: cx + r * Math.sin(t), y: cy - r * Math.cos(t) };
+  }
+
+  /** Path SVG kipas/sektor berpusat di (cx, cy). */
+  function wedgePath(cx, cy, r, arah, lebar) {
+    const a = polar(cx, cy, r, arah - lebar / 2);
+    const b = polar(cx, cy, r, arah + lebar / 2);
+    const f = n => n.toFixed(1);
+    return `M${f(cx)} ${f(cy)}L${f(a.x)} ${f(a.y)}A${f(r)} ${f(r)} 0 ${lebar > 180 ? 1 : 0} 1 ${f(b.x)} ${f(b.y)}Z`;
+  }
+
+  /**
+   * Ikon endpoint (garis putih, viewBox 24×24). Kunci sama dengan NP_IKON di api/db.php.
+   */
+  const IKON = {
+    laptop: { label: 'Laptop', d: '<rect x="5" y="5" width="14" height="10" rx="1"/><path d="M2.5 19h19l-2-3.5h-15z"/>' },
+    pc: { label: 'Komputer / monitor', d: '<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M9 20h6M12 16v4"/>' },
+    server: { label: 'Server', d: '<rect x="4" y="3" width="16" height="7.5" rx="1.5"/><rect x="4" y="13.5" width="16" height="7.5" rx="1.5"/><path d="M8 6.8h.01M8 17.3h.01M12 6.8h4M12 17.3h4"/>' },
+    printer: { label: 'Printer', d: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="1.5"/><path d="M7 14h10v7H7z"/>' },
+    pinpad: { label: 'Pinpad / EDC', d: '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M9 5.5h6v3H9z"/><path d="M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>' },
+    scanner: { label: 'Scanner', d: '<path d="M3 8V4h4M21 8V4h-4M3 16v4h4M21 16v4h-4"/><path d="M7 8v8M10 8v8M13 8v8M16.5 8v8"/>' },
+    tablet: { label: 'Tablet / kiosk', d: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M11 18h2"/>' },
+    telepon: { label: 'Telepon VoIP', d: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>' },
+    tv: { label: 'TV / display', d: '<rect x="2" y="4" width="20" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/>' },
+    absensi: { label: 'Mesin absensi', d: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 6h6v4H9zM12 13a3 3 0 0 0-3 3v2M15 18v-2a3 3 0 0 0-1.5-2.6"/>' },
+    kamera: { label: 'Kamera', d: '<path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/>' },
+    umum: { label: 'Perangkat umum', d: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/>' },
+  };
+
+  /** SVG ikon endpoint; size dalam px, color = warna garis. */
+  function ikonSvg(key, size, color) {
+    const i = IKON[key] || IKON.umum;
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="${color || '#fff'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${i.d}</svg>`;
+  }
+
+  /** Daftar tipe endpoint dari server (diisi app.js): [{id, nama, singkatan, ikon, warna, prefix}]. */
+  const ET = [];
+  function setEndpointTipe(list) {
+    ET.length = 0;
+    (list || []).forEach(t => ET.push(t));
+  }
+
+  /** Tipe endpoint perangkat, atau null. */
+  function tipeEp(d) {
+    if (!d || d.jenis !== 'endpoint') return null;
+    const id = parseInt(d.atribut && d.atribut.tipe_endpoint, 10);
+    return ET.find(t => t.id === id) || null;
+  }
+
+  /** Tampilan titik perangkat {color, short, label}: endpoint memakai warna & singkatan tipenya. */
+  function tampil(d) {
+    const t = TYPES[d.jenis] || TYPES.lainnya;
+    const e = tipeEp(d);
+    // Endpoint: kotak berikon (tipe tanpa data -> ikon umum); perangkat infrastruktur: lingkaran berteks.
+    if (d.jenis === 'endpoint') {
+      return e ? { color: e.warna, short: e.singkatan, label: e.nama, prefix: e.prefix, ikon: e.ikon || 'umum' }
+        : { color: t.color, short: t.short, label: t.label, prefix: t.prefix, ikon: 'umum' };
+    }
+    return { color: t.color, short: t.short, label: t.label, prefix: t.prefix };
+  }
+
+  /** Kelas PoE: 0 = tidak ada, 1 af, 2 at, 3 bt, 'p24'/'p48' passive, null = tidak diketahui. */
+  function poeKelas(v) {
+    if (!v) return null;
+    const s = String(v);
+    if (/tidak|adaptor/i.test(s)) return 0;
+    if (/bt|\+\+/i.test(s)) return 3;
+    if (/at|\+/i.test(s)) return 2;
+    if (/af|^poe$/i.test(s)) return 1;
+    if (/passive/i.test(s)) return /48/.test(s) ? 'p48' : 'p24';
+    return null;
+  }
 
   /** Panggil API; lempar Error berisi pesan server bila gagal. body: objek (JSON) atau FormData. */
   async function api(url, body) {
@@ -267,5 +422,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

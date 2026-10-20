@@ -3,6 +3,13 @@
 -- mengimpor manual lewat phpMyAdmin / mysql:  mysql -uroot extradata < net-plan/database/netplan.sql
 -- Sengaja tanpa CREATE DATABASE / USE agar bisa diimpor di hosting (cPanel) yang nama databasenya berawalan.
 
+-- Info aplikasi, mis. versi struktur tabel (k = 'schema'). Dipakai migrasi otomatis setelah deploy.
+CREATE TABLE IF NOT EXISTS np_meta (
+  k               VARCHAR(40)  NOT NULL,
+  v               VARCHAR(255) NOT NULL DEFAULT '',
+  PRIMARY KEY (k)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Satu proyek = satu event/venue beserta denahnya.
 CREATE TABLE IF NOT EXISTS np_proyek (
   id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -43,6 +50,7 @@ CREATE TABLE IF NOT EXISTS np_perangkat (
   catatan         TEXT NULL,                         -- keterangan konfigurasi
   atribut         TEXT NULL,                         -- JSON: isian khusus per jenis (SSID, channel, provider, ...)
   jalur           TEXT NULL,                         -- JSON bentuk kabel ke uplink: {"m":"h|v|bebas","p":[[x,y],...]}; NULL = lurus
+  katalog_id      INT UNSIGNED NULL,                 -- alat dari np_katalog (NULL = diisi manual)
   x              DOUBLE NOT NULL DEFAULT 0,         -- posisi di denah (piksel gambar)
   y               DOUBLE NOT NULL DEFAULT 0,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -50,6 +58,41 @@ CREATE TABLE IF NOT EXISTS np_perangkat (
   PRIMARY KEY (id),
   KEY idx_np_perangkat_proyek (proyek_id),
   KEY idx_np_perangkat_uplink (uplink_id),
+  KEY idx_np_perangkat_katalog (katalog_id),
   CONSTRAINT fk_np_perangkat_proyek FOREIGN KEY (proyek_id) REFERENCES np_proyek (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
--- Kolom yang ditambahkan pada versi berikutnya ditambahkan otomatis oleh api/admin.php (install_schema).
+-- Tabel yang sudah ada dari versi lama tidak diubah oleh CREATE di atas: kolom/index baru ditambahkan oleh
+-- np_install_schema() di api/db.php (idempoten). Kolom baru: tambahkan di CREATE DAN di fungsi tersebut.
+
+-- Tipe endpoint (laptop, PC, printer, pinpad, ...) yang bisa diubah & ditambah pengguna. Perangkat berjenis "endpoint"
+-- menyimpan id tipenya di atribut "tipe_endpoint". Tipe bawaan diisi np_install_schema() saat tabel baru dibuat.
+CREATE TABLE IF NOT EXISTS np_endpoint_tipe (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  nama            VARCHAR(60)  NOT NULL,
+  singkatan       VARCHAR(4)   NOT NULL,             -- teks di titik denah, mis. LPT
+  ikon            VARCHAR(20)  NOT NULL DEFAULT '',  -- ikon di titik denah: laptop, pc, printer, scanner, pinpad, server, ...
+  warna           VARCHAR(7)   NOT NULL DEFAULT '#0f766e',
+  prefix          VARCHAR(12)  NOT NULL,             -- awalan nama otomatis, mis. LPT -> LPT-01
+  urutan          SMALLINT     NOT NULL DEFAULT 0,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_np_endpoint_tipe_nama (nama)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Katalog perangkat (berlaku untuk semua event): alat yang dimiliki/dipakai beserta spesifikasi & konfigurasi standar.
+CREATE TABLE IF NOT EXISTS np_katalog (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  jenis           VARCHAR(20)  NOT NULL,             -- kategori, sama dengan np_perangkat.jenis
+  merek           VARCHAR(80)  NOT NULL DEFAULT '',
+  model           VARCHAR(120) NOT NULL,             -- tipe/seri, mis. RB5009UG+S+IN
+  stok            INT UNSIGNED NULL,                 -- jumlah unit tersedia (NULL = tidak dicatat)
+  spesifikasi     TEXT NULL,                         -- JSON: port, PoE, daya, throughput, standar WiFi, ...
+  konfigurasi     TEXT NULL,                         -- JSON: nilai standar isian khusus jenis (SSID, keamanan, ...)
+  bandwidth_mbps  DECIMAL(10,2) NULL,                -- nilai bandwidth standar
+  catatan_konfig  TEXT NULL,                         -- template keterangan konfigurasi
+  keterangan      TEXT NULL,                         -- catatan katalog (lokasi gudang, aksesoris, ...)
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_np_katalog_jenis (jenis)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

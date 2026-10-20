@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=8">
+<link rel="stylesheet" href="assets/np.css?v=13">
 </head>
 <body>
 
@@ -41,9 +41,32 @@
       <h1>Event</h1>
       <p class="muted">Setiap event berisi denah venue dan titik-titik jaringannya.</p>
     </div>
-    <button type="button" class="primary" id="btn-new">+ Event baru</button>
+    <div class="btn-row">
+      <a class="btn" href="#/katalog">Katalog perangkat</a>
+      <button type="button" class="primary" id="btn-new">+ Event baru</button>
+    </div>
   </div>
   <div class="proj-grid" id="proj-grid"></div>
+</main>
+
+<!-- Katalog perangkat (standar alat untuk semua event) -->
+<main id="katalog-page" class="home" hidden>
+  <div class="home-head">
+    <div>
+      <h1>Katalog perangkat</h1>
+      <p class="muted">Daftar alat standar per kategori: spesifikasi (port, PoE, daya), stok, dan konfigurasi standar. Dipilih saat menaruh perangkat di denah.</p>
+    </div>
+    <div class="btn-row">
+      <button type="button" id="kat-ep">Tipe endpoint</button>
+      <button type="button" id="kat-csv">Unduh CSV</button>
+      <button type="button" class="primary" id="kat-new">+ Tambah alat</button>
+    </div>
+  </div>
+  <div class="kat-tools">
+    <div class="chips" id="kat-chips"></div>
+    <input type="search" id="kat-q" placeholder="Cari merek, tipe, spesifikasi…">
+  </div>
+  <div id="kat-list"></div>
 </main>
 
 <!-- Editor satu event -->
@@ -61,6 +84,7 @@
       <div class="peta-area">
         <svg id="map" class="map"></svg>
         <div class="map-hint" id="map-hint" hidden></div>
+        <div class="ep-picker" id="ep-picker" hidden></div>
         <div class="map-ctrl">
           <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
           <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
@@ -96,6 +120,7 @@
         <input type="search" id="list-q" placeholder="Cari nama, IP, SSID, merek, keterangan…">
         <select id="list-jenis"><option value="">Semua jenis</option></select>
         <select id="list-status"><option value="">Semua status</option></select>
+        <select id="list-koneksi"><option value="">Semua koneksi</option></select>
         <span class="spacer"></span>
         <button type="button" id="btn-csv">Unduh CSV</button>
         <button type="button" id="btn-export">Ekspor JSON</button>
@@ -103,6 +128,14 @@
         <button type="button" id="btn-rapikan" class="edit-only" title="Namai ulang anggota setiap group bernama agar berurutan">Rapikan nama</button>
         <button type="button" id="btn-del-all" class="edit-only danger">Hapus semua…</button>
         <input type="file" id="import-file" accept=".json,application/json" hidden>
+      </div>
+      <div class="bulk-bar edit-only" id="bulk-bar" hidden>
+        <b id="bulk-n"></b>
+        <span class="spacer"></span>
+        <button type="button" class="small" id="bulk-all">Pilih semua yang tampil</button>
+        <button type="button" class="small" id="bulk-unlink" title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
+        <button type="button" class="small danger" id="bulk-del">Hapus terpilih</button>
+        <button type="button" class="small" id="bulk-clear">Batal pilih</button>
       </div>
       <div class="table-wrap"><table class="dev-table" id="dev-table"></table></div>
     </div>
@@ -150,6 +183,49 @@
   </form>
 </dialog>
 
+<!-- Dialog item katalog -->
+<dialog id="dlg-kat" class="dlg dlg-wide">
+  <form method="dialog" id="form-kat" autocomplete="off">
+    <h2 id="dlg-kat-title">Tambah alat</h2>
+    <div class="fgrid3">
+      <label class="field"><span>Kategori</span><select name="jenis" id="kat-jenis"></select></label>
+      <label class="field"><span>Merek</span><input type="text" name="merek" maxlength="80" placeholder="mis. MikroTik, TP-Link, Ubiquiti"></label>
+      <label class="field"><span>Tipe / model *</span><input type="text" name="model" maxlength="120" required placeholder="mis. RB5009UG+S+IN"></label>
+      <label class="field"><span>Stok (unit)</span><input type="number" name="stok" min="0" step="1" placeholder="kosong = tidak dicatat"></label>
+    </div>
+    <h3 class="sec-title">Spesifikasi</h3>
+    <div class="fgrid3" id="kat-spec"></div>
+    <h3 class="sec-title">Konfigurasi standar <small class="muted">diisikan otomatis ke perangkat yang memakai alat ini</small></h3>
+    <div class="fgrid3" id="kat-konf"></div>
+    <label class="field"><span>Template keterangan konfigurasi</span>
+      <textarea name="catatan_konfig" rows="5" class="mono" placeholder="mis.&#10;- Band steering ON, client isolation ON&#10;- Minimum RSSI -75 dBm&#10;- Firmware minimal 1.2.3"></textarea></label>
+    <label class="field"><span>Keterangan katalog</span>
+      <textarea name="keterangan" rows="2" placeholder="mis. lokasi gudang, aksesoris (adaptor, bracket), nomor aset"></textarea></label>
+    <div class="btn-row end">
+      <button type="button" data-close>Batal</button>
+      <button type="submit" class="primary">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Dialog kelola tipe endpoint -->
+<dialog id="dlg-ep" class="dlg dlg-wide">
+  <div class="dlg-head">
+    <h2>Tipe endpoint</h2>
+    <button type="button" class="icon" data-close aria-label="Tutup">✕</button>
+  </div>
+  <p class="muted small">Tipe perangkat klien (laptop, PC, printer, scanner, …) yang terhubung ke titik LAN. <b>Ikon</b> &amp; warna tampil di titik denah, <b>prefix</b> dipakai untuk nama otomatis (mis. PRN → PRN-01). Perubahan tersimpan otomatis.</p>
+  <div class="ep-table" id="ep-rows"></div>
+  <form class="ep-row ep-new" id="ep-new" autocomplete="off">
+    <input type="color" name="warna" value="#0f766e" aria-label="Warna">
+    <input type="text" name="nama" maxlength="60" placeholder="Tipe baru, mis. Access control" required aria-label="Nama tipe">
+    <input type="text" name="singkatan" maxlength="4" placeholder="ACS" required aria-label="Singkatan">
+    <input type="text" name="prefix" maxlength="12" placeholder="prefix" aria-label="Prefix nama">
+    <select name="ikon" id="ep-new-ikon" aria-label="Ikon"></select>
+    <button type="submit" class="primary small">+ Tambah</button>
+  </form>
+</dialog>
+
 <!-- Dialog cetak / unduh laporan -->
 <dialog id="dlg-print" class="dlg">
   <form method="dialog" id="form-print">
@@ -179,10 +255,11 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=8"></script>
-<script src="assets/common.js?v=8"></script>
-<script src="assets/analisis.js?v=8"></script>
-<script src="assets/peta.js?v=8"></script>
-<script src="assets/app.js?v=8"></script>
+<script src="vendor/qrcode.min.js?v=13"></script>
+<script src="assets/common.js?v=13"></script>
+<script src="assets/analisis.js?v=13"></script>
+<script src="assets/peta.js?v=13"></script>
+<script src="assets/katalog.js?v=13"></script>
+<script src="assets/app.js?v=13"></script>
 </body>
 </html>

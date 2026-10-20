@@ -17,6 +17,12 @@
  * POST {"action":"perangkat_save", id? | proyek_id, ...isian}  -> isian yang dikirim saja yang diubah
  * POST {"action":"perangkat_delete","ids":[N,...]}
  * POST {"action":"perangkat_rename","items":[{"id":N,"nama":"..."},...]}  -> ganti nama massal (penamaan group)
+ * GET  ?action=katalog_list[&proyek_id=N]  -> katalog perangkat + jumlah pemakaian (semua event / event N)
+ * POST {"action":"katalog_save", id?, jenis, merek, model, stok, spesifikasi:{}, konfigurasi:{}, bandwidth_mbps, catatan_konfig, keterangan}
+ * POST {"action":"katalog_delete","id":N}   -> perangkat yang memakainya dilepas dari katalog (data tetap)
+ * GET  ?action=endpoint_tipe_list           -> tipe endpoint (laptop, PC, printer, ...) + jumlah pemakaian
+ * POST {"action":"endpoint_tipe_save", id?, nama, singkatan, ikon, warna, prefix}
+ * POST {"action":"endpoint_tipe_delete","id":N}  -> ditolak bila masih dipakai perangkat
  * POST {"action":"perangkat_hapus_semua","id":N}  -> hapus semua perangkat event (event & denah tetap)
  * POST {"action":"perangkat_import","proyek_id":N,"perangkat":[...]} -> tambah perangkat dari file ekspor JSON
  *
@@ -61,10 +67,6 @@ if ($action === 'logout' && $method === 'POST') {
 
 if (!$loggedIn) {
     json_error('Silakan login terlebih dahulu', 401, ['login' => false]);
-}
-// Sesi yang login sebelum aplikasi diperbarui: perbarui struktur tabel sekali.
-if (!isset($_SESSION['np_schema']) || $_SESSION['np_schema'] < NP_SCHEMA) {
-    install_schema();
 }
 // Sesi PHP hanya dibaca setelah ini, jadi lepaskan kuncinya agar request admin lain tidak antre.
 session_write_close();
@@ -157,6 +159,116 @@ switch ($method . ' ' . $action) {
         $pdo->commit();
         json_out(['ok' => true]);
 
+    case 'GET katalog_list':
+        // Semua katalog + jumlah pemakaian (semua event & event tertentu bila proyek_id diberikan).
+        $pid = isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0;
+        $st = $pdo->prepare('SELECT k.*,
+                (SELECT COUNT(*) FROM np_perangkat d WHERE d.katalog_id = k.id) AS dipakai,
+                (SELECT COUNT(*) FROM np_perangkat d WHERE d.katalog_id = k.id AND d.proyek_id = ?) AS dipakai_event
+            FROM np_katalog k ORDER BY k.jenis, k.merek, k.model');
+        $st->execute([$pid]);
+        $out = [];
+        foreach ($st->fetchAll() as $r) {
+            $pakai = (int) $r['dipakai'];
+            $pakaiEvent = (int) $r['dipakai_event'];
+            unset($r['dipakai'], $r['dipakai_event']);
+            $out[] = katalog_row($r) + ['dipakai' => $pakai, 'dipakai_event' => $pakaiEvent];
+        }
+        json_out(['ok' => true, 'katalog' => $out]);
+
+    case 'POST katalog_save':
+        $jenis = isset($req['jenis']) ? (string) $req['jenis'] : '';
+        if (!in_array($jenis, NP_JENIS, true)) {
+            json_error('Kategori tidak dikenal');
+        }
+        $stok = isset($req['stok']) && $req['stok'] !== '' && $req['stok'] !== null ? $req['stok'] : null;
+        if ($stok !== null && (!is_numeric($stok) || $stok < 0 || $stok > 100000)) {
+            json_error('Stok harus angka 0–100000');
+        }
+        $bw = isset($req['bandwidth_mbps']) && $req['bandwidth_mbps'] !== '' && $req['bandwidth_mbps'] !== null ? $req['bandwidth_mbps'] : null;
+        if ($bw !== null && (!is_numeric($bw) || $bw < 0 || $bw >= 100000000)) {
+            json_error('Bandwidth harus angka (Mbps)');
+        }
+        $data = [
+            'jenis' => $jenis,
+            'merek' => str_field($req, 'merek', 80, false, 'Merek'),
+            'model' => str_field($req, 'model', 120, true, 'Tipe / model'),
+            'stok' => $stok === null ? null : (int) $stok,
+            'spesifikasi' => atribut_json(isset($req['spesifikasi']) ? $req['spesifikasi'] : []),
+            'konfigurasi' => atribut_json(isset($req['konfigurasi']) ? $req['konfigurasi'] : []),
+            'bandwidth_mbps' => $bw === null ? null : round((float) $bw, 2),
+            'catatan_konfig' => text_field($req, 'catatan_konfig', 20000, 'Template konfigurasi'),
+            'keterangan' => text_field($req, 'keterangan', 5000, 'Keterangan'),
+        ];
+        if ($id) {
+            find_katalog($id);
+            $cols = implode(', ', array_map(function ($k) { return "$k = ?"; }, array_keys($data)));
+            $pdo->prepare("UPDATE np_katalog SET $cols WHERE id = ?")->execute(array_merge(array_values($data), [$id]));
+        } else {
+            $cols = implode(', ', array_keys($data));
+            $qs = implode(', ', array_fill(0, count($data), '?'));
+            $pdo->prepare("INSERT INTO np_katalog ($cols) VALUES ($qs)")->execute(array_values($data));
+            $id = (int) $pdo->lastInsertId();
+        }
+        json_out(['ok' => true, 'katalog' => katalog_row(find_katalog($id))]);
+
+    case 'POST katalog_delete':
+        find_katalog($id);
+        $pdo->beginTransaction();
+        // Perangkat di event tetap ada (nama alat & konfigurasi tidak berubah), hanya lepas dari katalog.
+        $pdo->prepare('UPDATE np_perangkat SET katalog_id = NULL WHERE katalog_id = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM np_katalog WHERE id = ?')->execute([$id]);
+        $pdo->commit();
+        json_out(['ok' => true]);
+
+    case 'GET endpoint_tipe_list':
+        $list = endpoint_tipe_list();
+        foreach ($list as &$t) {
+            $t['dipakai'] = endpoint_dipakai($t['id']);
+        }
+        json_out(['ok' => true, 'endpoint_tipe' => $list]);
+
+    case 'POST endpoint_tipe_save':
+        $nama = str_field($req, 'nama', 60, true, 'Nama tipe');
+        $singkat = strtoupper(str_field($req, 'singkatan', 4, true, 'Singkatan'));
+        $warna = isset($req['warna']) ? strtolower(trim((string) $req['warna'])) : '';
+        $prefix = strtoupper(str_field($req, 'prefix', 12, false, 'Prefix nama'));
+        $ikon = isset($req['ikon']) && in_array($req['ikon'], NP_IKON, true) ? $req['ikon'] : 'umum';
+        if ($prefix === '') {
+            $prefix = $singkat;
+        }
+        if (!preg_match('/^[A-Z0-9]{1,4}$/', $singkat)) {
+            json_error('Singkatan 1–4 huruf/angka');
+        }
+        if (!preg_match('/^#[0-9a-f]{6}$/', $warna)) {
+            json_error('Warna tidak valid');
+        }
+        if (!preg_match('/^[A-Z0-9][A-Z0-9-]{0,11}$/', $prefix)) {
+            json_error('Prefix nama hanya huruf, angka, dan tanda -');
+        }
+        $st = $pdo->prepare('SELECT id FROM np_endpoint_tipe WHERE nama = ? AND id <> ?');
+        $st->execute([$nama, $id]);
+        if ($st->fetch()) {
+            json_error('Tipe "' . $nama . '" sudah ada');
+        }
+        if ($id) {
+            $pdo->prepare('UPDATE np_endpoint_tipe SET nama = ?, singkatan = ?, ikon = ?, warna = ?, prefix = ? WHERE id = ?')
+                ->execute([$nama, $singkat, $ikon, $warna, $prefix, $id]);
+        } else {
+            $urut = (int) $pdo->query('SELECT COALESCE(MAX(urutan), 0) + 1 FROM np_endpoint_tipe')->fetchColumn();
+            $pdo->prepare('INSERT INTO np_endpoint_tipe (nama, singkatan, ikon, warna, prefix, urutan) VALUES (?, ?, ?, ?, ?, ?)')
+                ->execute([$nama, $singkat, $ikon, $warna, $prefix, $urut]);
+        }
+        json_out(['ok' => true, 'endpoint_tipe' => endpoint_tipe_list()]);
+
+    case 'POST endpoint_tipe_delete':
+        $n = endpoint_dipakai($id);
+        if ($n) {
+            json_error("Tipe ini masih dipakai $n perangkat. Ganti tipe perangkat tersebut dulu.");
+        }
+        $pdo->prepare('DELETE FROM np_endpoint_tipe WHERE id = ?')->execute([$id]);
+        json_out(['ok' => true, 'endpoint_tipe' => endpoint_tipe_list()]);
+
     case 'POST perangkat_rename':
         // Ganti nama banyak perangkat sekaligus (penamaan per group). items: [{id, nama}, ...]
         $items = isset($req['items']) && is_array($req['items']) ? $req['items'] : [];
@@ -224,27 +336,10 @@ function login($password)
         usleep(800000); // perlambat tebak-tebakan password
         json_error('Password salah', 401);
     }
-    install_schema();
+    db(); // struktur tabel dibuat/diperbarui otomatis di db() (lihat np_migrasi_otomatis)
     session_regenerate_id(true);
     $_SESSION['np_admin'] = 1;
     json_out(['ok' => true, 'login' => true]);
-}
-
-function install_schema()
-{
-    $sql = (string) file_get_contents(__DIR__ . '/../database/netplan.sql');
-    $sql = preg_replace('/--[^\n]*/', '', $sql);
-    foreach (preg_split('/;\s*(\r?\n|$)/', $sql) as $stmt) {
-        if (trim($stmt) !== '') {
-            db()->exec($stmt);
-        }
-    }
-    // Tabel dari versi lama: tambahkan kolom baru (cara ini jalan di MySQL maupun MariaDB).
-    $cols = db()->query('SHOW COLUMNS FROM np_perangkat')->fetchAll(PDO::FETCH_COLUMN);
-    if (!in_array('jalur', $cols, true)) {
-        db()->exec('ALTER TABLE np_perangkat ADD COLUMN jalur TEXT NULL AFTER atribut');
-    }
-    $_SESSION['np_schema'] = NP_SCHEMA;
 }
 
 function find_proyek($id)
@@ -256,6 +351,36 @@ function find_proyek($id)
         json_error('Proyek tidak ditemukan', 404);
     }
     return $p;
+}
+
+/** Jumlah perangkat (semua event) yang memakai tipe endpoint ini; id disimpan di atribut JSON "tipe_endpoint". */
+function endpoint_dipakai($tipeId)
+{
+    $st = db()->prepare("SELECT COUNT(*) FROM np_perangkat WHERE jenis = 'endpoint' AND atribut LIKE ?");
+    $st->execute(['%"tipe_endpoint":"' . (int) $tipeId . '"%']);
+    return (int) $st->fetchColumn();
+}
+
+function find_katalog($id)
+{
+    $st = db()->prepare('SELECT * FROM np_katalog WHERE id = ?');
+    $st->execute([$id]);
+    $k = $st->fetch();
+    if (!$k) {
+        json_error('Item katalog tidak ditemukan', 404);
+    }
+    return $k;
+}
+
+/** Id katalog yang benar-benar ada, atau null. */
+function katalog_id_valid($v)
+{
+    if ($v === null || $v === '' || !is_numeric($v)) {
+        return null;
+    }
+    $st = db()->prepare('SELECT id FROM np_katalog WHERE id = ?');
+    $st->execute([(int) $v]);
+    return $st->fetchColumn() ? (int) $v : null;
 }
 
 function date_field($arr, $key)
@@ -406,6 +531,13 @@ function simpan_perangkat($req)
     if ($has('jalur')) {
         $set['jalur'] = jalur_json(isset($req['jalur']) ? $req['jalur'] : null);
     }
+    if ($has('katalog_id')) {
+        $kid = isset($req['katalog_id']) ? $req['katalog_id'] : null;
+        $set['katalog_id'] = katalog_id_valid($kid);
+        if ($kid !== null && $kid !== '' && $set['katalog_id'] === null) {
+            json_error('Item katalog tidak ditemukan');
+        }
+    }
     foreach (['x', 'y'] as $k) {
         if ($has($k)) {
             $v = isset($req[$k]) && is_numeric($req[$k]) ? (float) $req[$k] : 0;
@@ -522,7 +654,7 @@ function salin_perangkat($proyekId, $list)
     $map = [];
     $uplinks = [];
     $ins = $pdo->prepare('INSERT INTO np_perangkat (proyek_id, jenis, nama, model, ip, vlan, port_uplink, port_lokal, media,
-        bandwidth_mbps, status, pic, catatan, atribut, jalur, x, y) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        bandwidth_mbps, status, pic, catatan, atribut, jalur, katalog_id, x, y) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     foreach ($list as $d) {
         if (!is_array($d)) {
             continue;
@@ -541,6 +673,7 @@ function salin_perangkat($proyekId, $list)
             text_field($d, 'catatan', 20000),
             atribut_json(isset($d['atribut']) ? $d['atribut'] : []),
             jalur_json(isset($d['jalur']) ? $d['jalur'] : null),
+            katalog_id_valid(isset($d['katalog_id']) ? $d['katalog_id'] : null),
             isset($d['x']) && is_numeric($d['x']) ? (float) $d['x'] : 0,
             isset($d['y']) && is_numeric($d['y']) ? (float) $d['y'] : 0,
         ]);

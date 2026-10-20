@@ -18,6 +18,11 @@
     parentCtx: null, // perangkat induk bawaan saat menaruh perangkat baru
     sort: { k: 'jenis', dir: 1 },
     loadedAt: 0,
+    katalog: [], // item katalog perangkat (admin: semua; lihat-saja: yang dipakai event ini)
+    katalogBasi: false, // katalog diubah di halaman Katalog -> muat ulang saat kembali ke editor
+    epTipe: null, // tipe endpoint yang dipakai saat menaruh endpoint baru
+    pilih: new Set(), // perangkat terpilih di Daftar perangkat (aksi massal)
+    urutDaftar: [], // urutan baris Daftar saat ini (untuk Shift+klik)
   };
 
   // ======================================================================== simpan (antrean berurutan)
@@ -79,7 +84,7 @@
 
   function refreshModel(opts) {
     opts = opts || {};
-    S.model = NP.Model.create(S.proyek, S.list);
+    S.model = NP.Model.create(S.proyek, S.list, S.katalog);
     if (S.sel != null && !S.model.byId.has(S.sel)) S.sel = null;
     if (S.parentCtx != null && !S.model.byId.has(S.parentCtx)) S.parentCtx = null;
     peta.setData(S.model, denahUrl());
@@ -109,11 +114,27 @@
     S.proyek = res.proyek;
     S.list = res.perangkat;
     S.loadedAt = Date.now();
+    NP.setEndpointTipe(res.endpoint_tipe);
+    if (S.lihat) {
+      S.katalog = res.katalog || [];
+    } else if (changed || S.katalogBasi || !S.katalog.length) {
+      await muatKatalog();
+    }
     if (changed) {
       S.sel = null;
       S.parentCtx = null;
     }
     return changed;
+  }
+
+  /** Katalog lengkap (admin). Gagal memuat katalog tidak menghalangi editor. */
+  async function muatKatalog() {
+    try {
+      S.katalog = await NP.Katalog.load(S.proyek && S.proyek.id);
+      S.katalogBasi = false;
+    } catch (e) {
+      S.katalog = S.katalog || [];
+    }
   }
 
   async function reloadProyek() {
@@ -201,6 +222,7 @@
 
   /** #/ = daftar event, #/p/ID[/tab] = editor. */
   async function route() {
+    if (/^#\/katalog/.test(location.hash)) return showKatalog();
     const m = location.hash.match(/^#\/p\/(\d+)(?:\/(\w+))?/);
     if (!m) {
       S.proyek = null;
@@ -211,6 +233,7 @@
     const tab = ['denah', 'daftar', 'topologi', 'proyek'].includes(m[2]) ? m[2] : 'denah';
     try {
       if (!S.proyek || S.proyek.id !== id) await loadProyek(id);
+      else if (S.katalogBasi) await muatKatalog();
     } catch (e) {
       if (e.status === 401) return showLogin();
       toast(e.message, true);
@@ -232,8 +255,30 @@
 
   // ======================================================================== daftar event
 
+  /** Halaman katalog perangkat (#/katalog). */
+  async function showKatalog() {
+    $('#editor').hidden = true;
+    $('#home').hidden = true;
+    $('#katalog-page').hidden = false;
+    $('#btn-print').hidden = true;
+    $('#save-state').textContent = '';
+    document.title = 'Katalog perangkat — Net Plan';
+    $('#crumb').innerHTML = '<a href="#/" title="Semua event"><span class="hide-phone">Semua event</span><span class="show-phone">←</span></a><span class="sep hide-phone">/</span><b>Katalog perangkat</b>';
+    try {
+      // Tipe endpoint dipakai di isian konfigurasi standar kategori Endpoint.
+      if (!NP.ET.length) NP.setEndpointTipe((await api(API + '?action=endpoint_tipe_list')).endpoint_tipe);
+      await NP.Katalog.show(list => {
+        S.katalog = list;
+        S.katalogBasi = true;
+      });
+    } catch (e) {
+      if (e.status === 401) showLogin();
+    }
+  }
+
   async function showHome() {
     $('#editor').hidden = true;
+    $('#katalog-page').hidden = true;
     $('#home').hidden = false;
     $('#btn-print').hidden = true;
     $('#save-state').textContent = '';
@@ -349,6 +394,7 @@
 
   function showEditor() {
     $('#home').hidden = true;
+    $('#katalog-page').hidden = true;
     $('#editor').hidden = false;
     $('#btn-print').hidden = false;
     renderCrumb();
@@ -391,6 +437,10 @@
     onUnlink(id) {
       putusKoneksi(id);
     },
+    onAtribut(id, atribut) {
+      // Arah sektor AP diputar di denah -> isian "Arah sektor" di panel ikut diperbarui.
+      saveDev(id, { atribut }).catch(() => {});
+    },
     onRoute(id, jalur) {
       saveDev(id, { jalur }, { keepPanel: true }).catch(() => {});
     },
@@ -422,16 +472,149 @@
   }
 
   /** Nama otomatis: AP-01, AP-02, ... (lanjut dari nomor terbesar). */
-  function nextName(jenis) {
-    const pre = (TYPES[jenis] || TYPES.lainnya).prefix;
+  function nextName(jenis, prefix) {
+    const pre = prefix || (TYPES[jenis] || TYPES.lainnya).prefix;
     let max = 0;
-    const re = new RegExp('^' + pre + '-?(\\d+)$', 'i');
+    const re = new RegExp('^' + pre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-?(\\d+)$', 'i');
     for (const d of S.list) {
       const m = d.nama.match(re);
       if (m) max = Math.max(max, +m[1]);
     }
     return pre + '-' + String(max + 1).padStart(2, '0');
   }
+
+  // ------------------------------------------------------------------------ tipe endpoint
+
+  /** Tipe endpoint berubah: perbarui pemilih, panel, peta, dan daftar. */
+  function epBerubah(list) {
+    NP.setEndpointTipe(list);
+    if (S.epTipe != null && !NP.ET.some(t => t.id === S.epTipe)) S.epTipe = null;
+    renderEpRows();
+    if (S.proyek && !$('#editor').hidden) refreshModel();
+    renderEpPicker();
+  }
+
+  async function bukaKelolaEp() {
+    if (S.lihat) return;
+    try {
+      const res = await api(API + '?action=endpoint_tipe_list');
+      NP.setEndpointTipe(res.endpoint_tipe);
+      epDipakai = new Map(res.endpoint_tipe.map(t => [t.id, t.dipakai]));
+    } catch (e) {
+      return toast(e.message, true);
+    }
+    renderEpRows();
+    $('#dlg-ep').showModal();
+  }
+  let epDipakai = new Map();
+
+  function ikonOptions(pilih) {
+    return Object.keys(NP.IKON).map(k => `<option value="${k}"${k === (pilih || 'umum') ? ' selected' : ''}>${esc(NP.IKON[k].label)}</option>`).join('');
+  }
+  $('#ep-new-ikon').innerHTML = ikonOptions('umum');
+
+  /**
+   * Uplink endpoint baru: titik LAN yang sedang dipilih, atau titik LAN terdekat dari posisi klik.
+   * Bila event belum punya titik LAN, pakai perangkat induk yang dipilih (mis. switch).
+   */
+  function lanUntukEndpoint(x, y) {
+    const pilih = S.parentCtx != null && S.model.byId.get(S.parentCtx);
+    if (pilih && pilih.jenis === 'lan') return { lan: pilih, cara: 'dipilih' };
+    let best = null;
+    for (const d of S.list) {
+      if (d.jenis !== 'lan') continue;
+      const jarak = Math.hypot(d.x - x, d.y - y);
+      if (!best || jarak < best.jarak) best = { lan: d, jarak };
+    }
+    return best ? { lan: best.lan, cara: 'terdekat' } : null;
+  }
+
+  /** Port terkecil yang belum dipakai perangkat lain di uplink tersebut (1, 2, 3, ...). */
+  function portKosong(parentId) {
+    const pakai = new Set(S.model.kids(parentId).map(c => parseInt(c.port_uplink, 10)).filter(n => n > 0));
+    let n = 1;
+    while (pakai.has(n)) n++;
+    return String(n);
+  }
+
+  function renderEpRows() {
+    const box = $('#ep-rows');
+    if (!box) return;
+    box.innerHTML = NP.ET.length ? NP.ET.map(t => `<form class="ep-row" data-id="${t.id}" autocomplete="off">
+        <input type="color" name="warna" value="${esc(t.warna)}" aria-label="Warna">
+        <input type="text" name="nama" maxlength="60" value="${esc(t.nama)}" required aria-label="Nama tipe">
+        <input type="text" name="singkatan" maxlength="4" value="${esc(t.singkatan)}" required aria-label="Singkatan">
+        <input type="text" name="prefix" maxlength="12" value="${esc(t.prefix)}" aria-label="Prefix nama">
+        <select name="ikon" aria-label="Ikon">${ikonOptions(t.ikon)}</select>
+        <span class="ep-prev"><i style="background:${esc(t.warna)}">${NP.ikonSvg(t.ikon, 16)}</i><small class="muted">${epDipakai.get(t.id) || 0} dipakai</small></span>
+        <button type="button" class="small danger" data-ep-del title="Hapus tipe">✕</button>
+      </form>`).join('') : '<p class="muted">Belum ada tipe. Tambahkan di bawah.</p>';
+  }
+
+  async function simpanEp(form, id) {
+    const f = form.elements;
+    const body = { action: 'endpoint_tipe_save', id, nama: f.nama.value, singkatan: f.singkatan.value, warna: f.warna.value, prefix: f.prefix.value, ikon: f.ikon.value };
+    try {
+      const res = await api(API, body);
+      epBerubah(res.endpoint_tipe);
+      return true;
+    } catch (err) {
+      toast(err.message, true);
+      return false;
+    }
+  }
+
+  // Baris tipe: simpan otomatis saat isian berubah.
+  $('#ep-rows').addEventListener('change', e => {
+    const form = e.target.closest('.ep-row');
+    if (form && form.reportValidity()) simpanEp(form, +form.dataset.id).then(ok => ok && toast('Tipe tersimpan'));
+  });
+  $('#ep-rows').addEventListener('submit', e => e.preventDefault());
+  $('#ep-rows').addEventListener('click', async e => {
+    const b = e.target.closest('[data-ep-del]');
+    if (!b) return;
+    const id = +b.closest('.ep-row').dataset.id;
+    const t = NP.ET.find(x => x.id === id);
+    if (!confirm(`Hapus tipe endpoint "${t.nama}"?`)) return;
+    try {
+      const res = await api(API, { action: 'endpoint_tipe_delete', id });
+      epBerubah(res.endpoint_tipe);
+      toast('Tipe dihapus');
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+  $('#ep-new').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = e.target;
+    if (await simpanEp(form, null)) {
+      toast('Tipe ditambahkan');
+      form.reset();
+      form.elements.warna.value = '#0f766e';
+    }
+  });
+  $('#dlg-ep [data-close]').addEventListener('click', () => $('#dlg-ep').close());
+  $('#kat-ep').addEventListener('click', bukaKelolaEp);
+
+  /** Pemilih tipe saat alat "Endpoint" aktif: tipe yang dipilih dipakai untuk endpoint berikutnya. */
+  function renderEpPicker() {
+    const el = $('#ep-picker');
+    const aktif = peta.tool === 'tambah:endpoint';
+    el.hidden = !aktif;
+    if (!aktif) return;
+    if (S.epTipe == null && NP.ET[0]) S.epTipe = NP.ET[0].id;
+    el.innerHTML = `<span class="muted small">Tipe:</span>` + NP.ET.map(t =>
+      `<button type="button" class="ep-chip${t.id === S.epTipe ? ' on' : ''}" data-ep="${t.id}"><i style="background:${esc(t.warna)}">${NP.ikonSvg(t.ikon, 14)}</i>${esc(t.nama)}</button>`).join('') +
+      `<button type="button" class="ep-chip kelola" data-ep-kelola>+ Kelola tipe</button>`;
+  }
+  $('#ep-picker').addEventListener('click', e => {
+    if (e.target.closest('[data-ep-kelola]')) return bukaKelolaEp();
+    const b = e.target.closest('[data-ep]');
+    if (!b) return;
+    S.epTipe = +b.dataset.ep;
+    renderEpPicker();
+    updateHint();
+  });
 
   // ------------------------------------------------------------------------ penamaan per group
   // Group = perangkat sejenis yang terhubung ke uplink yang sama. Nama group disimpan di atribut perangkat
@@ -560,16 +743,26 @@
 
   async function addDev(jenis, x, y, base) {
     const parent = S.parentCtx != null && S.model.byId.get(S.parentCtx);
-    const uplinkId = base && base.uplink_id !== undefined ? base.uplink_id : (jenis !== 'isp' && parent ? parent.id : null);
+    // Endpoint langsung tersambung ke titik LAN (yang dipilih / terdekat); perangkat lain ke induk yang dipilih.
+    const lanEp = jenis === 'endpoint' && !(base && base.uplink_id !== undefined) ? lanUntukEndpoint(x, y) : null;
+    const uplinkId = base && base.uplink_id !== undefined ? base.uplink_id
+      : lanEp ? lanEp.lan.id : (jenis !== 'isp' && parent ? parent.id : null);
     const g = uplinkId != null ? grupNama(uplinkId, jenis) : '';
+    // Endpoint: tipe dari perangkat yang diduplikat, atau tipe yang dipilih di pemilih tipe.
+    const ep = jenis === 'endpoint'
+      ? NP.tipeEp({ jenis, atribut: (base && base.atribut) || {} }) || NP.ET.find(t => t.id === S.epTipe) || NP.ET[0] || null
+      : null;
     const body = Object.assign({
       action: 'perangkat_save',
       proyek_id: S.proyek.id,
       jenis,
-      nama: g ? grupNext(g) : nextName(jenis),
+      nama: g ? grupNext(g) : nextName(jenis, ep ? ep.prefix : null),
       uplink_id: uplinkId,
       media: jenis === 'isp' ? '' : 'utp',
       status: 'rencana',
+      // Endpoint baru memakai tipe yang dipilih di pemilih tipe (Laptop, Printer, ...).
+      atribut: ep ? { tipe_endpoint: String(ep.id) } : {},
+      port_uplink: jenis === 'endpoint' && uplinkId != null ? portKosong(uplinkId) : '',
     }, base || {}, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
     try {
       const res = await enqueue(() => api(API, body));
@@ -618,7 +811,9 @@
     ids = [].concat(ids);
     const names = ids.map(id => S.model.byId.get(id)).filter(Boolean).map(d => d.nama);
     const anak = ids.reduce((n, id) => n + S.model.kids(id).filter(c => !ids.includes(c.id)).length, 0);
-    if (!confirm(`Hapus ${names.join(', ')}?` + (anak ? `\n\n${anak} perangkat yang terhubung ke sini akan menjadi tanpa uplink.` : ''))) return;
+    // Hapus massal: tampilkan maksimal 12 nama agar dialog konfirmasi tetap terbaca.
+    const daftar = names.length > 12 ? names.slice(0, 12).join(', ') + ` … dan ${names.length - 12} lainnya` : names.join(', ');
+    if (!confirm(`Hapus ${names.length > 1 ? names.length + ' perangkat: ' : ''}${daftar}?` + (anak ? `\n\n${anak} perangkat yang terhubung ke sini akan menjadi tanpa uplink.` : ''))) return;
     try {
       await enqueue(() => api(API, { action: 'perangkat_delete', ids }));
       S.list = S.list.filter(d => !ids.includes(d.id));
@@ -635,7 +830,7 @@
   function duplicateDev(id) {
     const d = S.model.byId.get(id);
     const base = {};
-    ['model', 'vlan', 'media', 'bandwidth_mbps', 'pic', 'catatan', 'uplink_id'].forEach(k => { base[k] = d[k]; });
+    ['model', 'vlan', 'media', 'bandwidth_mbps', 'pic', 'catatan', 'uplink_id', 'katalog_id'].forEach(k => { base[k] = d[k]; });
     base.atribut = Object.assign({}, d.atribut);
     if (S.lihat) return;
     const off = 40 / Math.max(peta.size().W / 2000, 0.5);
@@ -655,7 +850,7 @@
     h += TYPE_ORDER.map((j, i) => {
       const t = TYPES[j];
       return `<button type="button" class="tool add edit-only" data-tool="tambah:${j}" title="Tambah ${t.label} (${i + 1})">
-        <i style="background:${t.color}">${esc(t.short)}</i><span>${esc(t.label.split(/[ /(]/)[0])}</span></button>`;
+        <i style="background:${t.color}"${j === 'endpoint' ? ' class="sq"' : ''}>${j === 'endpoint' ? NP.ikonSvg('pc', 15) : esc(t.short)}</i><span>${esc(t.label.split(/[ /(]/)[0])}</span></button>`;
     }).join('');
     $('#toolbar').innerHTML = h;
     setTool('pilih');
@@ -666,6 +861,7 @@
     $$('#toolbar .tool').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
     if (S.model) renderPanel();
     updateHint();
+    renderEpPicker();
   }
 
   $('#toolbar').addEventListener('click', e => {
@@ -686,10 +882,15 @@
     } else if (tool === 'ukur') {
       h = 'Klik dua titik untuk mengukur. Klik titik perangkat untuk mengukur antarperangkat.';
     } else if (tool.startsWith('tambah:')) {
-      const t = TYPES[tool.slice(7)];
+      const ep = tool === 'tambah:endpoint' && (NP.ET.find(x => x.id === S.epTipe) || NP.ET[0]);
+      const t = ep ? { label: ep.nama } : TYPES[tool.slice(7)];
       const par = S.parentCtx != null && S.model && S.model.byId.get(S.parentCtx);
+      const adaLan = S.list.some(d => d.jenis === 'lan');
       h = `Klik di denah untuk menaruh <b>${esc(t.label)}</b>` +
-        (tool !== 'tambah:isp' ? (par ? ` · uplink otomatis: <b>${esc(par.nama)}</b> <span class="muted">(pilih perangkat lain untuk mengganti)</span>` : ' · <span class="muted">pilih router/switch dulu agar uplink terisi otomatis</span>') : '') +
+        (ep ? (par && par.jenis === 'lan' ? ` · tersambung ke <b>${esc(par.nama)}</b> <span class="muted">(pilih titik LAN lain untuk mengganti)</span>`
+          : adaLan ? ' · tersambung otomatis ke <b>titik LAN terdekat</b>'
+            : par ? ` · belum ada titik LAN, tersambung ke <b>${esc(par.nama)}</b>` : ' · <span class="muted">taruh titik LAN dulu agar endpoint tersambung otomatis</span>')
+          : tool !== 'tambah:isp' ? (par ? ` · uplink otomatis: <b>${esc(par.nama)}</b> <span class="muted">(pilih perangkat lain untuk mengganti)</span>` : ' · <span class="muted">pilih router/switch dulu agar uplink terisi otomatis</span>') : '') +
         ' · Esc selesai';
     }
     el.innerHTML = h;
@@ -864,9 +1065,24 @@
       ]);
   }
 
+  /** Rincian endpoint per tipe di legenda ringkasan, mis. "Laptop 3 · Printer network 1". */
+  function epRincian(m) {
+    const n = new Map();
+    m.list.forEach(d => {
+      if (d.jenis !== 'endpoint') return;
+      const e = NP.tipeEp(d);
+      const k = e ? e.id : 0;
+      if (!n.has(k)) n.set(k, { e, jumlah: 0 });
+      n.get(k).jumlah++;
+    });
+    return `<div class="ep-rincian">${[...n.values()].map(x => x.e
+      ? `<span><i style="background:${esc(x.e.warna)}">${NP.ikonSvg(x.e.ikon, 11)}</i>${esc(x.e.nama)} <b>${x.jumlah}</b></span>`
+      : `<span class="muted">tanpa tipe <b>${x.jumlah}</b></span>`).join('')}</div>`;
+  }
+
   /** Chip perangkat yang bisa diklik untuk memilihnya di denah. */
   function chipDev(x) {
-    return `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${(TYPES[x.jenis] || TYPES.lainnya).color}"></i>${esc(x.nama)}</button>`;
+    return `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${NP.tampil(x).color}"></i>${esc(x.nama)}</button>`;
   }
 
   /** Lencana status internet, mis. "✓ Terhubung". */
@@ -898,7 +1114,7 @@
         <h4>Jenis perangkat <span class="muted small">klik untuk sembunyikan</span></h4>
         <div class="legend">
           ${TYPE_ORDER.map(j => `<button type="button" class="lg-item${hiddenTypes.has(j) ? ' off' : ''}" data-hide="${j}">
-            <i style="background:${TYPES[j].color}">${esc(TYPES[j].short)}</i>${esc(TYPES[j].label)}<b>${counts[j] || 0}</b></button>`).join('')}
+            <i style="background:${TYPES[j].color}"${j === 'endpoint' ? ' class="sq"' : ''}>${j === 'endpoint' ? NP.ikonSvg('pc', 13) : esc(TYPES[j].short)}</i>${esc(TYPES[j].label)}<b>${counts[j] || 0}</b></button>${j === 'endpoint' && counts[j] ? epRincian(m) : ''}`).join('')}
         </div>
       </div>
       <div class="pn-sec">
@@ -976,7 +1192,12 @@
     const id = 'f-' + f.k;
     const v = val == null ? '' : val;
     let input;
-    if (f.type === 'select') {
+    if (f.type === 'endpoint') {
+      // Tipe endpoint: pilihan dari daftar tipe (bisa ditambah lewat "Kelola tipe").
+      input = `<div class="inline"><select id="${id}" data-f="${f.k}" data-attr="1"${dis}><option value="">—</option>${NP.ET.map(t =>
+        `<option value="${t.id}"${String(t.id) === String(v) ? ' selected' : ''}>${esc(t.nama)}</option>`).join('')}</select>
+        ${S.canEdit ? '<button type="button" class="small" data-act="ep-kelola" title="Tambah / ubah tipe endpoint">Kelola</button>' : ''}</div>`;
+    } else if (f.type === 'select') {
       const opts = f.options.includes(v) ? f.options : f.options.concat([v]);
       input = `<select id="${id}" data-f="${f.k}"${f.attr ? ' data-attr="1"' : ''}${dis}>${opts.map(o => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(o || '—')}</option>`).join('')}</select>`;
     } else if (f.type === 'password') {
@@ -986,6 +1207,33 @@
       input = `<input type="${f.type === 'number' ? 'number' : 'text'}" ${f.type === 'number' ? 'step="any" min="0"' : ''} id="${id}" data-f="${f.k}"${f.attr ? ' data-attr="1"' : ''} value="${esc(v)}" placeholder="${esc(f.ph || '')}"${dis}>`;
     }
     return `<label class="field${f.wide ? ' wide' : ''}"><span>${esc(f.label)}</span>${input}</label>`;
+  }
+
+  /** Pilihan alat dari katalog (sesuai kategori perangkat) + ringkasan spesifikasinya. */
+  function katalogField(d, dis) {
+    const k = S.model.kat(d);
+    const items = S.katalog.filter(x => x.jenis === d.jenis);
+    const ringkas = k ? NP.specSummary(k.spesifikasi) : '';
+    if (!S.canEdit) {
+      return k ? `<div class="field wide kat-info"><span>Alat dari katalog</span><b>${esc(NP.Katalog.label(k))}</b>${ringkas ? `<small>${esc(ringkas)}</small>` : ''}</div>` : '';
+    }
+    const opt = x => `<option value="${x.id}"${x.id === d.katalog_id ? ' selected' : ''}>${esc(NP.Katalog.label(x))}${x.stok != null ? ` · stok ${x.stok}` : ''}</option>`;
+    return `<div class="field wide kat-pick"><span>Pilih dari katalog · ${esc((TYPES[d.jenis] || TYPES.lainnya).label)}</span>
+        <div class="inline"><select data-kat${dis}><option value="">${items.length ? '— isi manual —' : '— katalog kategori ini kosong —'}</option>${items.map(opt).join('')}</select>
+          <a class="btn small" href="#/katalog" title="Kelola katalog perangkat">Katalog</a></div>
+        ${k ? `<div class="kat-info"><small>${esc(ringkas || 'Spesifikasi belum diisi di katalog')}</small>
+          <button type="button" class="small" data-act="kat-terapkan" title="Timpa isian perangkat dengan konfigurasi standar katalog">Terapkan konfigurasi standar</button></div>` : ''}
+      </div>`;
+  }
+
+  /** Pilih / lepas alat katalog. Isian yang masih kosong otomatis diisi konfigurasi standar. */
+  function pilihKatalog(d, katId) {
+    if (!katId) return saveDev(d.id, { katalog_id: null }).catch(() => {});
+    const k = S.katalog.find(x => x.id === katId);
+    if (!k) return;
+    saveDev(d.id, NP.Katalog.patchUntuk(d, k, false))
+      .then(() => toast(`${d.nama}: ${NP.Katalog.label(k)} · konfigurasi standar diisikan ke isian yang kosong`))
+      .catch(() => {});
   }
 
   function uplinkOptions(d) {
@@ -1004,7 +1252,7 @@
     const a = d.atribut || {};
     return `
       <div class="pn-head">
-        <i class="glyph" style="background:${t.color}">${esc(t.short)}</i>
+        <i class="glyph${NP.tampil(d).ikon ? ' sq' : ''}" style="background:${NP.tampil(d).color}">${NP.tampil(d).ikon ? NP.ikonSvg(NP.tampil(d).ikon, 20) : esc(NP.tampil(d).short)}</i>
         <div class="grow"><h3 id="pn-nama">${esc(d.nama)}</h3><span class="muted small">${esc(t.label)}${d.model ? ' · ' + esc(d.model) : ''}</span></div>
         <button type="button" class="icon" data-act="close" title="Tutup (Esc)">✕</button>
       </div>
@@ -1020,7 +1268,8 @@
           <div class="fgrid">
             ${fieldHtml({ k: 'nama', label: 'Nama / label *' }, d.nama, dis)}
             <label class="field"><span>Jenis</span><select data-f="jenis"${dis}>${TYPE_ORDER.map(j => `<option value="${j}"${j === d.jenis ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select></label>
-            ${fieldHtml({ k: 'model', label: 'Nama alat (merek/tipe)', ph: 'mis. MikroTik hAP ax², TP-Link EAP650', wide: true }, d.model, dis)}
+            ${katalogField(d, dis)}
+            ${fieldHtml({ k: 'model', label: d.katalog_id != null ? 'Nama alat (dari katalog, bisa disesuaikan)' : 'Nama alat (merek/tipe)', ph: 'mis. MikroTik hAP ax², TP-Link EAP650', wide: true }, d.model, dis)}
             <label class="field"><span>Status</span><select data-f="status"${dis}>${Object.keys(STATUS).map(k => `<option value="${k}"${k === d.status ? ' selected' : ''}>${STATUS[k].label}</option>`).join('')}</select></label>
             ${fieldHtml({ k: 'pic', label: 'PIC / teknisi' }, d.pic, dis)}
           </div>
@@ -1075,7 +1324,7 @@
     const jarak = m.jarakM(d);
     const kabel = m.kabelM(d);
     const issues = m.checks().filter(c => c.ids.includes(d.id));
-    const chip = x => `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${(TYPES[x.jenis] || TYPES.lainnya).color}"></i>${esc(x.nama)}</button>`;
+    const chip = x => `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${NP.tampil(x).color}"></i>${esc(x.nama)}</button>`;
 
     const kon = m.koneksi(d);
     let h = `<div class="pn-sec info"><div class="kv"><span>Internet</span><b>${konBadge(kon)}${kon === 'gangguan'
@@ -1195,6 +1444,15 @@
       case 'del': return deleteDev(id);
       case 'pick': return setTool('hubung');
       case 'unlink': return putusKoneksi(id);
+      case 'ep-kelola': return bukaKelolaEp();
+      case 'kat-terapkan': {
+        const d = S.model.byId.get(id);
+        const k = S.model.kat(d);
+        if (!k || !confirm(`Timpa isian ${d.nama} dengan konfigurasi standar "${NP.Katalog.label(k)}"?
+
+Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalog (yang kosong di katalog tidak diubah).`)) return;
+        return saveDev(id, NP.Katalog.patchUntuk(d, k, true)).then(() => toast('Konfigurasi standar diterapkan')).catch(() => {});
+      }
     }
   });
 
@@ -1228,6 +1486,8 @@
 
   // Simpan otomatis tiap isian berubah.
   $('#panel').addEventListener('change', e => {
+    const ks = e.target.closest('[data-kat]');
+    if (ks && S.canEdit && S.sel != null) return pilihKatalog(S.model.byId.get(S.sel), ks.value ? +ks.value : null);
     const inp = e.target.closest('[data-f]');
     if (!inp || !S.canEdit || S.sel == null) return;
     const d = S.model.byId.get(S.sel);
@@ -1258,9 +1518,11 @@
       patch = { nama: v };
     } else {
       patch = { [k]: v };
+      // Ganti kategori: alat katalog kategori lama tidak berlaku lagi.
+      if (k === 'jenis' && d.katalog_id != null) patch.katalog_id = null;
     }
     // Ganti jenis atau uplink -> isian/opsi lain ikut berubah, gambar ulang panel.
-    const full = k === 'jenis' || (k !== 'nama' && !!patch.nama);
+    const full = k === 'jenis' || k === 'tipe_endpoint' || (k !== 'nama' && !!patch.nama);
     saveDev(d.id, patch, { keepPanel: !full }).catch(() => {});
   });
 
@@ -1269,14 +1531,23 @@
   function buildFilters() {
     $('#list-jenis').innerHTML += TYPE_ORDER.map(j => `<option value="${j}">${esc(TYPES[j].label)}</option>`).join('');
     $('#list-status').innerHTML += Object.keys(STATUS).map(k => `<option value="${k}">${STATUS[k].label}</option>`).join('');
+    $('#list-koneksi').innerHTML += Object.keys(KONEKSI).map(k => `<option value="${k}">${KONEKSI[k].short}</option>`).join('');
   }
-  ['#list-q', '#list-jenis', '#list-status'].forEach(s => $(s).addEventListener('input', renderDaftar));
+  ['#list-q', '#list-jenis', '#list-status', '#list-koneksi'].forEach(s => $(s).addEventListener('input', renderDaftar));
+
+  /** Label jenis perangkat; endpoint ditambah tipenya, mis. "Endpoint (klien) · Laptop". */
+  function jenisLabel(d) {
+    const e = NP.tipeEp(d);
+    return (TYPES[d.jenis] || TYPES.lainnya).label + (e ? ' · ' + e.nama : '');
+  }
 
   /** Ringkasan isian khusus jenis, mis. "SSID: EVENT · Ch: 36 · 5 GHz". */
   function attrSummary(d, hideSecret) {
     const t = TYPES[d.jenis] || TYPES.lainnya;
     const a = d.atribut || {};
-    return t.fields.filter(f => a[f.k]).map(f => `${f.label}: ${f.secret && hideSecret ? '••••' : a[f.k]}`).join(' · ');
+    // Tipe endpoint disimpan sebagai id -> tampilkan namanya.
+    const val = f => (f.type === 'endpoint' ? ((NP.tipeEp(d) || {}).nama || '') : a[f.k]);
+    return t.fields.filter(f => a[f.k]).map(f => `${f.label}: ${f.secret && hideSecret ? '••••' : val(f)}`).join(' · ');
   }
 
   const COLS = [
@@ -1304,7 +1575,8 @@
     const q = $('#list-q').value.trim().toLowerCase();
     const j = $('#list-jenis').value;
     const s = $('#list-status').value;
-    return S.list.filter(d => (!j || d.jenis === j) && (!s || d.status === s) &&
+    const kn = $('#list-koneksi').value;
+    return S.list.filter(d => (!j || d.jenis === j) && (!s || d.status === s) && (!kn || S.model.koneksi(d) === kn) &&
       (!q || [d.nama, d.model, d.ip, d.vlan, d.pic, d.catatan, d.port_uplink, d.port_lokal, ...Object.values(d.atribut || {})].join(' ').toLowerCase().includes(q)));
   }
 
@@ -1315,16 +1587,24 @@
       const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'id', { numeric: true });
       return (c || a.nama.localeCompare(b.nama, 'id', { numeric: true })) * S.sort.dir;
     });
-    const head = COLS.map(c => `<th data-sort="${c.k}" class="${c.k === S.sort.k ? (S.sort.dir > 0 ? 'asc' : 'desc') : ''}">${c.label}</th>`).join('') + '<th>Konfigurasi</th>';
+    // Pilihan untuk aksi massal hanya berlaku pada baris yang tampil: baris yang tersembunyi oleh filter/pencarian
+    // (atau sudah terhapus) dilepas, agar "Hapus terpilih" tidak pernah mengenai perangkat yang tidak terlihat.
+    const tampil = new Set(rows.map(d => d.id));
+    S.pilih.forEach(id => { if (!tampil.has(id)) S.pilih.delete(id); });
+    S.urutDaftar = rows.map(d => d.id);
+    const semua = rows.length > 0 && rows.every(d => S.pilih.has(d.id));
+    const head = `<th class="c-cek edit-only"><input type="checkbox" id="cek-semua" title="Pilih semua yang tampil"${semua ? ' checked' : ''} aria-label="Pilih semua"></th>` +
+      COLS.map(c => `<th data-sort="${c.k}" class="${c.k === S.sort.k ? (S.sort.dir > 0 ? 'asc' : 'desc') : ''}">${c.label}</th>`).join('') + '<th>Konfigurasi</th>';
     const body = rows.map(d => {
       const t = TYPES[d.jenis] || TYPES.lainnya;
       const p = S.model.parentOf(d);
       const extra = [attrSummary(d, true), d.catatan].filter(Boolean).join(' — ');
       // data-label dipakai tampilan kartu di HP; sel kosong disembunyikan di sana.
       const td = (label, html, cls) => `<td data-label="${label}" class="${cls || ''}${html ? '' : ' empty'}">${html}</td>`;
-      return `<tr data-id="${d.id}">
-        ${td('Nama', `<span class="dotlbl"><i style="background:${t.color}"></i><b>${esc(d.nama)}</b></span>`, 'c-nama')}
-        ${td('Jenis', esc(t.label), 'c-jenis')}
+      return `<tr data-id="${d.id}"${S.pilih.has(d.id) ? ' class="dipilih"' : ''}>
+        <td class="c-cek edit-only"><input type="checkbox" data-cek="${d.id}"${S.pilih.has(d.id) ? ' checked' : ''} aria-label="Pilih ${esc(d.nama)}"></td>
+        ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b></span>`, 'c-nama')}
+        ${td('Jenis', esc(jenisLabel(d)), 'c-jenis')}
         ${td('Nama alat', esc(d.model))}
         ${td('IP', esc(d.ip), 'mono')}
         ${td('VLAN', esc(d.vlan))}
@@ -1339,10 +1619,43 @@
         <td data-label="Konfigurasi" class="cfg${extra ? '' : ' empty'}" title="${esc(extra)}">${esc(extra)}</td>
       </tr>`;
     }).join('');
-    $('#dev-table').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${COLS.length + 1}" class="muted center">Tidak ada perangkat${S.list.length ? ' yang cocok' : ' — tambahkan dari tab Denah'}.</td></tr>`}</tbody>`;
+    $('#dev-table').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${COLS.length + 2}" class="muted center">Tidak ada perangkat${S.list.length ? ' yang cocok' : ' — tambahkan dari tab Denah'}.</td></tr>`}</tbody>`;
+    updateBulk();
+  }
+
+  // ---- pilih banyak & aksi massal
+  let cekTerakhir = null; // id baris terakhir yang dicentang (untuk Shift+klik)
+
+  function updateBulk() {
+    const n = S.pilih.size;
+    $('#bulk-bar').hidden = !n || !S.canEdit;
+    $('#bulk-n').textContent = `${n} perangkat dipilih`;
+    const semua = $('#cek-semua');
+    if (semua) {
+      const tampil = S.urutDaftar.filter(id => S.pilih.has(id)).length;
+      semua.checked = tampil > 0 && tampil === S.urutDaftar.length;
+      semua.indeterminate = tampil > 0 && tampil < S.urutDaftar.length;
+    }
+  }
+
+  function setPilih(id, on) {
+    if (on) S.pilih.add(id);
+    else S.pilih.delete(id);
+    const tr = $(`#dev-table tr[data-id="${id}"]`);
+    if (tr) {
+      tr.classList.toggle('dipilih', on);
+      tr.querySelector('[data-cek]').checked = on;
+    }
   }
 
   $('#dev-table').addEventListener('click', e => {
+    // Kolom centang: jangan pindah ke denah. Klik di sel (bukan kotaknya) ikut mencentang.
+    const sel = e.target.closest('.c-cek');
+    if (sel) {
+      const cb = sel.querySelector('input');
+      if (e.target !== cb) cb.click();
+      return;
+    }
     const th = e.target.closest('th[data-sort]');
     if (th) {
       S.sort = { k: th.dataset.sort, dir: S.sort.k === th.dataset.sort ? -S.sort.dir : 1 };
@@ -1356,6 +1669,55 @@
     }
   });
 
+  $('#dev-table').addEventListener('change', e => {
+    if (e.target.id === 'cek-semua') {
+      // Pilih / lepas semua baris yang sedang tampil (mengikuti filter & pencarian).
+      S.urutDaftar.forEach(id => setPilih(id, e.target.checked));
+      cekTerakhir = null;
+      return updateBulk();
+    }
+    const cb = e.target.closest('[data-cek]');
+    if (!cb) return;
+    const id = +cb.dataset.cek;
+    if (e.target.dataset.shift === '1' && cekTerakhir != null) {
+      // Shift+klik: rentang dari centang terakhir sampai baris ini ikut berubah.
+      const a = S.urutDaftar.indexOf(cekTerakhir), b = S.urutDaftar.indexOf(id);
+      if (a >= 0 && b >= 0) S.urutDaftar.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => setPilih(x, cb.checked));
+    }
+    delete e.target.dataset.shift;
+    setPilih(id, cb.checked);
+    cekTerakhir = id;
+    updateBulk();
+  });
+  // Tandai Shift saat klik kotak centang (event change tidak membawa info tombol).
+  $('#dev-table').addEventListener('mousedown', e => {
+    const cb = e.target.closest('[data-cek]') || (e.target.closest('.c-cek') && e.target.closest('.c-cek').querySelector('[data-cek]'));
+    if (cb) cb.dataset.shift = e.shiftKey ? '1' : '';
+  });
+
+  $('#bulk-all').addEventListener('click', () => {
+    S.urutDaftar.forEach(id => setPilih(id, true));
+    updateBulk();
+  });
+  $('#bulk-clear').addEventListener('click', () => {
+    S.pilih.clear();
+    cekTerakhir = null;
+    renderDaftar();
+  });
+  $('#bulk-del').addEventListener('click', async () => {
+    const ids = [...S.pilih];
+    if (!ids.length) return;
+    await deleteDev(ids);
+    renderDaftar();
+  });
+  $('#bulk-unlink').addEventListener('click', async () => {
+    const ds = [...S.pilih].map(id => S.model.byId.get(id)).filter(d => d && d.uplink_id != null);
+    if (!ds.length) return toast('Perangkat terpilih tidak punya koneksi uplink');
+    if (!confirm(`Putuskan koneksi uplink ${ds.length} perangkat?\nPort uplink & bentuk jalur kabelnya ikut dikosongkan.`)) return;
+    for (const d of ds) await saveDev(d.id, { uplink_id: null, port_uplink: '', jalur: null }, { keepPanel: true }).catch(() => {});
+    toast(`${ds.length} koneksi diputus`);
+  });
+
   $('#btn-csv').addEventListener('click', () => {
     const rows = [['Nama', 'Jenis', 'Nama alat', 'IP', 'VLAN', 'Uplink', 'Group', 'Port uplink', 'Port lokal', 'Media', 'Bandwidth (Mbps)',
       'Bandwidth maks. (Mbps)', 'Sumber WAN', 'Internet', 'Kabel (m)', 'Status', 'PIC', 'Isian khusus', 'Keterangan konfigurasi']];
@@ -1363,7 +1725,7 @@
       const p = S.model.parentOf(d);
       const w = S.model.wanOf(d);
       const k = S.model.kabelM(d);
-      rows.push([d.nama, (TYPES[d.jenis] || TYPES.lainnya).label, d.model, d.ip, d.vlan, p ? p.nama : '', p ? grupNama(p.id, d.jenis) : '', d.port_uplink, d.port_lokal,
+      rows.push([d.nama, jenisLabel(d), d.model, d.ip, d.vlan, p ? p.nama : '', p ? grupNama(p.id, d.jenis) : '', d.port_uplink, d.port_lokal,
         d.media ? MEDIA[d.media].label : '', d.bandwidth_mbps == null ? '' : d.bandwidth_mbps, S.model.bwEfektif(d).mbps == null ? '' : S.model.bwEfektif(d).mbps,
         w ? w.nama : '', KONEKSI[S.model.koneksi(d)].label, k == null ? '' : Math.round(k), (STATUS[d.status] || STATUS.rencana).label, d.pic, attrSummary(d, false), d.catatan]);
     }
@@ -1412,7 +1774,9 @@
     const fx = src.denah_w && S.proyek.denah_w ? S.proyek.denah_w / src.denah_w : 1;
     const fy = src.denah_h && S.proyek.denah_h ? S.proyek.denah_h / src.denah_h : 1;
     if (!confirm(`Tambahkan ${list.length} perangkat dari "${file.name}" ke event ini?\n(Perangkat yang sudah ada tidak diubah.)`)) return;
+    // katalog_id dari file lain belum tentu menunjuk alat yang sama di server ini -> dilepas.
     const perangkat = list.map(d => Object.assign({}, d, {
+      katalog_id: null,
       x: (+d.x || 0) * fx,
       y: (+d.y || 0) * fy,
       jalur: d.jalur && d.jalur.m === 'bebas' && Array.isArray(d.jalur.p)
@@ -1435,7 +1799,7 @@
 
   function renderTopologi() {
     const m = S.model;
-    const chip = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${(TYPES[d.jenis] || TYPES.lainnya).color}">${esc((TYPES[d.jenis] || TYPES.lainnya).short)}</i>${esc(d.nama)}</a>`;
+    const chip = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
     const issuesBy = new Map();
     const checks = m.checks();
     checks.forEach(c => c.ids.forEach(id => {
@@ -1456,7 +1820,7 @@
       return `<div class="tnode" style="--d:${depth}">
           <div class="trow">
             ${chip(d)}
-            <span class="muted small">${esc(t.label)}</span>
+            <span class="muted small">${esc(jenisLabel(d))}</span>
             ${port ? `<span class="port" title="Port lokal ↔ port di uplink">${esc(port)}${d.media ? ' · ' + esc(MEDIA[d.media].short || d.media) : ''}</span>` : d.media && depth ? `<span class="port">${esc(MEDIA[d.media].short || d.media)}</span>` : ''}
             <span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>
             ${konBadge(m.koneksi(d))}
@@ -1485,8 +1849,11 @@
       `<tr><td><b>${esc(s.ssid)}</b></td><td>${esc([...s.keamanan].join(', '))}</td><td>${esc([...s.vlan].join(', '))}</td><td class="num">${s.ap.length}</td></tr>`).join('')}</table>` : '<p class="muted">Belum ada AP dengan SSID.</p>';
 
     const bom = m.bom();
-    $('#bom').innerHTML = bom.length ? `<table class="mini"><tr><th>Jenis</th><th>Nama alat</th><th class="num">Jumlah</th></tr>${bom.map(b =>
-      `<tr><td>${esc((TYPES[b.jenis] || TYPES.lainnya).label)}</td><td>${b.model ? esc(b.model) : '<span class="muted">(belum diisi)</span>'}</td><td class="num"><b>${b.jumlah}</b></td></tr>`).join('')}</table>` : '<p class="muted">—</p>';
+    // Stok: hanya untuk alat dari katalog; merah bila kebutuhan event melebihi stok.
+    const stokCell = b => b.stok == null ? '<span class="muted">—</span>'
+      : b.jumlah > b.stok ? `<b class="bad">${b.stok} (kurang ${b.jumlah - b.stok})</b>` : String(b.stok);
+    $('#bom').innerHTML = bom.length ? `<table class="mini"><tr><th>Jenis</th><th>Nama alat</th><th class="num">Jumlah</th><th class="num">Stok</th></tr>${bom.map(b =>
+      `<tr><td>${esc((TYPES[b.jenis] || TYPES.lainnya).label)}</td><td>${b.model ? esc(b.model) : '<span class="muted">(belum diisi)</span>'}${b.katalog ? ' <span class="tag-kat" title="Dari katalog">katalog</span>' : ''}</td><td class="num"><b>${b.jumlah}</b></td><td class="num">${stokCell(b)}</td></tr>`).join('')}</table>` : '<p class="muted">—</p>';
 
     const kb = m.kabel();
     const keys = Object.keys(kb.tot);
@@ -1742,7 +2109,9 @@
     h += img ? `<rect width="${W}" height="${H}" fill="#fff"/><image href="${esc(img)}" width="${W}" height="${H}" opacity="${peta.opacity}"/>` : `<rect width="${W}" height="${H}" fill="#fff" stroke="#ccc"/>`;
     for (const d of m.list) {
       const rr = d.jenis === 'ap' && m.apRadiusPx(d);
-      if (rr) h += `<circle cx="${d.x}" cy="${d.y}" r="${rr}" fill="${TYPES.ap.color}" fill-opacity=".08" stroke="${TYPES.ap.color}" stroke-opacity=".4" stroke-width="${u}"/>`;
+      const sk = d.jenis === 'ap' && NP.sektor(d);
+      const covAttr = `fill="${TYPES.ap.color}" fill-opacity="${sk ? '.14' : '.08'}" stroke="${TYPES.ap.color}" stroke-opacity=".45" stroke-width="${u}"`;
+      if (rr) h += sk ? `<path d="${NP.wedgePath(d.x, d.y, rr, sk.arah, sk.lebar)}" ${covAttr}/>` : `<circle cx="${d.x}" cy="${d.y}" r="${rr}" ${covAttr}/>`;
     }
     for (const d of m.list) {
       const p = m.parentOf(d);
@@ -1756,13 +2125,17 @@
         <polyline points="${pts}" fill="none" stroke-linejoin="round" stroke-linecap="round" stroke="${color}" stroke-width="${3.6 * u}" stroke-dasharray="${dash ? dash.split(' ').map(x => x * u).join(' ') : ''}"/>`;
     }
     for (const d of m.list) {
-      const t = TYPES[d.jenis] || TYPES.lainnya;
+      const t = NP.tampil(d);
       const K = KONEKSI[m.koneksi(d)];
       const b = r * 0.8;
       h += `<g transform="translate(${d.x},${d.y})">
-        <circle r="${r + 2.5 * u}" fill="#fff" stroke="${(STATUS[d.status] || STATUS.rencana).color}" stroke-width="${2 * u}"/>
+        ${t.ikon ? `<rect x="${-(r + 2.5 * u)}" y="${-(r + 2.5 * u)}" width="${(r + 2.5 * u) * 2}" height="${(r + 2.5 * u) * 2}" rx="${5 * u}" fill="#fff" stroke="${(STATUS[d.status] || STATUS.rencana).color}" stroke-width="${2 * u}"/>
+        <rect x="${-r}" y="${-r}" width="${r * 2}" height="${r * 2}" rx="${3.5 * u}" fill="${t.color}"/>
+        <g transform="translate(${-r * 0.75},${-r * 0.75})">${NP.ikonSvg(t.ikon, r * 1.5)}</g>`
+        : `<circle r="${r + 2.5 * u}" fill="#fff" stroke="${(STATUS[d.status] || STATUS.rencana).color}" stroke-width="${2 * u}"/>
+        ${d.jenis === 'ap' && NP.sektor(d) ? (s => `<path d="${NP.wedgePath(0, 0, r * 2.2, s.arah, s.lebar)}" fill="${TYPES.ap.color}" fill-opacity=".35"/>`)(NP.sektor(d)) : ''}
         <circle r="${r}" fill="${t.color}"/>
-        <text text-anchor="middle" dy=".35em" font-size="${(t.short.length > 2 ? 6.5 : 8) * u}" font-weight="700" fill="#fff" font-family="Arial">${esc(t.short)}</text>
+        <text text-anchor="middle" dy=".35em" font-size="${(t.short.length > 2 ? 6.5 : 8) * u}" font-weight="700" fill="#fff" font-family="Arial">${esc(t.short)}</text>`}
         <circle cx="${b}" cy="${-b}" r="${4.5 * u}" fill="${K.color}" stroke="#fff" stroke-width="${1.2 * u}"/>
         <text x="${b}" y="${-b}" dy=".36em" text-anchor="middle" font-size="${6.5 * u}" font-weight="800" fill="#fff" font-family="Arial">${K.icon}</text>
         <text text-anchor="middle" y="${r + 11 * u}" font-size="${9 * u}" font-weight="700" fill="#111" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(d.nama)}</text>
@@ -2010,7 +2383,7 @@
       const par = m.parentOf(d);
       const k = m.kabelM(d);
       return `<tr>
-        <td><b>${esc(d.nama)}</b><br><span class="muted">${esc(t.label)}</span></td>
+        <td><b>${esc(d.nama)}</b><br><span class="muted">${esc(jenisLabel(d))}</span></td>
         <td>${esc(d.model)}</td>
         <td>${esc(d.ip)}${d.vlan ? '<br>VLAN ' + esc(d.vlan) : ''}</td>
         <td>${par ? esc(par.nama) : '—'}${d.port_uplink ? ' : ' + esc(d.port_uplink) : ''}${d.port_lokal ? '<br>lokal ' + esc(d.port_lokal) : ''}</td>
@@ -2032,7 +2405,7 @@
       <h2>Daftar perangkat &amp; konfigurasi</h2>
       <table class="pr-table"><thead><tr><th>Perangkat</th><th>Nama alat</th><th>IP / VLAN</th><th>Uplink : port</th><th>Media / kabel</th><th>Bandwidth</th><th>Status / internet / PIC</th><th>Konfigurasi</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="pr-cols">
-        <div><h2>Kebutuhan perangkat</h2><table class="pr-table"><tr><th>Jenis</th><th>Nama alat</th><th>Jml</th></tr>${bom.map(b => `<tr><td>${esc(TYPES[b.jenis].label)}</td><td>${esc(b.model || '(belum diisi)')}</td><td>${b.jumlah}</td></tr>`).join('')}</table>
+        <div><h2>Kebutuhan perangkat</h2><table class="pr-table"><tr><th>Jenis</th><th>Nama alat</th><th>Jml</th><th>Stok</th></tr>${bom.map(b => `<tr><td>${esc(TYPES[b.jenis].label)}</td><td>${esc(b.model || '(belum diisi)')}</td><td>${b.jumlah}</td><td>${b.stok == null ? '—' : b.stok + (b.jumlah > b.stok ? ' (kurang ' + (b.jumlah - b.stok) + ')' : '')}</td></tr>`).join('')}</table>
           ${Object.keys(kb.tot).length ? `<h2>Estimasi kabel</h2><table class="pr-table">${Object.keys(kb.tot).map(k => `<tr><td>${esc(MEDIA[k].label)}</td><td>${kb.tot[k].n} link</td><td>≈ ${esc(fmtM(kb.tot[k].m))}</td></tr>`).join('')}</table>` : ''}</div>
         <div><h2>Pemeriksaan desain</h2>${checks.length ? `<ul>${checks.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>` : '<p>Tidak ada masalah terdeteksi.</p>'}</div>
       </div>`;

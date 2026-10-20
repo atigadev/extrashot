@@ -10,7 +10,7 @@ keterangan konfigurasi bebas.
 | Tab | Isi |
 |---|---|
 | **Denah** | Peta interaktif: tambah/geser titik, hubungkan ke uplink, ukur jarak & kalibrasi skala, lingkaran cakupan AP, panel konfigurasi per perangkat |
-| **Daftar perangkat** | Tabel semua perangkat (cari, filter, urutkan), unduh CSV, ekspor/impor JSON |
+| **Daftar perangkat** | Tabel semua perangkat (cari, filter jenis/status/koneksi, urutkan), **pilih banyak** (centang, Shift+klik, pilih semua yang tampil) lalu hapus atau putuskan koneksi sekaligus, unduh CSV, ekspor/impor JSON |
 | **Topologi & cek** | Pohon topologi dari WAN ke perangkat paling ujung, pemeriksaan desain, ringkasan WAN/SSID, kebutuhan perangkat (BOM), estimasi kabel |
 | **Proyek** | Info event, upload/ganti denah, skala, link lihat-saja + QR, duplikat/hapus event |
 
@@ -54,6 +54,41 @@ Tombol **Cetak** menyediakan dua jenis laporan:
 
 Panjang kabel dihitung mengikuti jalur ini. Link wireless selalu digambar lurus.
 
+**Katalog perangkat** (tombol *Katalog perangkat* di halaman daftar event) adalah daftar alat standar yang berlaku untuk
+semua event, dikelompokkan per kategori (router, switch, AP, bridge, titik LAN, dst.). Setiap alat berisi:
+- merek/tipe dan **stok** unit;
+- **spesifikasi**: port Ethernet & kecepatan, SFP, PoE in/out, jumlah port PoE, budget PoE, konsumsi daya, throughput,
+  standar WiFi, band, klien maks., jangkauan, bentuk, OS;
+- **konfigurasi standar**: isian khusus kategori, bandwidth, dan template keterangan konfigurasi.
+
+Tombol *Isi template standar* menambahkan alat generik sebagai titik awal; ganti merek/tipe dan sesuaikan angkanya dengan
+datasheet.
+
+Di panel perangkat, pilih alat lewat **Pilih dari katalog**. Nama alat dan isian yang masih kosong langsung terisi
+konfigurasi standar. Untuk switch, jumlah port, tipe PoE, dan budget PoE diturunkan dari spesifikasi. **Terapkan
+konfigurasi standar** menimpa semua isian dengan nilai katalog.
+
+Data katalog juga dipakai pemeriksaan desain:
+- perangkat butuh PoE tetapi uplink tidak menyediakan PoE atau kelasnya kurang (af < at < bt, passive);
+- total daya PoE melebihi budget switch (peringatan mulai 80%);
+- kebutuhan unit di event melebihi stok.
+
+Kolom stok juga muncul di *Kebutuhan perangkat* dan laporan cetak.
+
+**Endpoint** adalah perangkat pengguna yang dicolok langsung ke titik LAN, misalnya laptop, PC, printer network,
+scanner, atau pinpad/EDC.
+- Pilih alat **Endpoint** di toolbar, lalu pilih tipenya di bar ikon yang muncul di atas denah. Tipe bawaan: Laptop,
+  Komputer/PC, Server, Printer network, Pinpad/EDC, Scanner.
+- Endpoint digambar sebagai **kotak berikon** (bukan lingkaran berteks) dengan warna tipenya. Nama otomatis memakai
+  prefix tipe, misalnya `PRN-01` atau `LPT-01`.
+- **Tersambung langsung ke titik LAN**: ke titik LAN yang sedang dipilih, atau ke titik LAN terdekat dari posisi klik.
+  Nomor port LAN yang masih kosong diisi otomatis (1, 2, 3, …).
+- Bila endpoint melebihi isian *Jumlah port* titik LAN, muncul peringatan di pemeriksaan desain.
+- **Kelola tipe** (dari bar tipe, panel perangkat, atau halaman Katalog → *Tipe endpoint*) untuk menambah atau mengubah
+  nama, ikon, singkatan, warna, dan prefix. Ikon yang tersedia: laptop, monitor PC, server, printer, pinpad, scanner,
+  tablet, telepon VoIP, TV/display, mesin absensi, kamera, dan umum. Tipe yang masih dipakai tidak bisa dihapus.
+- Isian endpoint: hostname, MAC, mode IP, OS, pengguna/unit, nomor aset.
+
 **Penamaan per group.** Perangkat sejenis yang terhubung ke uplink yang sama, misalnya semua titik LAN di bawah SW-05,
 membentuk satu group.
 - Pilih salah satu anggota (atau switch-nya), isi **Nama group** di panel Koneksi, misalnya `BOOTH-A`, lalu tekan Enter.
@@ -67,6 +102,17 @@ membentuk satu group.
 **Hapus koneksi.** Pilih perangkat, lalu klik tombol ✕ merah di garis kabelnya, atau tombol **Putuskan** di samping
 pilihan Uplink. Perangkat di bawah switch/router juga bisa diputus lewat ✕ di daftar *Terhubung ke sini*. Port uplink
 dan bentuk jalur ikut dikosongkan. Klik **Batalkan** pada notifikasi untuk memulihkan koneksinya.
+
+**AP omni & sektoral.** Atur pola pancaran di isian *Pola pancaran* pada panel AP:
+- **Omni (360°)** digambar sebagai lingkaran.
+- **Sektoral** digambar sebagai kipas sesuai *Arah sektor* (0° = atas denah, searah jarum jam) dan *Lebar sektor*.
+
+Panjang ilustrasi memakai *Radius / jangkauan (m)*, jadi skala denah harus sudah dikalibrasi. AP sektoral juga diberi
+kipas kecil dan panah arah di titiknya, sehingga arahnya tetap terlihat walau skala belum dikalibrasi.
+
+Pilih AP sektoral lalu geser **pegangan putar** (bulatan hijau) untuk memutar arahnya, dengan snap 5° (tahan `Alt`
+untuk bebas). Pola pancaran dan beamwidth juga bisa disimpan di spesifikasi katalog, sehingga ikut terisi saat alat
+dipilih. Pemeriksaan co-channel memperhitungkan arah: dua AP sektoral yang saling membelakangi tidak dianggap bertumpuk.
 
 **Kecerahan denah.** Slider *Denah* di pojok kiri bawah peta memudarkan gambar denah (10–100%) agar titik dan garis
 lebih jelas. Pengaturan ini tersimpan per browser dan ikut dipakai saat mencetak.
@@ -96,13 +142,38 @@ setiap 30 detik. Tombol **Ganti link** membuat kode baru dan link lama tidak ber
 
 ## Instalasi
 
-Aplikasi ini memakai database yang sama dengan aplikasi lain (`extradata`), dengan tabel berawalan `np_`. Tabel **dibuat
-otomatis** saat login pertama. Bisa juga diimpor manual dari `database/netplan.sql`.
+Aplikasi ini memakai database yang sama dengan aplikasi lain (`extradata`), dengan tabel berawalan `np_`.
+
+**Migrasi database berjalan otomatis setelah deploy**, tanpa phpMyAdmin dan tanpa perlu login:
+- Versi struktur database tersimpan di tabel `np_meta` (`schema`), sedangkan versi kode ada di `NP_SCHEMA`
+  (`api/db.php`).
+- Setelah kode baru sampai di server (push GitHub → update di cPanel), **request pertama** ke Net Plan, baik halaman
+  admin maupun link lihat-saja, mendeteksi versi yang tertinggal lalu menjalankan `np_install_schema()`.
+  `GET_LOCK` memastikan hanya satu request yang memigrasi.
+- Bisa juga dijalankan manual atau sebagai langkah deploy: `php net-plan/api/migrate.php`. Skrip ini menampilkan versi
+  dan tabel, dan keluar dengan kode 1 bila gagal. Skrip tidak bisa dibuka dari browser.
+- User database harus punya hak **CREATE, ALTER, INDEX**. Bila tidak, halaman menampilkan pesan error yang jelas.
+
+Struktur juga bisa diimpor manual dari `database/netplan.sql`.
+
+Migrasi ini **idempoten** dan sudah diuji pada database baru, database versi lama berisi data, dan 5 migrasi yang
+berjalan bersamaan:
+- tabel dibuat dengan `CREATE TABLE IF NOT EXISTS`;
+- kolom dan index baru hanya ditambahkan bila belum ada (dicek lewat `information_schema`). Error "sudah ada" dari
+  request lain yang berjalan bersamaan diabaikan;
+- tipe endpoint bawaan hanya diisi saat tabelnya baru dibuat (`INSERT IGNORE` + `UNIQUE` nama), sehingga tidak dobel
+  dan tipe yang sengaja dihapus tidak muncul lagi;
+- tidak ada data yang dihapus atau diubah.
+
+Untuk menambah kolom di versi berikutnya, tambahkan di `CREATE TABLE` **dan** di `np_install_schema()`, lalu naikkan
+`NP_SCHEMA`.
 
 - **XAMPP lokal**: tidak perlu konfigurasi. Password bawaan `admin` hanya berlaku bila halaman dibuka dari komputer itu
   sendiri (localhost).
 - **Hosting / cPanel**: salin `api/config.local.example.php` menjadi `api/config.local.php`, lalu isi kredensial database
   dan `NP_ADMIN_PASS`. File ini tidak ikut ke Git. Folder `uploads/` harus bisa ditulis oleh PHP.
+- **Update di server** dilakukan dengan `git pull` lewat SSH di folder web (lihat `other/README.md`, bagian *Upload ke
+  cPanel*). Migrasi database jalan otomatis setelahnya. Pasang hook `post-merge` agar migrasi langsung jalan saat pull.
 
 Gambar denah disimpan di `uploads/`. Folder ini tertutup dari browser, jadi gambar hanya disajikan lewat `api/denah.php`
 setelah pengecekan login atau kode lihat. Batas ukuran upload mengikuti `upload_max_filesize`/`post_max_size` PHP

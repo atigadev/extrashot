@@ -6,8 +6,8 @@
 <!-- Foto hanya diproses di browser: halaman ini dilarang mengirim data ke server lain maupun lewat form. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self' blob:; form-action 'none'; base-uri 'self'; object-src 'none'">
 <title>Cetak Foto</title>
-<link rel="stylesheet" href="assets/style.css?v=4">
-<link rel="stylesheet" href="assets/foto.css?v=4">
+<link rel="stylesheet" href="assets/style.css?v=5">
+<link rel="stylesheet" href="assets/foto.css?v=5">
 <style id="page-style"></style>
 </head>
 <body>
@@ -90,16 +90,34 @@
       <h2>4. Kertas sisa &amp; posisi cetak</h2>
       <label class="field check"><input type="checkbox" id="chk-leftover"> <span>Cetak di sisa kertas yang sudah dipotong</span></label>
       <div id="leftover-fields" hidden>
-        <div class="grid2">
+        <label class="field"><span>Bentuk potongan</span>
+          <select id="sel-left-shape">
+            <option value="side">Potong lurus satu sisi</option>
+            <option value="corner">Potong sudut (sisa kertas berbentuk L)</option>
+          </select>
+        </label>
+        <div class="grid2 left-corner-only" hidden>
+          <label class="field span2"><span>Sudut yang sudah terpotong</span>
+            <select id="sel-corner-pos"><option value="tl">Kiri atas</option><option value="tr">Kanan atas</option><option value="bl">Kiri bawah</option><option value="br">Kanan bawah</option></select>
+          </label>
+          <label class="field"><span>Lebar potongan (mm)</span><input type="number" id="inp-corner-w" min="1" step="0.5"></label>
+          <label class="field"><span>Tinggi potongan (mm)</span><input type="number" id="inp-corner-h" min="1" step="0.5"></label>
+          <p class="hint span2" style="margin-top:0">Ukur dari tepi asli kertas sampai bekas potongan, di kedua arah.</p>
+        </div>
+        <div class="grid2 left-side-only">
           <label class="field"><span>Bagian yang tersisa</span>
             <select id="sel-left-side"><option value="bottom">Bawah</option><option value="top">Atas</option><option value="right">Kanan</option><option value="left">Kiri</option></select>
           </label>
           <label class="field"><span id="lbl-left-size">Tinggi sisa kertas (mm)</span><input type="number" id="inp-left-size" min="5" step="0.5"></label>
-          <label class="field"><span>Jarak aman dari tepi potongan (mm)</span><input type="number" id="inp-cut-safe" min="0" step="0.5"></label>
           <label class="field"><span>Cara memasukkan ke printer</span>
             <select id="sel-left-feed"><option value="inplace">Di posisi asal pada kertas utuh</option><option value="small">Langsung sebagai kertas kecil</option></select>
           </label>
         </div>
+        <div class="grid2">
+          <label class="field"><span>Jarak aman dari tepi potongan (mm)</span><input type="number" id="inp-cut-safe" min="0" step="0.5"></label>
+          <label class="field check" style="align-self:center"><input type="checkbox" id="chk-left-flip"> <span>Kertas dimasukkan terbalik (180°)</span></label>
+        </div>
+        <p class="hint" id="left-flip-hint" style="margin-top:0"></p>
         <p class="hint" id="leftover-feed-hint" style="margin-top:0"></p>
         <div class="btn-row" style="margin-top:8px"><button type="button" id="btn-from-last">Isi dari cetakan terakhir</button></div>
         <p class="hint" id="last-print-info"></p>
@@ -204,7 +222,7 @@
   </div>
 </dialog>
 
-<script src="assets/foto-bg.js?v=4"></script>
-<script src="assets/foto.js?v=4"></script>
+<script src="assets/foto-bg.js?v=5"></script>
+<script src="assets/foto.js?v=5"></script>
 </body>
 </html>

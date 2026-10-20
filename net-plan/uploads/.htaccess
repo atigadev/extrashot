@@ -1,0 +1,9 @@
+# Gambar denah hanya disajikan lewat api/denah.php (cek login / kode lihat).
+# Folder ini tidak boleh diakses langsung dari browser.
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

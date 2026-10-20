@@ -25,3 +25,8 @@ Desktop.ini
 
 # Live Vote: kredensial & password admin lokal
 live-vote/api/config.local.php
+
+# Net Plan: kredensial lokal & gambar denah yang diupload
+net-plan/api/config.local.php
+net-plan/uploads/*
+!net-plan/uploads/.htaccess

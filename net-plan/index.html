@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Net Plan — Perencanaan Jaringan Event</title>
+<link rel="stylesheet" href="assets/np.css">
+</head>
+<body>
+
+<div class="overlay" id="login" hidden>
+  <form class="card" id="login-form">
+    <h2>Net Plan — Masuk</h2>
+    <label class="field">
+      <span>Password admin</span>
+      <input type="password" id="login-pass" autocomplete="current-password" required>
+    </label>
+    <button class="primary" type="submit" style="width:100%">Masuk</button>
+    <p class="err-text" id="login-err" hidden></p>
+  </form>
+</div>
+
+<header class="topbar">
+  <a class="brand" href="#/" id="brand">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><circle cx="5" cy="18" r="2.6"/><circle cx="19" cy="18" r="2.6"/><path d="M12 7.6v4.4M12 12l-5.4 4M12 12l5.4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+    Net Plan
+  </a>
+  <div class="crumb" id="crumb"></div>
+  <span class="spacer"></span>
+  <span class="save-state" id="save-state"></span>
+  <button type="button" id="btn-print" hidden>Cetak</button>
+  <button type="button" id="btn-logout" hidden>Keluar</button>
+</header>
+
+<!-- Daftar event -->
+<main id="home" class="home" hidden>
+  <div class="home-head">
+    <div>
+      <h1>Event</h1>
+      <p class="muted">Setiap event berisi denah venue dan titik-titik jaringannya.</p>
+    </div>
+    <button type="button" class="primary" id="btn-new">+ Event baru</button>
+  </div>
+  <div class="proj-grid" id="proj-grid"></div>
+</main>
+
+<!-- Editor satu event -->
+<div id="editor" class="editor" hidden>
+  <nav class="tabs" id="tabs">
+    <button type="button" data-tab="denah">Denah</button>
+    <button type="button" data-tab="daftar">Daftar perangkat</button>
+    <button type="button" data-tab="topologi">Topologi &amp; cek</button>
+    <button type="button" data-tab="proyek">Proyek</button>
+  </nav>
+
+  <section class="tab-pane" data-pane="denah">
+    <div class="peta-layout">
+      <div class="toolbar" id="toolbar"></div>
+      <div class="peta-area">
+        <svg id="map" class="map"></svg>
+        <div class="map-hint" id="map-hint" hidden></div>
+        <div class="map-ctrl">
+          <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
+          <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
+          <button type="button" data-zoom="fit" title="Seluruh denah (F)">⤢</button>
+        </div>
+        <div class="map-layers" id="map-layers">
+          <label><input type="checkbox" data-layer="label" checked> Label</label>
+          <label><input type="checkbox" data-layer="garis" checked> Garis uplink</label>
+          <label><input type="checkbox" data-layer="jarak"> Panjang kabel</label>
+          <label><input type="checkbox" data-layer="cakupan" checked> Cakupan AP</label>
+          <label class="opacity-ctl" title="Pudarkan denah agar titik perangkat lebih jelas">Denah
+            <input type="range" id="denah-opacity" min="10" max="100" step="5" value="100">
+            <output id="denah-opacity-val">100%</output></label>
+        </div>
+      </div>
+      <aside class="panel" id="panel"></aside>
+    </div>
+  </section>
+
+  <section class="tab-pane scroll" data-pane="daftar" hidden>
+    <div class="page">
+      <div class="list-tools">
+        <input type="search" id="list-q" placeholder="Cari nama, IP, SSID, merek, keterangan…">
+        <select id="list-jenis"><option value="">Semua jenis</option></select>
+        <select id="list-status"><option value="">Semua status</option></select>
+        <span class="spacer"></span>
+        <button type="button" id="btn-csv">Unduh CSV</button>
+        <button type="button" id="btn-export">Ekspor JSON</button>
+        <button type="button" id="btn-import" class="edit-only">Impor JSON…</button>
+        <input type="file" id="import-file" accept=".json,application/json" hidden>
+      </div>
+      <div class="table-wrap"><table class="dev-table" id="dev-table"></table></div>
+    </div>
+  </section>
+
+  <section class="tab-pane scroll" data-pane="topologi" hidden>
+    <div class="page topo-layout">
+      <div class="card">
+        <h2>Pohon topologi <span class="muted small" id="topo-count"></span></h2>
+        <div class="tree" id="tree"></div>
+      </div>
+      <div class="topo-side">
+        <div class="card"><h2>Pemeriksaan desain</h2><div id="checks"></div></div>
+        <div class="card"><h2>Sumber WAN</h2><div id="wan-sum"></div></div>
+        <div class="card"><h2>SSID</h2><div id="ssid-sum"></div></div>
+        <div class="card"><h2>Kebutuhan perangkat</h2><div id="bom"></div></div>
+        <div class="card"><h2>Estimasi kabel</h2><div id="kabel-sum"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab-pane scroll" data-pane="proyek" hidden>
+    <div class="page proj-layout" id="proyek-pane"></div>
+  </section>
+</div>
+
+<!-- Dialog event baru / ubah -->
+<dialog id="dlg-proyek" class="dlg">
+  <form method="dialog" id="form-proyek" autocomplete="off">
+    <h2 id="dlg-proyek-title">Event baru</h2>
+    <label class="field"><span>Nama event *</span>
+      <input type="text" name="nama" maxlength="150" required placeholder="mis. Jakarta Muslim Fair 2026"></label>
+    <label class="field"><span>Venue</span>
+      <input type="text" name="venue" maxlength="200" placeholder="mis. JCC Senayan, Hall A"></label>
+    <div class="row2">
+      <label class="field"><span>Tanggal mulai</span><input type="date" name="tanggal_mulai"></label>
+      <label class="field"><span>Tanggal selesai</span><input type="date" name="tanggal_selesai"></label>
+    </div>
+    <label class="field new-only"><span>Denah venue (PNG/JPG/WEBP) — bisa menyusul</span>
+      <input type="file" name="denah" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+    <div class="btn-row end">
+      <button type="button" value="cancel" data-close>Batal</button>
+      <button type="submit" class="primary" value="ok">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="print" class="print"></div>
+
+<script src="vendor/qrcode.min.js"></script>
+<script src="assets/common.js"></script>
+<script src="assets/analisis.js"></script>
+<script src="assets/peta.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css">
+<link rel="stylesheet" href="assets/np.css?v=8">
 </head>
 <body>
 
@@ -64,6 +65,7 @@
           <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
           <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
           <button type="button" data-zoom="fit" title="Seluruh denah (F)">⤢</button>
+          <button type="button" id="btn-full" title="Peta layar penuh" aria-label="Peta layar penuh" aria-pressed="false">⛶</button>
           <button type="button" class="layers-btn" id="btn-layers" title="Lapisan &amp; kecerahan denah" aria-expanded="false">☰</button>
         </div>
         <div class="map-layers" id="map-layers">
@@ -98,6 +100,7 @@
         <button type="button" id="btn-csv">Unduh CSV</button>
         <button type="button" id="btn-export">Ekspor JSON</button>
         <button type="button" id="btn-import" class="edit-only">Impor JSON…</button>
+        <button type="button" id="btn-rapikan" class="edit-only" title="Namai ulang anggota setiap group bernama agar berurutan">Rapikan nama</button>
         <button type="button" id="btn-del-all" class="edit-only danger">Hapus semua…</button>
         <input type="file" id="import-file" accept=".json,application/json" hidden>
       </div>
@@ -176,10 +179,10 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js"></script>
-<script src="assets/common.js"></script>
-<script src="assets/analisis.js"></script>
-<script src="assets/peta.js"></script>
-<script src="assets/app.js"></script>
+<script src="vendor/qrcode.min.js?v=8"></script>
+<script src="assets/common.js?v=8"></script>
+<script src="assets/analisis.js?v=8"></script>
+<script src="assets/peta.js?v=8"></script>
+<script src="assets/app.js?v=8"></script>
 </body>
 </html>

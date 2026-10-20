@@ -54,6 +54,16 @@ Tombol **Cetak** menyediakan dua jenis laporan:
 
 Panjang kabel dihitung mengikuti jalur ini. Link wireless selalu digambar lurus.
 
+**Penamaan per group.** Perangkat sejenis yang terhubung ke uplink yang sama, misalnya semua titik LAN di bawah SW-05,
+membentuk satu group.
+- Pilih salah satu anggota (atau switch-nya), isi **Nama group** di panel Koneksi, misalnya `BOOTH-A`, lalu tekan Enter.
+  Semua anggota langsung dinamai `BOOTH-A-01`, `BOOTH-A-02`, … urut nomor port di switch, lalu nomor lama. Klik
+  **Batalkan** pada notifikasi untuk mengembalikan nama lama.
+- Perangkat baru yang ditaruh atau disambungkan ke group itu otomatis mendapat nomor berikutnya.
+- Tombol **Rapikan nama** di *Daftar perangkat* menomori ulang semua group tanpa celah, misalnya setelah ada anggota
+  yang dihapus.
+- Nama group disimpan di perangkat induknya. Kolom **Group** muncul di daftar perangkat dan CSV.
+
 **Hapus koneksi.** Pilih perangkat, lalu klik tombol ✕ merah di garis kabelnya, atau tombol **Putuskan** di samping
 pilihan Uplink. Perangkat di bawah switch/router juga bisa diputus lewat ✕ di daftar *Terhubung ke sini*. Port uplink
 dan bentuk jalur ikut dikosongkan. Klik **Batalkan** pada notifikasi untuk memulihkan koneksinya.
@@ -97,6 +107,9 @@ otomatis** saat login pertama. Bisa juga diimpor manual dari `database/netplan.s
 Gambar denah disimpan di `uploads/`. Folder ini tertutup dari browser, jadi gambar hanya disajikan lewat `api/denah.php`
 setelah pengecekan login atau kode lihat. Batas ukuran upload mengikuti `upload_max_filesize`/`post_max_size` PHP
 (XAMPP: 40M).
+
+**Setiap kali file di `assets/` diubah, naikkan angka `?v=N` di `index.html`.** Tanpa itu, browser (terutama di HP)
+bisa tetap memakai CSS/JS lama dari cache. `.htaccess` membuat `index.html` selalu dicek ulang ke server.
 
 Aplikasi berjalan tanpa CDN. QR code dibuat oleh `vendor/qrcode.min.js` (qrcode-generator, MIT).
 

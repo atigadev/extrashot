@@ -433,14 +433,141 @@
     return pre + '-' + String(max + 1).padStart(2, '0');
   }
 
+  // ------------------------------------------------------------------------ penamaan per group
+  // Group = perangkat sejenis yang terhubung ke uplink yang sama. Nama group disimpan di atribut perangkat
+  // induknya (kunci "grup_<jenis>"), anggotanya dinamai <GROUP>-01, <GROUP>-02, ... urut port lalu nomor lama.
+
+  const grupKey = jenis => 'grup_' + jenis;
+
+  function grupNama(parentId, jenis) {
+    const p = parentId != null && S.model.byId.get(parentId);
+    return (p && p.atribut && p.atribut[grupKey(jenis)]) || '';
+  }
+
+  function grupAnggota(parentId, jenis) {
+    const portNo = d => { const m = String(d.port_uplink || '').match(/\d+/); return m ? +m[0] : Infinity; };
+    const tail = d => { const m = d.nama.match(/(\d+)\s*$/); return m ? +m[1] : Infinity; };
+    return S.list.filter(d => d.uplink_id === parentId && d.jenis === jenis)
+      .sort((a, b) => portNo(a) - portNo(b) || tail(a) - tail(b) || a.id - b.id);
+  }
+
+  const grupDasar = g => g.trim().replace(/[-\s]+$/, '');
+  const grupLabel = (g, n) => grupDasar(g) + '-' + String(n).padStart(2, '0');
+  const grupRe = g => new RegExp('^' + grupDasar(g).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\\d+)$', 'i');
+
+  /** Nama berikutnya di group = nomor terbesar yang sudah dipakai + 1. */
+  function grupNext(g, kecualiId) {
+    const re = grupRe(g);
+    let max = 0;
+    for (const d of S.list) {
+      const m = d.id !== kecualiId && d.nama.match(re);
+      if (m) max = Math.max(max, +m[1]);
+    }
+    return grupLabel(g, max + 1);
+  }
+
+  /** Nama untuk perangkat yang (akan) masuk ke group uplink tersebut, atau null bila group belum bernama / sudah sesuai. */
+  function namaMasukGrup(d, parentId, jenis) {
+    const g = grupNama(parentId, jenis || d.jenis);
+    if (!g || grupRe(g).test(d.nama)) return null;
+    return grupNext(g, d.id);
+  }
+
+  /** Rencana ganti nama agar anggota group berurutan 01, 02, ... */
+  function grupRencana(parentId, jenis, g) {
+    if (g == null) g = grupNama(parentId, jenis);
+    if (!grupDasar(g)) return [];
+    return grupAnggota(parentId, jenis).map((d, i) => ({ id: d.id, lama: d.nama, baru: grupLabel(g, i + 1) }))
+      .filter(x => x.lama !== x.baru);
+  }
+
+  /** Rencana untuk semua group bernama di event ini. */
+  function semuaRencana() {
+    const out = [];
+    for (const p of S.list) {
+      for (const k of Object.keys(p.atribut || {})) {
+        if (k.startsWith('grup_') && p.atribut[k]) out.push(...grupRencana(p.id, k.slice(5)));
+      }
+    }
+    return out;
+  }
+
+  /** Simpan perubahan nama massal; notifikasi menyediakan tombol Batalkan. */
+  async function terapkanNama(items, pesan, tanpaUndo, onUndo) {
+    if (!items.length) return;
+    try {
+      await enqueue(() => api(API, { action: 'perangkat_rename', items: items.map(x => ({ id: x.id, nama: x.baru })) }));
+      for (const x of items) {
+        const d = S.model.byId.get(x.id);
+        if (d) d.nama = x.baru;
+      }
+      refreshModel();
+      toast(pesan, false, tanpaUndo ? undefined : {
+        label: 'Batalkan',
+        fn: async () => {
+          if (onUndo) await onUndo();
+          terapkanNama(items.map(x => ({ id: x.id, lama: x.baru, baru: x.lama })), 'Nama dikembalikan', true);
+        },
+      });
+    } catch (err) {
+      setSaveState('error');
+      toast(err.message, true);
+      reloadProyek();
+    }
+  }
+
+  /** Beri/ubah nama group lalu namai ulang anggotanya. Nama kosong = hapus nama group (nama perangkat tidak diubah). */
+  async function setGrupNama(parentId, jenis, nama) {
+    const p = S.model.byId.get(parentId);
+    if (!p || !S.canEdit) return;
+    nama = grupDasar(nama || '');
+    if (nama.length > 40) return toast('Nama group maksimal 40 karakter', true);
+    const atrLama = Object.assign({}, p.atribut);
+    const atr = Object.assign({}, p.atribut);
+    if (nama) atr[grupKey(jenis)] = nama;
+    else delete atr[grupKey(jenis)];
+    const rencana = grupRencana(parentId, jenis, nama);
+    try {
+      await saveDev(parentId, { atribut: atr }, { keepPanel: true });
+    } catch (e) {
+      return;
+    }
+    if (!nama) return toast(`Nama group ${TYPES[jenis].label} di ${p.nama} dihapus`);
+    if (!rencana.length) return toast(`Group ${nama} tersimpan — nama sudah berurutan`);
+    // Batalkan = kembalikan nama perangkat dan nama group sebelumnya.
+    terapkanNama(rencana, `${rencana.length} perangkat dinamai ${grupLabel(nama, 1)} …`, false,
+      () => saveDev(parentId, { atribut: atrLama }, { keepPanel: true }).catch(() => {}));
+  }
+
+  /** Editor nama group untuk perangkat sejenis di bawah satu uplink. */
+  function grupEditor(parentId, jenis) {
+    const p = S.model.byId.get(parentId);
+    const anggota = grupAnggota(parentId, jenis);
+    const g = grupNama(parentId, jenis);
+    const t = TYPES[jenis] || TYPES.lainnya;
+    const contoh = n => (g ? grupLabel(g, 1) + (n > 1 ? ' … ' + grupLabel(g, n) : '') : '');
+    if (!S.canEdit) {
+      return g ? `<div class="kv"><span>Group</span><b>${esc(g)} <span class="muted">(${anggota.length} ${esc(t.label)} di ${esc(p.nama)})</span></b></div>` : '';
+    }
+    return `<div class="grp" data-grup-parent="${parentId}" data-grup-jenis="${jenis}" data-n="${anggota.length}">
+      <span class="route-lbl">Nama group · ${anggota.length} ${esc(t.label)} di ${esc(p.nama)}</span>
+      <div class="inline"><input type="text" class="grup-input" value="${esc(g)}" maxlength="40" placeholder="mis. BOOTH-A" aria-label="Nama group">
+        <button type="button" class="small" data-grup-apply>${g ? 'Ubah' : 'Terapkan'}</button></div>
+      <p class="muted small grp-hint">${g ? `Anggota dinamai <b>${esc(contoh(anggota.length))}</b>, urut nomor port lalu nomor lama. Perangkat baru di sini otomatis lanjut nomornya.`
+        : `Isi nama group agar ${anggota.length > 1 ? 'semua ' + anggota.length + ' ' : ''}${esc(t.label)} di ${esc(p.nama)} otomatis dinamai NAMA-01, NAMA-02, …`}</p>
+    </div>`;
+  }
+
   async function addDev(jenis, x, y, base) {
     const parent = S.parentCtx != null && S.model.byId.get(S.parentCtx);
+    const uplinkId = base && base.uplink_id !== undefined ? base.uplink_id : (jenis !== 'isp' && parent ? parent.id : null);
+    const g = uplinkId != null ? grupNama(uplinkId, jenis) : '';
     const body = Object.assign({
       action: 'perangkat_save',
       proyek_id: S.proyek.id,
       jenis,
-      nama: nextName(jenis),
-      uplink_id: jenis !== 'isp' && parent ? parent.id : null,
+      nama: g ? grupNext(g) : nextName(jenis),
+      uplink_id: uplinkId,
       media: jenis === 'isp' ? '' : 'utp',
       status: 'rencana',
     }, base || {}, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
@@ -467,7 +594,10 @@
     }
     const patch = { uplink_id: parentId };
     if (!c.media) patch.media = 'utp';
-    saveDev(childId, patch).then(() => toast(`${c.nama} → uplink ${p.nama}`)).catch(() => {});
+    const lama = c.nama;
+    const baru = namaMasukGrup(c, parentId);
+    if (baru) patch.nama = baru;
+    saveDev(childId, patch).then(() => toast(`${lama}${baru ? ' → ' + baru : ''} · uplink ${p.nama}`)).catch(() => {});
   }
 
   /** Hapus koneksi perangkat ke uplinknya (port uplink & bentuk jalur ikut dikosongkan). Bisa dibatalkan. */
@@ -698,10 +828,29 @@
     bar.addEventListener('pointercancel', () => { startY = null; });
   })();
 
-  // Kontrol lapisan: di layar kecil dilipat ke tombol ☰.
-  $('#btn-layers').addEventListener('click', () => {
-    const open = $('#map-layers').classList.toggle('open');
+  // Kontrol lapisan: di layar kecil dilipat ke tombol ☰, tertutup lagi saat peta disentuh.
+  function setLayersOpen(open) {
+    $('#map-layers').classList.toggle('open', open);
     $('#btn-layers').setAttribute('aria-expanded', open);
+  }
+  $('#btn-layers').addEventListener('click', () => setLayersOpen(!$('#map-layers').classList.contains('open')));
+  $('#map').addEventListener('pointerdown', () => setLayersOpen(false));
+
+  // Peta layar penuh: sembunyikan header & tab (dan bar browser bila Fullscreen API tersedia, mis. Android).
+  function setFull(on) {
+    document.body.classList.toggle('map-full', on);
+    $('#btn-full').setAttribute('aria-pressed', on);
+    $('#btn-full').textContent = on ? '✕' : '⛶';
+    $('#btn-full').title = on ? 'Keluar layar penuh' : 'Peta layar penuh';
+    const fs = document.fullscreenElement;
+    if (on && !fs && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    if (!on && fs && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    requestAnimationFrame(updateInset);
+  }
+  $('#btn-full').addEventListener('click', () => setFull(!document.body.classList.contains('map-full')));
+  // Keluar dari fullscreen lewat tombol Back / Esc browser -> kembalikan tampilan.
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && document.body.classList.contains('map-full')) setFull(false);
   });
 
   /** Contoh garis untuk legenda (sama dengan gaya garis di peta, termasuk tepi putih). */
@@ -887,6 +1036,7 @@
             ${fieldHtml({ k: 'port_lokal', label: 'Port di perangkat ini', ph: 'mis. ether1 / WAN' }, d.port_lokal, dis)}
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
             ${fieldHtml({ k: 'bandwidth_mbps', label: t.bwLabel, type: 'number' }, d.bandwidth_mbps, dis)}
+            <div class="wide" id="pn-grup"></div>
             <div class="wide" id="pn-route"></div>
             ${fieldHtml({ k: 'ip', label: 'IP address', ph: 'mis. 10.10.0.11/22 · DHCP' }, d.ip, dis)}
             ${fieldHtml({ k: 'vlan', label: 'VLAN', ph: 'mis. 10 (tamu)' }, d.vlan, dis)}
@@ -912,6 +1062,7 @@
       if (!box && S.tab === 'denah' && peta.tool !== 'ukur') renderPanel();
       return;
     }
+    if (box.querySelector('.grup-input[data-dirty]')) return; // nama group sedang diketik
     const m = S.model;
     const nm = $('#pn-nama');
     if (nm) nm.textContent = d.nama;
@@ -946,6 +1097,8 @@
     }
     if (kids.length) {
       h += `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span><div class="path wrap">${kids.map(c => S.canEdit ? `<span class="chip-x">${chip(c)}<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button></span>` : chip(c)).join('')}</div></div>`;
+      const jenisAnak = [...new Set(kids.map(c => c.jenis))];
+      h += `<div class="grp-list" id="pn-grup-anak">${jenisAnak.map(j => grupEditor(d.id, j)).join('')}</div>`;
     }
     if (issues.length) {
       h += `<ul class="issues">${issues.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>`;
@@ -953,6 +1106,9 @@
     h += '</div>';
     box.innerHTML = h;
     renderRoute(d);
+    const gb = $('#pn-grup');
+    // Jangan timpa nama group yang sedang diketik.
+    if (gb && !gb.querySelector('.grup-input[data-dirty]')) gb.innerHTML = d.uplink_id != null ? grupEditor(d.uplink_id, d.jenis) : '';
   }
 
   /** Pilihan bentuk jalur kabel ke uplink. */
@@ -1042,6 +1198,34 @@
     }
   });
 
+  // Nama group: pratinjau saat mengetik, simpan dengan Enter / tombol Terapkan.
+  function applyGrup(box) {
+    const inp = box.querySelector('.grup-input');
+    delete inp.dataset.dirty;
+    setGrupNama(+box.dataset.grupParent, box.dataset.grupJenis, inp.value);
+  }
+  $('#panel').addEventListener('input', e => {
+    const inp = e.target.closest('.grup-input');
+    if (!inp) return;
+    inp.dataset.dirty = '1';
+    const box = inp.closest('.grp');
+    const n = +box.dataset.n;
+    const g = grupDasar(inp.value);
+    box.querySelector('.grp-hint').innerHTML = g
+      ? `Hasil: <b>${esc(grupLabel(g, 1))}${n > 1 ? ' … ' + esc(grupLabel(g, n)) : ''}</b> — tekan Enter atau Terapkan`
+      : 'Kosongkan lalu Terapkan untuk menghapus nama group (nama perangkat tidak diubah).';
+  });
+  $('#panel').addEventListener('keydown', e => {
+    const inp = e.target.closest('.grup-input');
+    if (!inp || e.key !== 'Enter') return;
+    e.preventDefault();
+    applyGrup(inp.closest('.grp'));
+  });
+  $('#panel').addEventListener('click', e => {
+    const b = e.target.closest('[data-grup-apply]');
+    if (b) applyGrup(b.closest('.grp'));
+  });
+
   // Simpan otomatis tiap isian berubah.
   $('#panel').addEventListener('change', e => {
     const inp = e.target.closest('[data-f]');
@@ -1058,6 +1242,11 @@
     } else if (k === 'uplink_id') {
       patch = { uplink_id: v === '' ? null : +v };
       if (v !== '' && !d.media) patch.media = 'utp';
+      const baru = v !== '' && namaMasukGrup(d, +v);
+      if (baru) {
+        patch.nama = baru;
+        toast(`${d.nama} dinamai ${baru} sesuai group`);
+      }
     } else if (k === 'bandwidth_mbps') {
       patch = { bandwidth_mbps: v === '' ? null : +v };
     } else if (k === 'nama') {
@@ -1071,7 +1260,7 @@
       patch = { [k]: v };
     }
     // Ganti jenis atau uplink -> isian/opsi lain ikut berubah, gambar ulang panel.
-    const full = k === 'jenis';
+    const full = k === 'jenis' || (k !== 'nama' && !!patch.nama);
     saveDev(d.id, patch, { keepPanel: !full }).catch(() => {});
   });
 
@@ -1097,6 +1286,7 @@
     { k: 'ip', label: 'IP', v: d => d.ip.split('.').map(x => x.padStart(3, '0')).join('.') , show: d => d.ip },
     { k: 'vlan', label: 'VLAN', v: d => d.vlan },
     { k: 'uplink', label: 'Uplink', v: d => { const p = S.model.parentOf(d); return p ? p.nama : ''; } },
+    { k: 'grup', label: 'Group', v: d => d.uplink_id != null ? grupNama(d.uplink_id, d.jenis) : '' },
     { k: 'internet', label: 'Internet', v: d => Object.keys(KONEKSI).indexOf(S.model.koneksi(d)) },
     { k: 'media', label: 'Media', v: d => d.media, show: d => d.media ? (MEDIA[d.media].short || d.media) : '' },
     { k: 'bw', label: 'Bandwidth', v: d => d.bandwidth_mbps == null ? -1 : d.bandwidth_mbps, show: d => fmtBw(d.bandwidth_mbps) },
@@ -1139,6 +1329,7 @@
         ${td('IP', esc(d.ip), 'mono')}
         ${td('VLAN', esc(d.vlan))}
         ${td('Uplink', p ? esc(p.nama) + (d.port_uplink ? ` <span class="muted">(${esc(d.port_uplink)})</span>` : '') : '<span class="muted">—</span>')}
+        ${td('Group', d.uplink_id != null ? esc(grupNama(d.uplink_id, d.jenis)) : '')}
         ${td('Internet', konBadge(S.model.koneksi(d)))}
         ${td('Media', esc(d.media ? (MEDIA[d.media].short || d.media) : ''))}
         ${td('Bandwidth', esc(fmtBw(d.bandwidth_mbps)), 'num')}
@@ -1166,13 +1357,13 @@
   });
 
   $('#btn-csv').addEventListener('click', () => {
-    const rows = [['Nama', 'Jenis', 'Nama alat', 'IP', 'VLAN', 'Uplink', 'Port uplink', 'Port lokal', 'Media', 'Bandwidth (Mbps)',
+    const rows = [['Nama', 'Jenis', 'Nama alat', 'IP', 'VLAN', 'Uplink', 'Group', 'Port uplink', 'Port lokal', 'Media', 'Bandwidth (Mbps)',
       'Bandwidth maks. (Mbps)', 'Sumber WAN', 'Internet', 'Kabel (m)', 'Status', 'PIC', 'Isian khusus', 'Keterangan konfigurasi']];
     for (const d of NP.Model.sortDev(filteredList())) {
       const p = S.model.parentOf(d);
       const w = S.model.wanOf(d);
       const k = S.model.kabelM(d);
-      rows.push([d.nama, (TYPES[d.jenis] || TYPES.lainnya).label, d.model, d.ip, d.vlan, p ? p.nama : '', d.port_uplink, d.port_lokal,
+      rows.push([d.nama, (TYPES[d.jenis] || TYPES.lainnya).label, d.model, d.ip, d.vlan, p ? p.nama : '', p ? grupNama(p.id, d.jenis) : '', d.port_uplink, d.port_lokal,
         d.media ? MEDIA[d.media].label : '', d.bandwidth_mbps == null ? '' : d.bandwidth_mbps, S.model.bwEfektif(d).mbps == null ? '' : S.model.bwEfektif(d).mbps,
         w ? w.nama : '', KONEKSI[S.model.koneksi(d)].label, k == null ? '' : Math.round(k), (STATUS[d.status] || STATUS.rencana).label, d.pic, attrSummary(d, false), d.catatan]);
     }
@@ -1195,6 +1386,15 @@
 
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
   $('#btn-del-all').addEventListener('click', () => hapusSemuaPerangkat());
+  $('#btn-rapikan').addEventListener('click', () => {
+    const grupAda = S.list.some(p => Object.keys(p.atribut || {}).some(k => k.startsWith('grup_') && p.atribut[k]));
+    if (!grupAda) return toast('Belum ada group bernama. Pilih perangkat, lalu isi "Nama group" di panel Koneksi.', true);
+    const rencana = semuaRencana();
+    if (!rencana.length) return toast('Semua nama group sudah berurutan');
+    const contoh = rencana.slice(0, 15).map(x => `${x.lama}  →  ${x.baru}`).join('\n');
+    if (!confirm(`Ganti nama ${rencana.length} perangkat agar berurutan sesuai group?\n\n${contoh}${rencana.length > 15 ? `\n… dan ${rencana.length - 15} lainnya` : ''}`)) return;
+    terapkanNama(rencana, `${rencana.length} perangkat dirapikan namanya`);
+  });
   $('#import-file').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';

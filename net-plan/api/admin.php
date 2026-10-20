@@ -16,6 +16,7 @@
  * POST {"action":"denah_hapus","id":N}
  * POST {"action":"perangkat_save", id? | proyek_id, ...isian}  -> isian yang dikirim saja yang diubah
  * POST {"action":"perangkat_delete","ids":[N,...]}
+ * POST {"action":"perangkat_rename","items":[{"id":N,"nama":"..."},...]}  -> ganti nama massal (penamaan group)
  * POST {"action":"perangkat_hapus_semua","id":N}  -> hapus semua perangkat event (event & denah tetap)
  * POST {"action":"perangkat_import","proyek_id":N,"perangkat":[...]} -> tambah perangkat dari file ekspor JSON
  *
@@ -155,6 +156,33 @@ switch ($method . ' ' . $action) {
         $pdo->prepare("DELETE FROM np_perangkat WHERE id IN ($in)")->execute($ids);
         $pdo->commit();
         json_out(['ok' => true]);
+
+    case 'POST perangkat_rename':
+        // Ganti nama banyak perangkat sekaligus (penamaan per group). items: [{id, nama}, ...]
+        $items = isset($req['items']) && is_array($req['items']) ? $req['items'] : [];
+        if (!$items || count($items) > 2000) {
+            json_error('Tidak ada perangkat yang diganti namanya');
+        }
+        $pdo->beginTransaction();
+        $upd = $pdo->prepare('UPDATE np_perangkat SET nama = ? WHERE id = ?');
+        $st = $pdo->prepare('SELECT proyek_id FROM np_perangkat WHERE id = ?');
+        $proyek = [];
+        foreach ($items as $it) {
+            $did = is_array($it) && isset($it['id']) ? (int) $it['id'] : 0;
+            $st->execute([$did]);
+            $pid = $st->fetchColumn();
+            if (!$pid) {
+                $pdo->rollBack();
+                json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+            }
+            $upd->execute([str_field($it, 'nama', 100, true, 'Nama perangkat'), $did]);
+            $proyek[(int) $pid] = true;
+        }
+        foreach (array_keys($proyek) as $pid) {
+            $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$pid]);
+        }
+        $pdo->commit();
+        json_out(['ok' => true, 'jumlah' => count($items)]);
 
     case 'POST perangkat_hapus_semua':
         find_proyek($id);

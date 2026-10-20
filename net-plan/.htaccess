@@ -1,6 +1,14 @@
 DirectoryIndex index.html index.php
 Options -Indexes
 
+# Halaman HTML selalu dicek ulang ke server, jadi versi baru langsung terpakai setelah deploy.
+# File assets diberi ?v=N di index.html, sehingga boleh di-cache browser.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+
 # File konfigurasi lokal & contoh tidak boleh dibuka dari browser.
 <FilesMatch "^(config\.local.*\.php|README\.md)$">
   <IfModule mod_authz_core.c>

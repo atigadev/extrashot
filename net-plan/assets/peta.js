@@ -74,7 +74,7 @@
       if (st.sel != null && !model.byId.has(st.sel)) st.sel = null;
       if (st.linkSrc != null && !model.byId.has(st.linkSrc)) st.linkSrc = null;
       build();
-      if (!st.fitted || sizeChanged) fit();
+      if (!st.fitted || sizeChanged) fit(true);
       else layout();
     }
 
@@ -296,12 +296,20 @@
       gTool.innerHTML = h;
     }
 
-    function fit() {
+    /**
+     * Tampilkan denah di area yang terlihat. auto = tampilan awal: di layar tegak (HP) dengan denah lebar, denah
+     * diperbesar hingga 2× agar tidak hanya berupa strip tipis (sisi kiri-kanan bisa digeser). Tombol ⤢ = seluruh denah.
+     */
+    function fit(auto) {
       const r = svg.getBoundingClientRect();
       if (!r.width || !r.height) return;
       const pad = 24;
       const h = Math.max(120, r.height - st.inset); // area di atas panel bawah
       st.z = Math.min((r.width - pad * 2) / st.W, (h - pad * 2) / st.H);
+      st.fitAuto = auto === true; // diulang dengan mode yang sama saat ukuran layar berubah
+      if (auto === true && h > r.width * 1.2 && st.W > st.H) {
+        st.z = Math.min(st.z * 2, (h * 0.8) / st.H);
+      }
       st.tx = (r.width - st.W * st.z) / 2;
       st.ty = (h - st.H * st.z) / 2;
       st.fitted = true;
@@ -615,7 +623,7 @@
     let lastSize = null;
     new ResizeObserver(() => {
       const r = svg.getBoundingClientRect();
-      if (!st.fitted || !st.userView) fit();
+      if (!st.fitted || !st.userView) fit(st.fitAuto !== false);
       else {
         if (lastSize) {
           st.tx += (r.width - lastSize.w) / 2;

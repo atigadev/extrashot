@@ -281,6 +281,9 @@ button.lg-item:hover { background: #f1f4f9; }
 .seg button:last-child { border-right: 0; }
 .seg button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .route-tip { margin: 6px 0 10px; }
+.grp { margin-bottom: 10px; }
+.grp-list .grp { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--line); }
+.grp-hint { margin: 4px 0 0; }
 
 /* ---------- Daftar perangkat ---------- */
 .list-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
@@ -398,8 +401,8 @@ body.mode-lihat .edit-only { display: none !important; }
   .tabs button { padding: 0 12px; flex: 1; }
 
   /* Toolbar jadi strip horizontal di atas peta. */
-  .peta-layout { grid-template-columns: 1fr; grid-template-rows: 54px 1fr; }
-  .toolbar { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--line); padding: 5px 6px; gap: 2px; scrollbar-width: none; }
+  .peta-layout { grid-template-columns: 1fr; grid-template-rows: 50px 1fr; }
+  .toolbar { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--line); padding: 3px 6px; gap: 2px; scrollbar-width: none; }
   .toolbar::-webkit-scrollbar { display: none; }
   .toolbar .tool { flex: none; width: 44px; padding: 4px 0; }
   .tb-sep { writing-mode: vertical-rl; transform: rotate(180deg); border-top: 0; border-left: 1px solid var(--line); margin: 0 4px; padding: 0 0 0 4px; }
@@ -437,6 +440,22 @@ body.mode-lihat .edit-only { display: none !important; }
   .tnode { padding-left: calc(var(--d) * 14px); }
   .tnode::before { left: calc(var(--d) * 14px - 9px); width: 6px; }
   .tmeta { margin-left: 0; }
+}
+
+/* Peta layar penuh (tombol ⛶): header & tab disembunyikan. */
+body.map-full .topbar, body.map-full .tabs { display: none; }
+body.map-full .editor { height: 100vh; height: 100dvh; }
+#btn-full[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* HP, mode lihat-saja: alat hanya Pilih & Ukur -> mengambang di atas peta, peta memakai seluruh tinggi. */
+@media (max-width: 640px) {
+  body.mode-lihat .peta-layout { grid-template-rows: 1fr; }
+  body.mode-lihat .toolbar {
+    position: absolute; top: 10px; left: 10px; z-index: 5; flex-direction: column; overflow: visible;
+    border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 3px;
+  }
+  body.mode-lihat .toolbar .tool { width: 40px; }
+  body.mode-lihat .map-hint { left: 64px; }
 }
 
 /* Layar sentuh: area ketuk lebih besar, sembunyikan petunjuk keyboard. */

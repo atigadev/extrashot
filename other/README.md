@@ -56,13 +56,27 @@ Semua library pihak ketiga sudah ada di folder `vendor/` sehingga aplikasi bisa 
 
 ### 2. Upload file aplikasi — pilih salah satu
 
-**Cara A — Git (disarankan, mudah diperbarui)**
-1. `DEPLOYPATH` di `.cpanel.yml` harus sama dengan **Document Root** domain/subdomain di cPanel → Domains
-   (bawaan: `extrashot.saturegis.com/`). Jangan pernah mengarahkan Document Root ke folder `repositories/`.
-2. cPanel → **Git™ Version Control** → *Create* → aktifkan *Clone a Repository* →
-   Clone URL `https://github.com/atigadev/extrashot.git`, Repository Path mis. `repositories/extrashot` → *Create*.
-3. *Manage* → tab **Pull or Deploy** → **Deploy HEAD Commit**.
-4. Pembaruan berikutnya: push ke GitHub, lalu di cPanel klik **Update from Remote** kemudian **Deploy HEAD Commit**.
+**Cara A — Git lewat SSH (disarankan, mudah diperbarui)**
+
+Repo di-clone langsung ke **Document Root** subdomain, misalnya `~/extrashot.saturegis` (cPanel → Domains).
+Folder `.git` sudah ditutup dari browser oleh `.htaccess` di root repo.
+
+1. Pasang SSH key server sebagai *Deploy key* (read-only) di GitHub → repo → Settings → Deploy keys.
+2. Clone sekali lewat Terminal/SSH cPanel:
+   `git clone git@github.com:atigadev/extrashot.git ~/extrashot.saturegis`
+3. Pembaruan berikutnya: push ke GitHub dari komputer, lalu di server jalankan
+   `cd ~/extrashot.saturegis && git pull`.
+
+Migrasi database Net Plan berjalan otomatis pada request pertama setelah `git pull` (lihat `net-plan/README.md`).
+Agar migrasi langsung jalan saat pull, pasang hook sekali di server:
+
+```sh
+printf '#!/bin/sh\nphp net-plan/api/migrate.php\n' > ~/extrashot.saturegis/.git/hooks/post-merge
+chmod +x ~/extrashot.saturegis/.git/hooks/post-merge
+```
+
+Bila perintah `php` di server bukan PHP versi situs, pakai path lengkapnya, misalnya `/usr/local/bin/php` atau
+`/opt/cpanel/ea-php74/root/usr/bin/php`.
 
 **Cara B — File Manager (tanpa Git)**
 1. Di komputer, buat ZIP dari isi folder proyek: `git archive -o extrashot.zip HEAD`

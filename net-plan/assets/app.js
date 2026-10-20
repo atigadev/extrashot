@@ -5,10 +5,15 @@
   const API = 'api/admin.php';
   const $ = (s, root) => (root || document).querySelector(s);
   const $$ = (s, root) => [...(root || document).querySelectorAll(s)];
-
-  const lihatKode = new URLSearchParams(location.search).get('lihat');
+  const qs = new URLSearchParams(location.search);
+  // ?lihat=KODE = link lihat-saja; ?tim=TOKEN = link akses tim (lihat + update status sesuai izin).
+  // Keduanya mode non-admin: S.lihat terisi agar seluruh tampilan baca-saja berlaku.
+  const timToken = qs.get('tim');
+  const lihatKode = qs.get('lihat') || timToken;
   const S = {
     lihat: lihatKode,
+    tim: timToken,
+    akses: null, // izin link tim: {nama, peran, status_boleh, jenis_boleh, lihat_password}
     canEdit: !lihatKode,
     proyek: null,
     list: [],
@@ -61,6 +66,7 @@
       .then(res => {
         const n = pendingById.get(id) - 1;
         pendingById.set(id, n);
+        if ('status' in patch) riwayat.id = null; // riwayat status perangkat ini dimuat ulang
         // Terapkan versi server hanya bila tidak ada perubahan lain yang masih antre untuk perangkat ini.
         if (!n) {
           const i = S.list.findIndex(x => x.id === id);
@@ -101,15 +107,19 @@
   function denahUrl() {
     const p = S.proyek;
     if (!p || !p.denah_v) return null;
+    if (S.tim) return `api/denah.php?t=${encodeURIComponent(S.tim)}&v=${p.denah_v}`;
     return S.lihat
       ? `api/denah.php?k=${encodeURIComponent(S.lihat)}&v=${p.denah_v}`
       : `api/denah.php?id=${p.id}&v=${p.denah_v}`;
   }
 
   async function loadProyek(id) {
-    const res = S.lihat
-      ? await api('api/lihat.php?k=' + encodeURIComponent(S.lihat))
-      : await api(API + '?action=get&id=' + id);
+    const res = S.tim
+      ? await api('api/tim.php?t=' + encodeURIComponent(S.tim))
+      : S.lihat
+        ? await api('api/lihat.php?k=' + encodeURIComponent(S.lihat))
+        : await api(API + '?action=get&id=' + id);
+    if (res.akses) S.akses = res.akses;
     const changed = !S.proyek || S.proyek.id !== res.proyek.id;
     S.proyek = res.proyek;
     S.list = res.perangkat;
@@ -323,6 +333,33 @@
 
   $('#btn-new').addEventListener('click', () => openProyekDialog(null));
 
+  // Backup semua event (+ seluruh katalog & tipe endpoint) ke satu file, dan pulihkan dari file.
+  $('#btn-backup-semua').addEventListener('click', async () => {
+    try {
+      const ids = (await api(API + '?action=list')).proyek.map(p => p.id);
+      if (!ids.length) return toast('Belum ada event untuk di-backup', true);
+      await NP.Backup.buat(ids, 'netplan-semua', true);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+  $('#btn-pulihkan').addEventListener('click', () => $('#file-pulihkan').click());
+  $('#file-pulihkan').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const hasil = await NP.Backup.pulihkan(file);
+      S.katalogBasi = true;
+      toast(`${hasil.length} event dipulihkan: ${hasil.map(p => p.nama).join(', ')}`);
+      if (hasil.length === 1) location.hash = `#/p/${hasil[0].id}/denah`;
+      else showHome();
+    } catch (err) {
+      toast(err.message, true);
+      showHome();
+    }
+  });
+
   let editingProyek = false;
   function openProyekDialog(p) {
     editingProyek = !!p;
@@ -386,7 +423,7 @@
     const p = S.proyek;
     c.innerHTML = `${S.lihat ? '' : '<a href="#/" title="Semua event"><span class="hide-phone">Semua event</span><span class="show-phone">←</span></a><span class="sep hide-phone">/</span>'}
       <b>${esc(p.nama)}</b>${p.venue ? `<span class="muted"> · ${esc(p.venue)}</span>` : ''}
-      ${S.lihat ? '<span class="badge">Lihat saja</span>' : ''}`;
+      ${S.tim && S.akses ? `<span class="badge">${esc(S.akses.nama)} · ${S.akses.peran === 'status' ? 'update status' : 'lihat saja'}</span>` : S.lihat ? '<span class="badge">Lihat saja</span>' : ''}`;
     document.title = p.nama + ' — Net Plan';
   }
 
@@ -1106,6 +1143,7 @@
     return `
       <div class="pn-sec">
         <h3>${esc(p.nama)}</h3>
+        ${S.tim && S.akses ? `<div class="tim-info"><b>${esc(S.akses.nama)}</b>${aksesRingkas(S.akses)}${progresTim()}</div>` : ''}
         <p class="muted small">${m.list.length} perangkat${p.skala ? ` · skala 1 px = ${fmtM(p.skala).replace(' m', '')} m` : ''}</p>
         ${!p.denah_v && S.canEdit ? '<p class="note">Belum ada denah. Upload di tab <a href="#" data-go="proyek">Proyek</a>.</p>' : ''}
         ${!p.skala ? `<p class="note">Skala belum dikalibrasi — panjang kabel &amp; cakupan AP belum bisa dihitung. Pakai alat <a href="#" data-tool-go="ukur">Ukur</a> pada garis skala denah (mis. "7000 cm").</p>` : ''}
@@ -1262,6 +1300,7 @@
         <button type="button" class="small danger" data-act="del">Hapus</button>` : ''}
       </div>
       <div id="pn-info"></div>
+      <div id="pn-tim"></div>
       <form id="dev-form" autocomplete="off" onsubmit="return false">
         <div class="pn-sec">
           <h4>Identitas</h4>
@@ -1300,7 +1339,8 @@
           <textarea data-f="catatan" rows="8" class="mono" placeholder="Catatan setting, mis.&#10;- ether1 → WAN Indihome (PPPoE: user@telkom.net)&#10;- bridge-lan: ether2-5, VLAN 10/20&#10;- /ip dhcp-server ... lease 30m&#10;- AP mode: access point, controller 10.10.0.5"${dis}>${esc(d.catatan)}</textarea>
           ${S.canEdit ? '<p class="muted small">Tersimpan otomatis saat pindah isian.</p>' : ''}
         </div>
-      </form>`;
+      </form>
+      ${!S.lihat || S.tim ? '<div class="pn-sec" id="pn-riwayat"><h4>Riwayat status &amp; catatan</h4><p class="muted small">Memuat…</p></div>' : ''}`;
   }
 
   /** Bagian info (jalur WAN, bandwidth, kabel, anak, peringatan) — diperbarui tanpa mengganggu form. */
@@ -1355,10 +1395,111 @@
     h += '</div>';
     box.innerHTML = h;
     renderRoute(d);
+    renderTimBox(d);
+    renderRiwayat(d);
     const gb = $('#pn-grup');
     // Jangan timpa nama group yang sedang diketik.
     if (gb && !gb.querySelector('.grup-input[data-dirty]')) gb.innerHTML = d.uplink_id != null ? grupEditor(d.uplink_id, d.jenis) : '';
   }
+
+  // ------------------------------------------------------------------------ akses tim: update status & riwayat
+
+  /** Apakah perangkat termasuk tugas tim (kategori diizinkan; kosong = semua). */
+  function tugasTim(d) {
+    const a = S.akses;
+    return !!a && a.peran === 'status' && (!a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis));
+  }
+
+  /** Kotak update status + catatan lapangan untuk link tim (hanya status yang diizinkan PM). */
+  function renderTimBox(d) {
+    const box = $('#pn-tim');
+    if (!box || !S.tim || !S.akses) return;
+    if (box.querySelector('textarea[data-dirty]')) return; // catatan sedang diketik
+    if (S.akses.peran !== 'status') {
+      box.innerHTML = '';
+      return;
+    }
+    if (!tugasTim(d)) {
+      box.innerHTML = `<div class="pn-sec"><p class="note">${esc(d.nama)} di luar tugas <b>${esc(S.akses.nama)}</b> — hanya bisa dilihat.</p></div>`;
+      return;
+    }
+    box.innerHTML = `<div class="pn-sec tim-box">
+        <h4>Update status · ${esc(S.akses.nama)}</h4>
+        <div class="st-pilih">${S.akses.status_boleh.map(k => `<button type="button" class="st-btn st-${k}${d.status === k ? ' on' : ''}" data-tim-status="${k}">${esc(STATUS[k].label)}</button>`).join('')}</div>
+        <label class="field" style="margin-top:8px"><span>Catatan lapangan (opsional, ikut terkirim bersama status)</span>
+          <textarea rows="2" id="tim-catatan" maxlength="2000" placeholder="mis. Terpasang di tiang 3 m, kabel kurang 5 m, sinyal -58 dBm"></textarea></label>
+        <button type="button" class="small" data-tim-catatan>Kirim catatan saja</button>
+      </div>`;
+  }
+
+  async function kirimTim(d, status) {
+    const ta = $('#tim-catatan');
+    const catatan = ta ? ta.value.trim() : '';
+    if (!status && !catatan) return toast('Catatan masih kosong', true);
+    try {
+      const res = await api('api/tim.php', { t: S.tim, action: status ? 'status' : 'catatan', id: d.id, status, catatan });
+      if (ta) {
+        ta.value = '';
+        delete ta.dataset.dirty;
+      }
+      const i = S.list.findIndex(x => x.id === d.id);
+      if (i >= 0) S.list[i] = res.perangkat;
+      riwayat.id = null; // muat ulang riwayat
+      refreshModel({ keepPanel: true });
+      toast(status ? `${d.nama}: ${STATUS[status].label}` : 'Catatan terkirim');
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
+  // Riwayat per perangkat: dimuat sekali saat perangkat dipilih (dan setelah ada perubahan), lalu dipakai ulang.
+  const riwayat = { id: null, list: [], memuat: false };
+
+  async function renderRiwayat(d) {
+    const box = $('#pn-riwayat');
+    if (!box) return;
+    if (riwayat.id !== d.id) {
+      if (riwayat.memuat === d.id) return;
+      riwayat.memuat = d.id;
+      try {
+        const res = S.tim
+          ? await api(`api/tim.php?t=${encodeURIComponent(S.tim)}&action=log&id=${d.id}`)
+          : await api(`${API}?action=log_list&id=${S.proyek.id}&perangkat_id=${d.id}`);
+        riwayat.id = d.id;
+        riwayat.list = res.log;
+      } catch (e) {
+        riwayat.list = [];
+      } finally {
+        riwayat.memuat = false;
+      }
+      if (S.sel !== d.id) return; // pengguna sudah memilih perangkat lain
+    }
+    const el = $('#pn-riwayat');
+    if (el) el.innerHTML = `<h4>Riwayat status &amp; catatan</h4>${logHtml(riwayat.list, false) || '<p class="muted small">Belum ada riwayat.</p>'}`;
+  }
+
+  /** Daftar riwayat; denganPerangkat = tampilkan nama perangkat (feed aktivitas event). */
+  function logHtml(list, denganPerangkat) {
+    return list.length ? `<ul class="log-list">${list.map(l => {
+      const ubah = l.status_baru && l.status_baru !== l.status_lama;
+      const waktu = new Date(l.created_at.replace(' ', 'T')).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      return `<li>
+        <div class="log-top"><b>${esc(l.oleh || 'Admin')}</b>${denganPerangkat ? ` · ${l.perangkat_id != null ? `<a href="#" data-sel="${l.perangkat_id}">${esc(l.perangkat_nama)}</a>` : esc(l.perangkat_nama)}` : ''}
+          <span class="muted small">${esc(waktu)}</span></div>
+        ${ubah ? `<div><span class="st st-${esc(l.status_lama)}">${esc((STATUS[l.status_lama] || {}).label || l.status_lama || '—')}</span> → <span class="st st-${esc(l.status_baru)}">${esc((STATUS[l.status_baru] || {}).label || l.status_baru)}</span></div>` : ''}
+        ${l.catatan ? `<div class="log-cat">${esc(l.catatan)}</div>` : ''}
+      </li>`;
+    }).join('')}</ul>` : '';
+  }
+
+  $('#panel').addEventListener('click', e => {
+    const b = e.target.closest('[data-tim-status], [data-tim-catatan]');
+    if (!b || S.sel == null) return;
+    kirimTim(S.model.byId.get(S.sel), b.dataset.timStatus || null);
+  });
+  $('#panel').addEventListener('input', e => {
+    if (e.target.id === 'tim-catatan') e.target.dataset.dirty = '1';
+  });
 
   /** Pilihan bentuk jalur kabel ke uplink. */
   function renderRoute(d) {
@@ -1886,7 +2027,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         <div class="kv"><span>Venue</span><b>${esc(p.venue || '—')}</b></div>
         <div class="kv"><span>Tanggal</span><b>${esc(tgl)}</b></div>
         ${p.catatan ? `<h4>Catatan</h4><div class="pre">${esc(p.catatan)}</div>` : ''}
-        <p class="muted small">Halaman lihat-saja. Password disamarkan. Data diperbarui otomatis tiap 30 detik.</p></div>`;
+        <p class="muted small">${S.tim ? 'Halaman tim.' : 'Halaman lihat-saja.'} ${S.akses && S.akses.lihat_password ? '' : 'Password disamarkan. '}Data diperbarui otomatis tiap 30 detik.</p></div>
+        ${S.tim && S.akses ? `<div class="card"><h2>Akses Anda</h2>${aksesRingkas(S.akses)}${progresTim()}</div>
+        <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>` : ''}`;
+      if (S.tim) muatAktivitas();
       return;
     }
     $('#proyek-pane').innerHTML = `
@@ -1934,12 +2078,15 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           </div>
         </div>
       </div>
+      <div class="card" id="card-akses"><h2>Akses tim</h2><p class="muted small">Memuat…</p></div>
+      <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>
       <div class="card">
         <h2>Aksi</h2>
         <div class="btn-row">
+          <button type="button" data-p="backup" title="Simpan event ini (denah, perangkat, katalog yang dipakai) ke satu file">Backup event ini</button>
           <button type="button" data-p="dup">Duplikat event</button>
         </div>
-        <p class="muted small">Duplikat menyalin denah, skala, dan semua perangkat — cocok untuk event berulang di venue yang sama.</p>
+        <p class="muted small"><b>Backup</b> menyimpan event lengkap (denah, skala, perangkat, koneksi, katalog &amp; tipe endpoint yang dipakai) ke satu file <code>.netplan.json</code>; buka kembali lewat <b>Buka backup…</b> di halaman daftar event. <b>Duplikat</b> menyalin event di server ini — cocok untuk event berulang di venue yang sama.</p>
         <div class="danger-zone">
           <h4>Zona berbahaya</h4>
           <div class="dz-row">
@@ -1952,7 +2099,169 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           </div>
         </div>
       </div>`;
+    muatAkses();
+    muatAktivitas();
   }
+
+  // ------------------------------------------------------------------------ akses tim (admin / PM)
+
+  let aksesList = [];
+  const aksesLink = a => location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '') + 'index.html?tim=' + a.token;
+
+  /** Ringkasan izin: peran, status yang boleh, kategori tugas, password. */
+  function aksesRingkas(a) {
+    const jenis = a.jenis_boleh.length ? a.jenis_boleh.map(j => (TYPES[j] || TYPES.lainnya).label).join(', ') : 'semua kategori';
+    return `<div class="akses-izin">
+      <span class="tag-peran ${a.peran}">${a.peran === 'status' ? 'Update status' : 'Lihat saja'}</span>
+      ${a.peran === 'status' ? a.status_boleh.map(k => `<span class="st st-${k}">${esc(STATUS[k].label)}</span>`).join('') : ''}
+      <span class="muted small">· ${esc(jenis)}${a.lihat_password ? ' · boleh lihat password' : ''}</span>
+    </div>`;
+  }
+
+  /** Progres tugas tim (perangkat di kategori tugasnya) per status. */
+  function progresTim() {
+    const a = S.akses;
+    const ds = S.list.filter(d => !a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis));
+    if (!ds.length) return '';
+    const n = {};
+    ds.forEach(d => { n[d.status] = (n[d.status] || 0) + 1; });
+    const selesai = (n.terpasang || 0) + (n.diuji || 0);
+    return `<h4>Progres tugas (${ds.length} perangkat)</h4>
+      <div class="progres"><i style="width:${Math.round(selesai / ds.length * 100)}%"></i></div>
+      <div class="akses-izin">${Object.keys(STATUS).map(k => `<span class="st st-${k}">${esc(STATUS[k].label)} ${n[k] || 0}</span>`).join('')}</div>`;
+  }
+
+  async function muatAkses() {
+    const card = $('#card-akses');
+    if (!card || !S.proyek) return;
+    try {
+      aksesList = (await api(`${API}?action=akses_list&id=${S.proyek.id}`)).akses;
+    } catch (e) {
+      card.innerHTML = `<h2>Akses tim</h2><p class="err-text">${esc(e.message)}</p>`;
+      return;
+    }
+    card.innerHTML = `<h2>Akses tim <span class="spacer"></span><button type="button" class="small primary" data-akses="baru">+ Tambah akses</button></h2>
+      <p class="muted small">Link khusus per tim/anggota tanpa password admin. Tim <b>update status</b> hanya bisa mengubah status yang Anda izinkan, pada kategori tugasnya, dan setiap perubahan tercatat di <i>Aktivitas tim</i>.</p>
+      ${aksesList.length ? aksesList.map(a => `<div class="akses-row${a.aktif ? '' : ' nonaktif'}" data-id="${a.id}">
+        <div class="akses-top"><b>${esc(a.nama)}</b>${a.aktif ? '' : ' <span class="lv warn">nonaktif</span>'}
+          <span class="muted small">${a.terakhir_dipakai ? 'dibuka ' + esc(new Date(a.terakhir_dipakai.replace(' ', 'T')).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) : 'belum pernah dibuka'}</span></div>
+        ${aksesRingkas(a)}
+        <div class="inline akses-link"><input type="text" readonly value="${esc(aksesLink(a))}" class="mono small-input" onclick="this.select()">
+          <button type="button" class="small" data-akses="salin">Salin</button>
+          <button type="button" class="small" data-akses="qr">QR</button></div>
+        <div class="akses-qr" hidden></div>
+        <div class="btn-row"><button type="button" class="small" data-akses="ubah">Ubah</button>
+          <button type="button" class="small" data-akses="token" title="Link lama tidak berlaku lagi">Ganti link</button>
+          <button type="button" class="small danger" data-akses="hapus">Hapus</button></div>
+      </div>`).join('') : '<p class="muted">Belum ada akses tim.</p>'}`;
+  }
+
+  async function muatAktivitas() {
+    const card = $('#card-aktivitas');
+    if (!card || !S.proyek) return;
+    try {
+      const res = S.tim
+        ? await api(`api/tim.php?t=${encodeURIComponent(S.tim)}&action=log`)
+        : await api(`${API}?action=log_list&id=${S.proyek.id}`);
+      card.innerHTML = `<h2>Aktivitas tim <span class="spacer"></span><button type="button" class="small" data-akses="muat-log">Muat ulang</button></h2>
+        ${logHtml(res.log, true) || '<p class="muted">Belum ada perubahan status atau catatan lapangan.</p>'}`;
+    } catch (e) {
+      card.innerHTML = `<h2>Aktivitas tim</h2><p class="err-text">${esc(e.message)}</p>`;
+    }
+  }
+
+  // Dialog tambah / ubah akses
+  let aksesEdit = null;
+  $('#akses-status-list').innerHTML = Object.keys(STATUS).map(k =>
+    `<label class="cek"><input type="checkbox" name="status_boleh" value="${k}"> <span class="st st-${k}">${esc(STATUS[k].label)}</span></label>`).join('');
+  $('#akses-jenis-list').innerHTML = TYPE_ORDER.map(j =>
+    `<label class="cek"><input type="checkbox" name="jenis_boleh" value="${j}"> ${esc(TYPES[j].label)}</label>`).join('');
+
+  function bukaAkses(a) {
+    aksesEdit = a || null;
+    const f = $('#form-akses');
+    f.reset();
+    $('#dlg-akses-title').textContent = a ? 'Ubah akses tim' : 'Tambah akses tim';
+    f.elements.nama.value = a ? a.nama : '';
+    f.querySelector(`[name=peran][value="${a ? a.peran : 'status'}"]`).checked = true;
+    // Bawaan akses baru: tim lapangan boleh menandai terpasang & bermasalah.
+    const st = a ? a.status_boleh : ['terpasang', 'bermasalah'];
+    f.querySelectorAll('[name=status_boleh]').forEach(c => { c.checked = st.includes(c.value); });
+    f.querySelectorAll('[name=jenis_boleh]').forEach(c => { c.checked = !!a && a.jenis_boleh.includes(c.value); });
+    f.elements.lihat_password.checked = !!(a && a.lihat_password);
+    f.elements.aktif.checked = a ? !!a.aktif : true;
+    syncAkses();
+    $('#dlg-akses').showModal();
+    f.elements.nama.focus();
+  }
+  function syncAkses() {
+    $('#akses-status').hidden = $('#form-akses').elements.peran.value !== 'status';
+  }
+  $('#form-akses').addEventListener('change', syncAkses);
+  $('#form-akses [data-close]').addEventListener('click', () => $('#dlg-akses').close());
+  $('#form-akses').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target;
+    const val = n => [...f.querySelectorAll(`[name=${n}]:checked`)].map(c => c.value);
+    try {
+      await api(API, {
+        action: 'akses_save', id: aksesEdit ? aksesEdit.id : null, proyek_id: S.proyek.id, nama: f.elements.nama.value,
+        peran: f.elements.peran.value, status_boleh: val('status_boleh'), jenis_boleh: val('jenis_boleh'),
+        lihat_password: f.elements.lihat_password.checked, aktif: f.elements.aktif.checked,
+      });
+      $('#dlg-akses').close();
+      toast(aksesEdit ? 'Akses diperbarui' : 'Akses tim dibuat — salin link-nya untuk tim');
+      muatAkses();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  $('#proyek-pane').addEventListener('click', async e => {
+    const sel = e.target.closest('#card-aktivitas [data-sel]');
+    if (sel) {
+      e.preventDefault();
+      const id = +sel.dataset.sel;
+      S.sel = id;
+      go('denah');
+      return setTimeout(() => selectDev(id, true), 60);
+    }
+    const b = e.target.closest('[data-akses]');
+    if (!b) return;
+    const row = b.closest('.akses-row');
+    const a = row && aksesList.find(x => x.id === +row.dataset.id);
+    switch (b.dataset.akses) {
+      case 'baru': return bukaAkses(null);
+      case 'muat-log': return muatAktivitas();
+      case 'ubah': return bukaAkses(a);
+      case 'salin': return copy(aksesLink(a));
+      case 'qr': {
+        const q = row.querySelector('.akses-qr');
+        q.hidden = !q.hidden;
+        if (!q.hidden) q.innerHTML = qrSvg(aksesLink(a));
+        return;
+      }
+      case 'token':
+        if (!confirm(`Buat link baru untuk "${a.nama}"? Link lama langsung tidak berlaku.`)) return;
+        try {
+          await api(API, { action: 'akses_token_baru', id: a.id });
+          toast('Link baru dibuat');
+          muatAkses();
+        } catch (err) {
+          toast(err.message, true);
+        }
+        return;
+      case 'hapus':
+        if (!confirm(`Hapus akses "${a.nama}"? Link-nya langsung tidak berlaku. Riwayat aktivitasnya tetap tersimpan.`)) return;
+        try {
+          await api(API, { action: 'akses_delete', id: a.id });
+          toast('Akses dihapus');
+          muatAkses();
+        } catch (err) {
+          toast(err.message, true);
+        }
+    }
+  });
 
   function qrSvg(text) {
     if (typeof qrcode !== 'function') return '';
@@ -2042,6 +2351,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           location.hash = '#/';
         }
         return;
+      case 'backup':
+        return NP.Backup.buat([p.id], 'netplan-' + slug(p.nama), false).catch(err => toast(err.message, true));
       case 'del-all':
         return hapusSemuaPerangkat();
     }

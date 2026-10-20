@@ -64,6 +64,44 @@ CREATE TABLE IF NOT EXISTS np_perangkat (
 -- Tabel yang sudah ada dari versi lama tidak diubah oleh CREATE di atas: kolom/index baru ditambahkan oleh
 -- np_install_schema() di api/db.php (idempoten). Kolom baru: tambahkan di CREATE DAN di fungsi tersebut.
 
+-- Akses tim per event (link bertoken, tanpa password). peran: lihat | status.
+-- status_boleh / jenis_boleh: JSON array; jenis kosong = semua kategori.
+CREATE TABLE IF NOT EXISTS np_akses (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  proyek_id       INT UNSIGNED NOT NULL,
+  nama            VARCHAR(100) NOT NULL,             -- nama tim / anggota, mis. "Tim WiFi"
+  token           VARCHAR(32)  NOT NULL,
+  peran           VARCHAR(20)  NOT NULL DEFAULT 'lihat',
+  status_boleh    TEXT NULL,                         -- status yang boleh diset tim, mis. ["terpasang","bermasalah"]
+  jenis_boleh     TEXT NULL,                         -- kategori perangkat tugas tim, mis. ["ap","switch"]
+  lihat_password  TINYINT(1) NOT NULL DEFAULT 0,     -- boleh melihat password WiFi/admin
+  aktif           TINYINT(1) NOT NULL DEFAULT 1,
+  terakhir_dipakai DATETIME NULL,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_np_akses_token (token),
+  KEY idx_np_akses_proyek (proyek_id),
+  CONSTRAINT fk_np_akses_proyek FOREIGN KEY (proyek_id) REFERENCES np_proyek (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Riwayat aktivitas: perubahan status & catatan lapangan (oleh admin atau tim).
+CREATE TABLE IF NOT EXISTS np_log (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  proyek_id       INT UNSIGNED NOT NULL,
+  perangkat_id    INT UNSIGNED NULL,
+  perangkat_nama  VARCHAR(100) NOT NULL DEFAULT '',  -- disimpan agar riwayat tetap terbaca bila perangkat dihapus
+  akses_id        INT UNSIGNED NULL,                 -- NULL = admin
+  oleh            VARCHAR(100) NOT NULL DEFAULT '',
+  status_lama     VARCHAR(20)  NOT NULL DEFAULT '',
+  status_baru     VARCHAR(20)  NOT NULL DEFAULT '',
+  catatan         TEXT NULL,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_np_log_proyek (proyek_id, id),
+  KEY idx_np_log_perangkat (perangkat_id),
+  CONSTRAINT fk_np_log_proyek FOREIGN KEY (proyek_id) REFERENCES np_proyek (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Tipe endpoint (laptop, PC, printer, pinpad, ...) yang bisa diubah & ditambah pengguna. Perangkat berjenis "endpoint"
 -- menyimpan id tipenya di atribut "tipe_endpoint". Tipe bawaan diisi np_install_schema() saat tabel baru dibuat.
 CREATE TABLE IF NOT EXISTS np_endpoint_tipe (

@@ -23,6 +23,11 @@
  * GET  ?action=endpoint_tipe_list           -> tipe endpoint (laptop, PC, printer, ...) + jumlah pemakaian
  * POST {"action":"endpoint_tipe_save", id?, nama, singkatan, ikon, warna, prefix}
  * POST {"action":"endpoint_tipe_delete","id":N}  -> ditolak bila masih dipakai perangkat
+ * GET  ?action=akses_list&id=N               -> akses tim event N (link bertoken)
+ * POST {"action":"akses_save", id? | proyek_id, nama, peran:"lihat"|"status", status_boleh:[], jenis_boleh:[], lihat_password, aktif}
+ * POST {"action":"akses_token_baru","id":N}  -> link lama tidak berlaku
+ * POST {"action":"akses_delete","id":N}
+ * GET  ?action=log_list&id=N[&perangkat_id=M] -> riwayat perubahan status & catatan lapangan
  * POST {"action":"perangkat_hapus_semua","id":N}  -> hapus semua perangkat event (event & denah tetap)
  * POST {"action":"perangkat_import","proyek_id":N,"perangkat":[...]} -> tambah perangkat dari file ekspor JSON
  *
@@ -269,6 +274,61 @@ switch ($method . ' ' . $action) {
         $pdo->prepare('DELETE FROM np_endpoint_tipe WHERE id = ?')->execute([$id]);
         json_out(['ok' => true, 'endpoint_tipe' => endpoint_tipe_list()]);
 
+    case 'GET akses_list':
+        $p = find_proyek($id);
+        $st = $pdo->prepare('SELECT * FROM np_akses WHERE proyek_id = ? ORDER BY id');
+        $st->execute([$p['id']]);
+        json_out(['ok' => true, 'akses' => array_map('akses_row', $st->fetchAll())]);
+
+    case 'POST akses_save':
+        $pid = isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0;
+        if (!$id) {
+            find_proyek($pid);
+        }
+        $peran = isset($req['peran']) && in_array($req['peran'], ['lihat', 'status'], true) ? $req['peran'] : 'lihat';
+        $statusBoleh = array_values(array_intersect(NP_STATUS, isset($req['status_boleh']) && is_array($req['status_boleh']) ? $req['status_boleh'] : []));
+        $jenisBoleh = array_values(array_intersect(NP_JENIS, isset($req['jenis_boleh']) && is_array($req['jenis_boleh']) ? $req['jenis_boleh'] : []));
+        if ($peran === 'status' && !$statusBoleh) {
+            json_error('Pilih minimal satu status yang boleh diubah tim ini');
+        }
+        $data = [
+            'nama' => str_field($req, 'nama', 100, true, 'Nama tim'),
+            'peran' => $peran,
+            'status_boleh' => json_encode($peran === 'status' ? $statusBoleh : []),
+            'jenis_boleh' => json_encode($jenisBoleh),
+            'lihat_password' => !empty($req['lihat_password']) ? 1 : 0,
+            'aktif' => !isset($req['aktif']) || !empty($req['aktif']) ? 1 : 0,
+        ];
+        if ($id) {
+            $cols = implode(', ', array_map(function ($k) { return "$k = ?"; }, array_keys($data)));
+            $st = $pdo->prepare("UPDATE np_akses SET $cols WHERE id = ?");
+            $st->execute(array_merge(array_values($data), [$id]));
+        } else {
+            $data['proyek_id'] = $pid;
+            $data['token'] = rand_hex(16);
+            $cols = implode(', ', array_keys($data));
+            $qs = implode(', ', array_fill(0, count($data), '?'));
+            $pdo->prepare("INSERT INTO np_akses ($cols) VALUES ($qs)")->execute(array_values($data));
+            $id = (int) $pdo->lastInsertId();
+        }
+        json_out(['ok' => true, 'akses' => akses_row(find_akses($id))]);
+
+    case 'POST akses_token_baru':
+        find_akses($id);
+        $pdo->prepare('UPDATE np_akses SET token = ? WHERE id = ?')->execute([rand_hex(16), $id]);
+        json_out(['ok' => true, 'akses' => akses_row(find_akses($id))]);
+
+    case 'POST akses_delete':
+        find_akses($id);
+        $pdo->prepare('DELETE FROM np_akses WHERE id = ?')->execute([$id]);
+        json_out(['ok' => true]);
+
+    case 'GET log_list':
+        // Riwayat event, atau satu perangkat bila perangkat_id diberikan.
+        $p = find_proyek($id);
+        $pid = isset($req['perangkat_id']) ? (int) $req['perangkat_id'] : 0;
+        json_out(['ok' => true, 'log' => log_list($p['id'], $pid ?: null, $pid ? 50 : 150)]);
+
     case 'POST perangkat_rename':
         // Ganti nama banyak perangkat sekaligus (penamaan per group). items: [{id, nama}, ...]
         $items = isset($req['items']) && is_array($req['items']) ? $req['items'] : [];
@@ -359,6 +419,17 @@ function endpoint_dipakai($tipeId)
     $st = db()->prepare("SELECT COUNT(*) FROM np_perangkat WHERE jenis = 'endpoint' AND atribut LIKE ?");
     $st->execute(['%"tipe_endpoint":"' . (int) $tipeId . '"%']);
     return (int) $st->fetchColumn();
+}
+
+function find_akses($id)
+{
+    $st = db()->prepare('SELECT * FROM np_akses WHERE id = ?');
+    $st->execute([$id]);
+    $a = $st->fetch();
+    if (!$a) {
+        json_error('Akses tim tidak ditemukan', 404);
+    }
+    return $a;
 }
 
 function find_katalog($id)
@@ -557,6 +628,11 @@ function simpan_perangkat($req)
             $cols = implode(', ', array_map(function ($k) { return "$k = ?"; }, array_keys($set)));
             $pdo->prepare("UPDATE np_perangkat SET $cols WHERE id = ?")->execute(array_merge(array_values($set), [$id]));
             $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyekId]);
+            // Perubahan status oleh admin ikut tercatat di riwayat (sama seperti perubahan oleh tim).
+            if (isset($set['status']) && $set['status'] !== $cur['status']) {
+                tulis_log($proyekId, ['id' => $id, 'nama' => isset($set['nama']) ? $set['nama'] : $cur['nama']], null, 'Admin',
+                    $cur['status'], $set['status'], '');
+            }
         }
     } else {
         $set['proyek_id'] = $proyekId;

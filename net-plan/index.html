@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=13">
+<link rel="stylesheet" href="assets/np.css?v=15">
 </head>
 <body>
 
@@ -43,6 +43,9 @@
     </div>
     <div class="btn-row">
       <a class="btn" href="#/katalog">Katalog perangkat</a>
+      <button type="button" id="btn-backup-semua" title="Simpan semua event + katalog ke satu file">Backup semua</button>
+      <button type="button" id="btn-pulihkan" title="Buka file backup sebagai event baru">Buka backup…</button>
+      <input type="file" id="file-pulihkan" accept=".json,.netplan,application/json" hidden>
       <button type="button" class="primary" id="btn-new">+ Event baru</button>
     </div>
   </div>
@@ -208,6 +211,36 @@
   </form>
 </dialog>
 
+<!-- Dialog akses tim -->
+<dialog id="dlg-akses" class="dlg">
+  <form method="dialog" id="form-akses" autocomplete="off">
+    <h2 id="dlg-akses-title">Tambah akses tim</h2>
+    <label class="field"><span>Nama tim / anggota *</span>
+      <input type="text" name="nama" maxlength="100" required placeholder="mis. Tim WiFi, Tim Kabel, QA — Budi"></label>
+    <span class="route-lbl">Peran</span>
+    <div class="radio-list">
+      <label><input type="radio" name="peran" value="lihat" checked>
+        <span><b>Lihat saja</b><small>Membaca denah, daftar, topologi, sheet AP, dan riwayat. Tidak bisa mengubah apa pun.</small></span></label>
+      <label><input type="radio" name="peran" value="status">
+        <span><b>Update status</b><small>Bisa mengubah status perangkat (hanya status &amp; kategori yang dicentang di bawah) dan menulis catatan lapangan.</small></span></label>
+    </div>
+    <fieldset class="print-opts" id="akses-status">
+      <span class="route-lbl">Status yang boleh diset tim ini</span>
+      <div class="cek-grid" id="akses-status-list"></div>
+    </fieldset>
+    <span class="route-lbl">Kategori perangkat tugas tim <small class="muted">(kosong = semua)</small></span>
+    <div class="cek-grid" id="akses-jenis-list"></div>
+    <label class="check"><input type="checkbox" name="lihat_password">
+      <span>Boleh melihat password WiFi / admin<small>Perlu untuk tim yang menyetel AP / router.</small></span></label>
+    <label class="check"><input type="checkbox" name="aktif" checked>
+      <span>Aktif<small>Matikan untuk mencabut akses tanpa menghapusnya.</small></span></label>
+    <div class="btn-row end">
+      <button type="button" data-close>Batal</button>
+      <button type="submit" class="primary">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- Dialog kelola tipe endpoint -->
 <dialog id="dlg-ep" class="dlg dlg-wide">
   <div class="dlg-head">
@@ -255,11 +288,12 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=13"></script>
-<script src="assets/common.js?v=13"></script>
-<script src="assets/analisis.js?v=13"></script>
-<script src="assets/peta.js?v=13"></script>
-<script src="assets/katalog.js?v=13"></script>
-<script src="assets/app.js?v=13"></script>
+<script src="vendor/qrcode.min.js?v=15"></script>
+<script src="assets/common.js?v=15"></script>
+<script src="assets/analisis.js?v=15"></script>
+<script src="assets/peta.js?v=15"></script>
+<script src="assets/katalog.js?v=15"></script>
+<script src="assets/backup.js?v=15"></script>
+<script src="assets/app.js?v=15"></script>
 </body>
 </html>

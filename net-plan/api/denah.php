@@ -4,11 +4,20 @@
  *
  * GET ?id=N        -> wajib login admin
  * GET ?k=KODE      -> link lihat-saja
+ * GET ?t=TOKEN     -> link akses tim
  */
 require __DIR__ . '/db.php';
 
 $pdo = db();
-if (isset($_GET['k'])) {
+if (isset($_GET['t'])) {
+    // Link tim (akses aktif saja).
+    $t = (string) $_GET['t'];
+    if (!preg_match('/^[a-f0-9]{32}$/', $t)) {
+        json_error('Link tidak valid', 404);
+    }
+    $st = $pdo->prepare('SELECT p.denah_file FROM np_akses a JOIN np_proyek p ON p.id = a.proyek_id WHERE a.token = ? AND a.aktif = 1');
+    $st->execute([$t]);
+} elseif (isset($_GET['k'])) {
     $k = (string) $_GET['k'];
     if (!preg_match('/^[a-f0-9]{24}$/', $k)) {
         json_error('Link tidak valid', 404);

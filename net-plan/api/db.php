@@ -32,7 +32,7 @@ const NP_STATUS = ['rencana', 'terpasang', 'diuji', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 6;
+const NP_SCHEMA = 7;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -297,6 +297,49 @@ function perangkat_row($r, $sembunyikanRahasia = false)
 }
 
 /** Data lengkap satu proyek: info + semua perangkat. */
+/** Catat aktivitas (perubahan status / catatan lapangan). $aksesId null = admin. */
+function tulis_log($proyekId, $perangkat, $aksesId, $oleh, $lama, $baru, $catatan)
+{
+    db()->prepare('INSERT INTO np_log (proyek_id, perangkat_id, perangkat_nama, akses_id, oleh, status_lama, status_baru, catatan)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        ->execute([$proyekId, $perangkat ? (int) $perangkat['id'] : null, $perangkat ? $perangkat['nama'] : '', $aksesId, $oleh,
+            (string) $lama, (string) $baru, $catatan === '' ? null : $catatan]);
+}
+
+/** Riwayat aktivitas event (terbaru dulu), opsional untuk satu perangkat. */
+function log_list($proyekId, $perangkatId = null, $limit = 100)
+{
+    $sql = 'SELECT id, perangkat_id, perangkat_nama, akses_id, oleh, status_lama, status_baru, catatan, created_at FROM np_log WHERE proyek_id = ?';
+    $args = [$proyekId];
+    if ($perangkatId) {
+        $sql .= ' AND perangkat_id = ?';
+        $args[] = $perangkatId;
+    }
+    $st = db()->prepare($sql . ' ORDER BY id DESC LIMIT ' . max(1, min(500, (int) $limit)));
+    $st->execute($args);
+    $out = [];
+    foreach ($st->fetchAll() as $r) {
+        $r['id'] = (int) $r['id'];
+        $r['perangkat_id'] = $r['perangkat_id'] === null ? null : (int) $r['perangkat_id'];
+        $r['akses_id'] = $r['akses_id'] === null ? null : (int) $r['akses_id'];
+        $r['catatan'] = (string) $r['catatan'];
+        $out[] = $r;
+    }
+    return $out;
+}
+
+function akses_row($r)
+{
+    foreach (['id', 'proyek_id', 'lihat_password', 'aktif'] as $k) {
+        $r[$k] = (int) $r[$k];
+    }
+    foreach (['status_boleh', 'jenis_boleh'] as $k) {
+        $v = json_decode((string) $r[$k], true);
+        $r[$k] = is_array($v) ? array_values($v) : [];
+    }
+    return $r;
+}
+
 function proyek_lengkap($proyek, $sembunyikanRahasia = false)
 {
     $st = db()->prepare('SELECT * FROM np_perangkat WHERE proyek_id = ? ORDER BY id');

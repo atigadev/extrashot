@@ -54,6 +54,27 @@ Tombol **Cetak** menyediakan dua jenis laporan:
 
 Panjang kabel dihitung mengikuti jalur ini. Link wireless selalu digambar lurus.
 
+**Akses tim** (tab Proyek → *Akses tim*) memberi project manager link khusus per tim/anggota, tanpa membagikan password
+admin.
+- **Lihat saja**: membaca denah, daftar, topologi, sheet AP, dan riwayat.
+- **Update status**: hanya bisa mengubah status yang **dicentang PM** (mis. Tim Pasang: *Terpasang*; Tim QA: *Sudah diuji*
+  dan *Bermasalah*), hanya pada **kategori tugasnya** (mis. Tim WiFi: AP saja), dan bisa menulis **catatan lapangan**.
+  Batasan ini dicek juga di server (`api/tim.php`), bukan hanya disembunyikan di tampilan.
+- Opsi per link: boleh melihat password WiFi/admin, dan aktif/nonaktif. **Ganti link** membuat link lama langsung tidak
+  berlaku.
+- Setiap perubahan status (oleh tim maupun admin) dan catatan lapangan **tercatat**: siapa, kapan, dari → ke. Riwayat
+  tampil di panel perangkat dan di kartu *Aktivitas tim*.
+- Tim melihat badge namanya, progres tugasnya per status, dan tombol status yang diizinkan di panel perangkat.
+
+**Backup & buka kembali.** Satu file `.netplan.json` menyimpan event secara lengkap: info, gambar denah, skala, semua
+perangkat beserta koneksi/port/jalur kabel/konfigurasi/nama group, serta katalog & tipe endpoint yang dipakai.
+- **Backup event ini** ada di tab Proyek.
+- **Backup semua** ada di halaman daftar event. Isinya semua event ditambah seluruh katalog & tipe endpoint.
+- **Buka backup…** memulihkan isi file sebagai **event baru**, jadi data yang ada tidak pernah ditimpa. Nama yang sama
+  diberi akhiran "(pulihan)". Katalog dan tipe endpoint dicocokkan dengan yang sudah ada, atau dibuat bila belum ada,
+  sehingga file bisa dibuka di server lain.
+- File *Ekspor JSON* lama (daftar perangkat saja) juga bisa dibuka lewat *Buka backup…*.
+
 **Katalog perangkat** (tombol *Katalog perangkat* di halaman daftar event) adalah daftar alat standar yang berlaku untuk
 semua event, dikelompokkan per kategori (router, switch, AP, bridge, titik LAN, dst.). Setiap alat berisi:
 - merek/tipe dan **stok** unit;

@@ -110,6 +110,24 @@
       return root && root.jenis === 'isp' ? root : null;
     }
 
+    /** 'online' | 'gangguan' | 'offline' — lihat NP.KONEKSI. Disimpan sementara per model. */
+    const koneksiMemo = new Map();
+    function koneksi(d) {
+      if (!koneksiMemo.has(d.id)) {
+        const p = path(d);
+        const root = p[p.length - 1];
+        koneksiMemo.set(d.id, !root || root.jenis !== 'isp' ? 'offline'
+          : p.some(n => n.status === 'bermasalah') ? 'gangguan' : 'online');
+      }
+      return koneksiMemo.get(d.id);
+    }
+
+    /** Status koneksi yang dibawa garis dari perangkat ke uplinknya = status uplink tersebut. */
+    function koneksiLink(d) {
+      const p = parentOf(d);
+      return p ? koneksi(p) : 'offline';
+    }
+
     function roots() {
       return sortDev(list.filter(d => !parentOf(d)));
     }
@@ -255,7 +273,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, roots, apRadiusPx, checks, bom, kabel, ssids };
+    return { proyek, list, byId, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, ssids };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

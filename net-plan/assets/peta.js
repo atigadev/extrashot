@@ -8,7 +8,7 @@
  */
 (function () {
   'use strict';
-  const { TYPES, STATUS, MEDIA, esc, fmtM } = NP;
+  const { TYPES, STATUS, MEDIA, KONEKSI, esc, fmtM } = NP;
   const SVGNS = 'http://www.w3.org/2000/svg';
   const DEFAULT_W = 2000;
   const DEFAULT_H = 1250;
@@ -17,6 +17,7 @@
   const R = COARSE ? 15 : 12; // jari-jari titik (px layar)
   const MID_R = COARSE ? 9 : 5; // pegangan tengah ruas jalur kabel
   const WP = COARSE ? 20 : 12; // sisi kotak lekukan
+  const BADGE = COARSE ? 6.5 : 5.5; // jari-jari lencana status internet
 
   function Peta(svg, cb) {
     svg.innerHTML = `
@@ -42,7 +43,7 @@
       model: null, W: DEFAULT_W, H: DEFAULT_H, img: null,
       z: 1, tx: 0, ty: 0, fitted: false,
       tool: 'pilih', sel: null, canEdit: true,
-      layers: { label: true, garis: true, jarak: false, cakupan: true },
+      layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true },
       hidden: new Set(), // jenis yang disembunyikan
       measure: [], linkSrc: null, cursor: null, flash: null,
       userView: false, // pengguna sudah zoom/pan sendiri
@@ -88,8 +89,10 @@
         const p = m.parentOf(d);
         if (!p) continue;
         const media = MEDIA[d.media] || MEDIA.utp;
-        const g = el('g', { class: 'link', 'data-id': d.id });
-        g.innerHTML = `<polyline class="hit"/><polyline class="ln" stroke="${media.color || '#475569'}" stroke-dasharray="${media.dash || ''}"/>
+        // Garis = tepi putih (kontras di atas denah) + garis berwarna media. Garis yang belum membawa internet
+        // diberi kelas k-offline / k-gangguan (warna & pola diatur np.css).
+        const g = el('g', { class: 'link k-' + m.koneksiLink(d), 'data-id': d.id });
+        g.innerHTML = `<polyline class="hit"/><polyline class="case"/><polyline class="ln" stroke="${media.color || '#0369a1'}" stroke-dasharray="${media.dash || ''}"/>
           <text class="dist"></text>`;
         gLinks.appendChild(g);
         linkEls.set(d.id, g);
@@ -97,13 +100,17 @@
       for (const d of ordered) {
         const t = TYPES[d.jenis] || TYPES.lainnya;
         const s = STATUS[d.status] || STATUS.rencana;
-        const g = el('g', { class: 'node st-' + d.status, 'data-id': d.id });
+        const kon = m.koneksi(d);
+        const k = KONEKSI[kon];
+        const b = Math.round(R * 0.78); // posisi lencana status internet (kanan atas titik)
+        const g = el('g', { class: 'node st-' + d.status + ' k-' + kon, 'data-id': d.id });
         g.innerHTML = `<circle class="halo" r="${R + 8}"/>
           <circle class="ring" r="${R + 3}" stroke="${s.color}"/>
           <circle class="dot" r="${R}" fill="${t.color}"/>
           <text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>
+          <g class="net" transform="translate(${b},${-b})"><circle r="${BADGE}" fill="${k.color}"/><text dy="0.36em">${k.icon}</text></g>
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
-          <title>${esc(d.nama)} — ${esc(t.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
+          <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
         gNodes.appendChild(g);
         nodeEls.set(d.id, g);
       }
@@ -147,6 +154,7 @@
       }
       svg.classList.toggle('no-label', !st.layers.label);
       svg.classList.toggle('no-dist', !st.layers.jarak);
+      svg.classList.toggle('no-net', !st.layers.internet);
       svg.dataset.tool = st.tool.split(':')[0];
       svg.classList.toggle('readonly', !st.canEdit);
       drawHandles();

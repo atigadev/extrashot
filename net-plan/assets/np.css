@@ -155,20 +155,29 @@ kbd { font: 11px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 .map .node .ring { fill: #fff; stroke-width: 2.5; }
 .map .node.st-rencana .ring { stroke-dasharray: 3 2.5; }
 .map .node .dot { stroke: rgba(0, 0, 0, .15); }
-.map .node.on-path .ring { stroke: var(--accent); stroke-width: 3.5; stroke-dasharray: none; }
+.map .node.on-path .ring { stroke: #eab308 !important; stroke-width: 4; stroke-dasharray: none !important; }
 .map .glyph { fill: #fff; font: 700 9.5px/1 system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
 .map .glyph.small { font-size: 8px; }
 .map .lbl { font: 700 11px system-ui, sans-serif; text-anchor: middle; fill: #111827; stroke: #fff; stroke-width: 3.5px; paint-order: stroke; stroke-linejoin: round; pointer-events: none; }
 .map.no-label .lbl { display: none; }
 .map .node.sel .lbl { display: block; fill: var(--accent); }
 .map .link polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; }
-.map .link .ln { stroke-width: 2.4; opacity: .85; }
-.map .link .hit { stroke: transparent; stroke-width: 12; cursor: pointer; }
+.map .link .ln { stroke-width: 4; }
+.map .link .case { stroke: #fff; stroke-width: 7.5; opacity: .9; }
+.map .link .hit { stroke: transparent; stroke-width: 14; cursor: pointer; }
+/* Garis yang belum membawa internet: merah titik-titik; ada gangguan di jalur: kuning putus-putus. */
+.map:not(.no-net) .link.k-offline .ln { stroke: #dc2626; stroke-dasharray: 1 7; stroke-width: 4.5; }
+.map:not(.no-net) .link.k-gangguan .ln { stroke: #d97706; stroke-dasharray: 10 5; }
+.map .net circle { stroke: #fff; stroke-width: 1.5; }
+.map .net text { fill: #fff; font: 800 8px/1 system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
+.map.no-net .net { display: none; }
 .map .handles .mid { fill: #fff; stroke: var(--accent); stroke-width: 2; cursor: copy; }
 .map .handles .mid:hover { fill: var(--accent); }
 .map .handles .wp { fill: var(--accent); stroke: #fff; stroke-width: 2; cursor: move; }
 .map .handles .wp:hover { fill: #1d4ed8; }
-.map .link.on-path .ln { stroke: var(--accent) !important; stroke-width: 4; opacity: 1; }
+/* Jalur ke WAN dari perangkat terpilih: disorot dengan pendar kuning, warna media tetap terlihat. */
+.map .link.on-path .case { stroke: #facc15; stroke-width: 12; opacity: 1; }
+.map .link.on-path .ln { stroke-width: 5; }
 .map .link .dist { font: 600 10.5px system-ui, sans-serif; text-anchor: middle; fill: #334155; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
 .map.no-dist .link .dist { display: none; }
 .map .cov-c { fill: #059669; fill-opacity: .07; stroke: #059669; stroke-opacity: .45; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -228,6 +237,15 @@ button.lg-item:hover { background: #f1f4f9; }
 .lg-item i { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 8px/1 system-ui, sans-serif; font-style: normal; flex: none; }
 .lg-item i.ring { width: 16px; height: 16px; border: 3px solid; background: #fff; margin: 0 3px; }
 .lg-item.off { opacity: .4; text-decoration: line-through; }
+.lg-item i.net-i { width: 16px; height: 16px; margin: 0 3px; font-size: 10px; font-weight: 800; }
+.kon { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 1px 8px 1px 3px; border-radius: 999px; white-space: nowrap; }
+.kon i { width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 800 9px/1 system-ui, sans-serif; font-style: normal; }
+.kon-online { background: #e3f6ee; color: #15803d; }
+.kon-online i { background: #16a34a; }
+.kon-gangguan { background: var(--warn-soft); color: var(--warn); }
+.kon-gangguan i { background: #d97706; }
+.kon-offline { background: var(--danger-soft); color: var(--danger); }
+.kon-offline i { background: #dc2626; }
 .big-num { font-size: 30px; font-weight: 700; margin: 4px 0 !important; }
 .cal-form { margin: 12px 0; }
 .route-lbl { font-size: 12px; color: var(--muted); font-weight: 500; display: block; margin-bottom: 4px; }
@@ -396,7 +414,8 @@ body.mode-lihat .edit-only { display: none !important; }
 
 /* Layar sentuh: area ketuk lebih besar, sembunyikan petunjuk keyboard. */
 @media (pointer: coarse) {
-  .map .link .hit { stroke-width: 24; }
+  .map .link .hit { stroke-width: 26; }
+  .map .net text { font-size: 9px; }
   .kbd-hint { display: none; }
   .map-ctrl button { width: 40px; height: 40px; }
 }

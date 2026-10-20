@@ -1,7 +1,7 @@
 /* Aplikasi Net Plan: daftar event, editor denah, daftar perangkat, topologi, pengaturan proyek, cetak. */
 (function () {
   'use strict';
-  const { TYPES, TYPE_ORDER, STATUS, MEDIA, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug } = NP;
+  const { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug } = NP;
   const API = 'api/admin.php';
   const $ = (s, root) => (root || document).querySelector(s);
   const $$ = (s, root) => [...(root || document).querySelectorAll(s)];
@@ -675,6 +675,28 @@
     $('#btn-layers').setAttribute('aria-expanded', open);
   });
 
+  /** Contoh garis untuk legenda (sama dengan gaya garis di peta, termasuk tepi putih). */
+  function lineLegend() {
+    const sample = (color, dash, w) => `<svg width="34" height="10"><line x1="3" y1="5" x2="31" y2="5" stroke="#fff" stroke-width="${w + 3}" stroke-linecap="round"/>` +
+      `<line x1="3" y1="5" x2="31" y2="5" stroke="${color}" stroke-width="${w}" stroke-dasharray="${dash}" stroke-linecap="round"/></svg>`;
+    return ['utp', 'fiber', 'wireless'].map(k => ({ svg: sample(MEDIA[k].color, MEDIA[k].dash, 4), label: MEDIA[k].label }))
+      .concat([
+        { svg: sample(KONEKSI.offline.color, '1 7', 4.5), label: 'Belum membawa internet' },
+        { svg: sample(KONEKSI.gangguan.color, '10 5', 4), label: 'Ada gangguan di jalur' },
+      ]);
+  }
+
+  /** Chip perangkat yang bisa diklik untuk memilihnya di denah. */
+  function chipDev(x) {
+    return `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${(TYPES[x.jenis] || TYPES.lainnya).color}"></i>${esc(x.nama)}</button>`;
+  }
+
+  /** Lencana status internet, mis. "✓ Terhubung". */
+  function konBadge(k) {
+    const K = KONEKSI[k];
+    return `<span class="kon kon-${k}"><i>${K.icon}</i>${esc(K.short)}</span>`;
+  }
+
   function panelRingkasan() {
     const m = S.model;
     const p = S.proyek;
@@ -685,6 +707,8 @@
     const nWarn = checks.filter(c => c.level === 'warn').length;
     const st = {};
     m.list.forEach(d => { st[d.status] = (st[d.status] || 0) + 1; });
+    const kon = { online: [], gangguan: [], offline: [] };
+    m.list.forEach(d => kon[m.koneksi(d)].push(d));
     return `
       <div class="pn-sec">
         <h3>${esc(p.nama)}</h3>
@@ -700,7 +724,14 @@
         </div>
       </div>
       <div class="pn-sec">
-        <h4>Status</h4>
+        <h4>Koneksi internet</h4>
+        <div class="legend">
+          ${Object.keys(KONEKSI).map(k => `<span class="lg-item"><i class="net-i" style="background:${KONEKSI[k].color}">${KONEKSI[k].icon}</i>${KONEKSI[k].label}<b>${kon[k].length}</b></span>`).join('')}
+        </div>
+        ${kon.offline.length ? `<p class="small muted" style="margin-top:8px">Belum terhubung:</p><div class="path wrap">${NP.Model.sortDev(kon.offline).map(chipDev).join('')}</div>` : ''}
+      </div>
+      <div class="pn-sec">
+        <h4>Status pemasangan</h4>
         <div class="legend">
           ${Object.keys(STATUS).map(k => `<span class="lg-item"><i class="ring" style="border-color:${STATUS[k].color}"></i>${STATUS[k].label}<b>${st[k] || 0}</b></span>`).join('')}
         </div>
@@ -708,7 +739,7 @@
       <div class="pn-sec">
         <h4>Garis uplink</h4>
         <div class="legend">
-          ${['utp', 'fiber', 'wireless'].map(k => `<span class="lg-item"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="${MEDIA[k].color}" stroke-width="3" stroke-dasharray="${MEDIA[k].dash}"/></svg>${MEDIA[k].label}</span>`).join('')}
+          ${lineLegend().map(x => `<span class="lg-item">${x.svg}${esc(x.label)}</span>`).join('')}
         </div>
       </div>
       <div class="pn-sec">
@@ -865,7 +896,9 @@
     const issues = m.checks().filter(c => c.ids.includes(d.id));
     const chip = x => `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${(TYPES[x.jenis] || TYPES.lainnya).color}"></i>${esc(x.nama)}</button>`;
 
-    let h = '<div class="pn-sec info">';
+    const kon = m.koneksi(d);
+    let h = `<div class="pn-sec info"><div class="kv"><span>Internet</span><b>${konBadge(kon)}${kon === 'gangguan'
+      ? ` <span class="muted">(${esc(path.filter(n => n.status === 'bermasalah').map(n => n.nama).join(', '))} bermasalah)</span>` : ''}</b></div>`;
     if (d.jenis === 'isp' && !m.parentOf(d)) {
       h += `<div class="kv"><span>Sumber WAN</span><b>${esc(d.atribut.provider || d.nama)}${d.bandwidth_mbps != null ? ' · ' + fmtBw(d.bandwidth_mbps) : ''}</b></div>`;
     } else {
@@ -1031,12 +1064,18 @@
     { k: 'ip', label: 'IP', v: d => d.ip.split('.').map(x => x.padStart(3, '0')).join('.') , show: d => d.ip },
     { k: 'vlan', label: 'VLAN', v: d => d.vlan },
     { k: 'uplink', label: 'Uplink', v: d => { const p = S.model.parentOf(d); return p ? p.nama : ''; } },
+    { k: 'internet', label: 'Internet', v: d => Object.keys(KONEKSI).indexOf(S.model.koneksi(d)) },
     { k: 'media', label: 'Media', v: d => d.media, show: d => d.media ? (MEDIA[d.media].short || d.media) : '' },
     { k: 'bw', label: 'Bandwidth', v: d => d.bandwidth_mbps == null ? -1 : d.bandwidth_mbps, show: d => fmtBw(d.bandwidth_mbps) },
-    { k: 'kabel', label: 'Kabel', v: d => S.model.kabelM(d) || 0, show: d => { const k = S.model.kabelM(d); return k == null ? '' : '≈ ' + fmtM(k); } },
+    { k: 'kabel', label: 'Kabel', v: d => S.model.kabelM(d) || 0 },
     { k: 'status', label: 'Status', v: d => Object.keys(STATUS).indexOf(d.status) },
     { k: 'pic', label: 'PIC', v: d => d.pic },
   ];
+
+  function kabelShow(d) {
+    const k = S.model.kabelM(d);
+    return k == null ? '' : '≈ ' + fmtM(k);
+  }
 
   function filteredList() {
     const q = $('#list-q').value.trim().toLowerCase();
@@ -1067,9 +1106,10 @@
         ${td('IP', esc(d.ip), 'mono')}
         ${td('VLAN', esc(d.vlan))}
         ${td('Uplink', p ? esc(p.nama) + (d.port_uplink ? ` <span class="muted">(${esc(d.port_uplink)})</span>` : '') : '<span class="muted">—</span>')}
+        ${td('Internet', konBadge(S.model.koneksi(d)))}
         ${td('Media', esc(d.media ? (MEDIA[d.media].short || d.media) : ''))}
         ${td('Bandwidth', esc(fmtBw(d.bandwidth_mbps)), 'num')}
-        ${td('Kabel', esc(COLS[8].show(d)), 'num')}
+        ${td('Kabel', esc(kabelShow(d)), 'num')}
         ${td('Status', `<span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>`, 'c-status')}
         ${td('PIC', esc(d.pic))}
         <td data-label="Konfigurasi" class="cfg${extra ? '' : ' empty'}" title="${esc(extra)}">${esc(extra)}</td>
@@ -1094,14 +1134,14 @@
 
   $('#btn-csv').addEventListener('click', () => {
     const rows = [['Nama', 'Jenis', 'Nama alat', 'IP', 'VLAN', 'Uplink', 'Port uplink', 'Port lokal', 'Media', 'Bandwidth (Mbps)',
-      'Bandwidth maks. (Mbps)', 'Sumber WAN', 'Kabel (m)', 'Status', 'PIC', 'Isian khusus', 'Keterangan konfigurasi']];
+      'Bandwidth maks. (Mbps)', 'Sumber WAN', 'Internet', 'Kabel (m)', 'Status', 'PIC', 'Isian khusus', 'Keterangan konfigurasi']];
     for (const d of NP.Model.sortDev(filteredList())) {
       const p = S.model.parentOf(d);
       const w = S.model.wanOf(d);
       const k = S.model.kabelM(d);
       rows.push([d.nama, (TYPES[d.jenis] || TYPES.lainnya).label, d.model, d.ip, d.vlan, p ? p.nama : '', d.port_uplink, d.port_lokal,
         d.media ? MEDIA[d.media].label : '', d.bandwidth_mbps == null ? '' : d.bandwidth_mbps, S.model.bwEfektif(d).mbps == null ? '' : S.model.bwEfektif(d).mbps,
-        w ? w.nama : '', k == null ? '' : Math.round(k), (STATUS[d.status] || STATUS.rencana).label, d.pic, attrSummary(d, false), d.catatan]);
+        w ? w.nama : '', KONEKSI[S.model.koneksi(d)].label, k == null ? '' : Math.round(k), (STATUS[d.status] || STATUS.rencana).label, d.pic, attrSummary(d, false), d.catatan]);
     }
     downloadCsv(rows, `perangkat-${slug(S.proyek.nama)}.csv`);
   });
@@ -1185,6 +1225,7 @@
             <span class="muted small">${esc(t.label)}</span>
             ${port ? `<span class="port" title="Port lokal ↔ port di uplink">${esc(port)}${d.media ? ' · ' + esc(MEDIA[d.media].short || d.media) : ''}</span>` : d.media && depth ? `<span class="port">${esc(MEDIA[d.media].short || d.media)}</span>` : ''}
             <span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>
+            ${konBadge(m.koneksi(d))}
             ${lv ? `<span class="lv ${lv}">${lv === 'err' ? 'masalah' : lv === 'warn' ? 'peringatan' : 'catatan'}</span>` : ''}
           </div>
           ${meta.length ? `<div class="tmeta">${meta.map(esc).join(' · ')}</div>` : ''}
@@ -1418,14 +1459,23 @@
       const p = m.parentOf(d);
       if (!p) continue;
       const md = MEDIA[d.media] || MEDIA.utp;
-      h += `<polyline points="${m.routePts(d).map(q => q.x + ',' + q.y).join(' ')}" fill="none" stroke-linejoin="round" stroke="${md.color || '#475569'}" stroke-width="${2.2 * u}" stroke-dasharray="${md.dash ? md.dash.split(' ').map(x => x * u).join(' ') : ''}" opacity=".85"/>`;
+      const kl = m.koneksiLink(d);
+      const color = kl === 'online' ? md.color || '#0369a1' : KONEKSI[kl].color;
+      const dash = kl === 'offline' ? '1 7' : kl === 'gangguan' ? '10 5' : md.dash;
+      const pts = m.routePts(d).map(q => q.x + ',' + q.y).join(' ');
+      h += `<polyline points="${pts}" fill="none" stroke-linejoin="round" stroke-linecap="round" stroke="#fff" stroke-width="${6.5 * u}" opacity=".9"/>
+        <polyline points="${pts}" fill="none" stroke-linejoin="round" stroke-linecap="round" stroke="${color}" stroke-width="${3.6 * u}" stroke-dasharray="${dash ? dash.split(' ').map(x => x * u).join(' ') : ''}"/>`;
     }
     for (const d of m.list) {
       const t = TYPES[d.jenis] || TYPES.lainnya;
+      const K = KONEKSI[m.koneksi(d)];
+      const b = r * 0.8;
       h += `<g transform="translate(${d.x},${d.y})">
         <circle r="${r + 2.5 * u}" fill="#fff" stroke="${(STATUS[d.status] || STATUS.rencana).color}" stroke-width="${2 * u}"/>
         <circle r="${r}" fill="${t.color}"/>
         <text text-anchor="middle" dy=".35em" font-size="${(t.short.length > 2 ? 6.5 : 8) * u}" font-weight="700" fill="#fff" font-family="Arial">${esc(t.short)}</text>
+        <circle cx="${b}" cy="${-b}" r="${4.5 * u}" fill="${K.color}" stroke="#fff" stroke-width="${1.2 * u}"/>
+        <text x="${b}" y="${-b}" dy=".36em" text-anchor="middle" font-size="${6.5 * u}" font-weight="800" fill="#fff" font-family="Arial">${K.icon}</text>
         <text text-anchor="middle" y="${r + 11 * u}" font-size="${9 * u}" font-weight="700" fill="#111" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(d.nama)}</text>
       </g>`;
     }
@@ -1448,7 +1498,7 @@
         <td>${par ? esc(par.nama) : '—'}${d.port_uplink ? ' : ' + esc(d.port_uplink) : ''}${d.port_lokal ? '<br>lokal ' + esc(d.port_lokal) : ''}</td>
         <td>${esc(d.media ? MEDIA[d.media].short : '')}${k != null ? '<br>≈ ' + esc(fmtM(k)) : ''}</td>
         <td>${esc(fmtBw(d.bandwidth_mbps))}</td>
-        <td>${esc((STATUS[d.status] || STATUS.rencana).label)}${d.pic ? '<br>' + esc(d.pic) : ''}</td>
+        <td>${esc((STATUS[d.status] || STATUS.rencana).label)}<br>${konBadge(m.koneksi(d))}${d.pic ? '<br>' + esc(d.pic) : ''}</td>
         <td class="cfg">${esc(attrSummary(d, true))}${d.catatan ? `<div class="pre">${esc(d.catatan)}</div>` : ''}</td>
       </tr>`;
     }).join('');
@@ -1458,10 +1508,11 @@
       <div class="pr-head"><h1>${esc(p.nama)}</h1><p>${esc([p.venue, tgl].filter(Boolean).join(' · '))} · ${m.list.length} perangkat · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>
       <div class="pr-map">${staticMap()}</div>
       <div class="pr-legend">${TYPE_ORDER.filter(j => m.list.some(d => d.jenis === j)).map(j => `<span><i style="background:${TYPES[j].color}">${esc(TYPES[j].short)}</i>${esc(TYPES[j].label)}</span>`).join('')}
-        ${['utp', 'fiber', 'wireless'].map(k => `<span><svg width="24" height="6"><line x1="0" y1="3" x2="24" y2="3" stroke="${MEDIA[k].color}" stroke-width="2.5" stroke-dasharray="${MEDIA[k].dash}"/></svg>${MEDIA[k].label}</span>`).join('')}</div>
+        ${lineLegend().map(x => `<span>${x.svg}${esc(x.label)}</span>`).join('')}
+        ${Object.keys(KONEKSI).map(k => `<span><i style="background:${KONEKSI[k].color}">${KONEKSI[k].icon}</i>${esc(KONEKSI[k].label)}</span>`).join('')}</div>
       ${p.catatan ? `<h2>Catatan</h2><div class="pre">${esc(p.catatan)}</div>` : ''}
       <h2>Daftar perangkat &amp; konfigurasi</h2>
-      <table class="pr-table"><thead><tr><th>Perangkat</th><th>Nama alat</th><th>IP / VLAN</th><th>Uplink : port</th><th>Media / kabel</th><th>Bandwidth</th><th>Status / PIC</th><th>Konfigurasi</th></tr></thead><tbody>${rows}</tbody></table>
+      <table class="pr-table"><thead><tr><th>Perangkat</th><th>Nama alat</th><th>IP / VLAN</th><th>Uplink : port</th><th>Media / kabel</th><th>Bandwidth</th><th>Status / internet / PIC</th><th>Konfigurasi</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="pr-cols">
         <div><h2>Kebutuhan perangkat</h2><table class="pr-table"><tr><th>Jenis</th><th>Nama alat</th><th>Jml</th></tr>${bom.map(b => `<tr><td>${esc(TYPES[b.jenis].label)}</td><td>${esc(b.model || '(belum diisi)')}</td><td>${b.jumlah}</td></tr>`).join('')}</table>
           ${Object.keys(kb.tot).length ? `<h2>Estimasi kabel</h2><table class="pr-table">${Object.keys(kb.tot).map(k => `<tr><td>${esc(MEDIA[k].label)}</td><td>${kb.tot[k].n} link</td><td>≈ ${esc(fmtM(kb.tot[k].m))}</td></tr>`).join('')}</table>` : ''}</div>

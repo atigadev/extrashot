@@ -129,10 +129,20 @@
 
   const MEDIA = {
     '': { label: '—' },
-    utp: { label: 'UTP (kabel LAN)', short: 'UTP', color: '#475569', dash: '' },
+    utp: { label: 'UTP (kabel LAN)', short: 'UTP', color: '#0369a1', dash: '' },
     fiber: { label: 'Fiber optik', short: 'FO', color: '#ea580c', dash: '' },
-    wireless: { label: 'Wireless', short: 'WL', color: '#0891b2', dash: '6 5' },
-    lainnya: { label: 'Lainnya', short: '?', color: '#64748b', dash: '2 4' },
+    wireless: { label: 'Wireless', short: 'WL', color: '#0d9488', dash: '9 6' },
+    lainnya: { label: 'Lainnya', short: '?', color: '#64748b', dash: '2 5' },
+  };
+
+  /**
+   * Status koneksi internet perangkat (dihitung dari jalur uplink, lihat Model.koneksi):
+   * online = jalur sampai ke Sumber WAN; gangguan = ada perangkat "bermasalah" di jalurnya; offline = tidak sampai WAN.
+   */
+  const KONEKSI = {
+    online: { label: 'Terhubung internet', short: 'Terhubung', color: '#16a34a', icon: '✓' },
+    gangguan: { label: 'Ada gangguan di jalur', short: 'Gangguan', color: '#d97706', icon: '!' },
+    offline: { label: 'Belum terhubung internet', short: 'Belum terhubung', color: '#dc2626', icon: '✕' },
   };
 
   /** Panggil API; lempar Error berisi pesan server bila gagal. body: objek (JSON) atau FormData. */
@@ -245,5 +255,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

@@ -327,7 +327,7 @@
       return;
     }
     const p = S.proyek;
-    c.innerHTML = `${S.lihat ? '' : '<a href="#/">Semua event</a><span class="sep">/</span>'}
+    c.innerHTML = `${S.lihat ? '' : '<a href="#/" title="Semua event"><span class="hide-phone">Semua event</span><span class="show-phone">←</span></a><span class="sep hide-phone">/</span>'}
       <b>${esc(p.nama)}</b>${p.venue ? `<span class="muted"> · ${esc(p.venue)}</span>` : ''}
       ${S.lihat ? '<span class="badge">Lihat saja</span>' : ''}`;
     document.title = p.nama + ' — Net Plan';
@@ -345,6 +345,7 @@
       if (S.lihat && b.dataset.tab === 'proyek') b.textContent = 'Info';
     });
     $$('.tab-pane').forEach(p => { p.hidden = p.dataset.pane !== S.tab; });
+    if (S.tab === 'denah') updateInset();
     refreshModel();
     if (S.tab === 'denah') requestAnimationFrame(() => peta.refresh());
   }
@@ -378,8 +379,9 @@
     onRoute(id, jalur) {
       saveDev(id, { jalur }, { keepPanel: true }).catch(() => {});
     },
-    onMeasure() {
+    onMeasure(pts) {
       renderPanel();
+      if (pts.length === 2) openSheet();
     },
     onHint() {
       updateHint();
@@ -391,11 +393,16 @@
     const d = id != null && S.model.byId.get(id);
     if (d && TYPES[d.jenis] && TYPES[d.jenis].parent) S.parentCtx = id;
     peta.select(id);
+    if (peta.tool !== 'ukur') renderPanel();
+    if (id != null) openSheet();
+    else if (mqSheet.matches) setSheet('peek');
+    updateInset(); // ukuran layar bisa berubah (rotasi) sejak terakhir dihitung
     if (center && id != null) {
       peta.centerOn(id);
       peta.flash(id);
+    } else if (id != null) {
+      peta.ensureVisible(id);
     }
-    if (peta.tool !== 'ukur') renderPanel();
     updateHint();
   }
 
@@ -597,16 +604,76 @@
   // ------------------------------------------------------------------------ panel kanan
 
   function renderPanel() {
-    const panel = $('#panel');
+    const panel = $('#panel-body');
     if (!S.model) return;
     if (peta.tool === 'ukur') {
       panel.innerHTML = panelUkur();
+      $('#sheet-title').textContent = 'Ukur jarak';
       return;
     }
     const d = S.sel != null && S.model.byId.get(S.sel);
     panel.innerHTML = d ? panelDev(d) : panelRingkasan();
+    $('#sheet-title').textContent = d ? d.nama : 'Ringkasan · ' + S.model.list.length + ' perangkat';
     if (d) renderPanelInfo();
   }
+
+  // ------------------------------------------------------------------------ panel sebagai lembar bawah (HP & tablet)
+
+  const mqSheet = matchMedia('(max-width: 900px)');
+  const SHEETS = ['peek', 'half', 'full'];
+
+  function setSheet(state) {
+    const p = $('#panel');
+    p.dataset.sheet = state;
+    $('#sheet-toggle').textContent = state === 'full' ? '▾' : '▴';
+    updateInset();
+  }
+
+  /** Bagian peta yang tertutup panel (sama dengan tinggi di np.css) — agar "Pusatkan" tepat di area yang terlihat. */
+  function updateInset() {
+    if (!mqSheet.matches) return peta.setInset(0);
+    const h = $('.peta-layout').getBoundingClientRect().height;
+    const st = $('#panel').dataset.sheet;
+    peta.setInset(st === 'peek' ? 52 : st === 'half' ? h * 0.5 : h);
+  }
+  mqSheet.addEventListener('change', updateInset);
+
+  /** Buka panel minimal setengah layar (dipanggil saat perangkat dipilih di HP/tablet). */
+  function openSheet() {
+    if (mqSheet.matches && $('#panel').dataset.sheet === 'peek') setSheet('half');
+  }
+
+  $('#sheet-toggle').addEventListener('click', e => {
+    e.stopPropagation();
+    const cur = $('#panel').dataset.sheet;
+    setSheet(cur === 'full' ? 'peek' : cur === 'half' ? 'full' : 'half');
+  });
+
+  // Geser bar ke atas/bawah untuk mengubah tinggi panel; ketuk bar = buka/tutup.
+  (function () {
+    const bar = $('#sheet-bar');
+    let startY = null;
+    bar.addEventListener('pointerdown', e => {
+      if (e.target.closest('button')) return;
+      startY = e.clientY;
+      bar.setPointerCapture(e.pointerId);
+    });
+    bar.addEventListener('pointerup', e => {
+      if (startY == null) return;
+      const dy = e.clientY - startY;
+      startY = null;
+      const i = SHEETS.indexOf($('#panel').dataset.sheet);
+      if (Math.abs(dy) < 8) setSheet(i === 0 ? 'half' : 'peek');
+      else setSheet(SHEETS[Math.max(0, Math.min(2, i + (dy < 0 ? 1 : -1) * (Math.abs(dy) > 220 ? 2 : 1)))]);
+    });
+    bar.addEventListener('pointercancel', () => { startY = null; });
+  })();
+
+  // Kontrol lapisan: di layar kecil dilipat ke tombol ☰.
+  $('#btn-layers').addEventListener('click', () => {
+    const open = $('#map-layers').classList.toggle('open');
+    $('#btn-layers').setAttribute('aria-expanded', open);
+  });
 
   function panelRingkasan() {
     const m = S.model;
@@ -650,7 +717,7 @@
       </div>
       <div class="pn-sec muted small">
         ${S.canEdit ? `<p><b>Cara cepat:</b> pilih router/switch, lalu pilih alat <b>AP</b> dan klik-klik di denah — AP otomatis ber-uplink ke switch tersebut.</p>
-        <p>Pintasan: <kbd>V</kbd> pilih · <kbd>L</kbd> hubungkan · <kbd>M</kbd> ukur · <kbd>1</kbd>–<kbd>9</kbd> tambah · <kbd>Del</kbd> hapus · <kbd>F</kbd> seluruh denah · scroll = zoom · geser latar = pan</p>`
+        <p class="kbd-hint">Pintasan: <kbd>V</kbd> pilih · <kbd>L</kbd> hubungkan · <kbd>M</kbd> ukur · <kbd>1</kbd>–<kbd>9</kbd> tambah · <kbd>Del</kbd> hapus · <kbd>F</kbd> seluruh denah · scroll = zoom · geser latar = pan</p>`
         : '<p>Klik titik perangkat untuk melihat konfigurasinya. Scroll/pinch untuk zoom, geser untuk pan.</p>'}
       </div>`;
   }
@@ -787,6 +854,7 @@
     const m = S.model;
     const nm = $('#pn-nama');
     if (nm) nm.textContent = d.nama;
+    $('#sheet-title').textContent = d.nama;
     const path = m.path(d);
     const wan = m.wanOf(d);
     const bw = m.bwEfektif(d);
@@ -990,19 +1058,21 @@
       const t = TYPES[d.jenis] || TYPES.lainnya;
       const p = S.model.parentOf(d);
       const extra = [attrSummary(d, true), d.catatan].filter(Boolean).join(' — ');
+      // data-label dipakai tampilan kartu di HP; sel kosong disembunyikan di sana.
+      const td = (label, html, cls) => `<td data-label="${label}" class="${cls || ''}${html ? '' : ' empty'}">${html}</td>`;
       return `<tr data-id="${d.id}">
-        <td><span class="dotlbl"><i style="background:${t.color}"></i><b>${esc(d.nama)}</b></span></td>
-        <td>${esc(t.label)}</td>
-        <td>${esc(d.model)}</td>
-        <td class="mono">${esc(d.ip)}</td>
-        <td>${esc(d.vlan)}</td>
-        <td>${p ? esc(p.nama) + (d.port_uplink ? ` <span class="muted">(${esc(d.port_uplink)})</span>` : '') : '<span class="muted">—</span>'}</td>
-        <td>${esc(d.media ? (MEDIA[d.media].short || d.media) : '')}</td>
-        <td class="num">${esc(fmtBw(d.bandwidth_mbps))}</td>
-        <td class="num">${esc(COLS[8].show(d))}</td>
-        <td><span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span></td>
-        <td>${esc(d.pic)}</td>
-        <td class="cfg" title="${esc(extra)}">${esc(extra)}</td>
+        ${td('Nama', `<span class="dotlbl"><i style="background:${t.color}"></i><b>${esc(d.nama)}</b></span>`, 'c-nama')}
+        ${td('Jenis', esc(t.label), 'c-jenis')}
+        ${td('Nama alat', esc(d.model))}
+        ${td('IP', esc(d.ip), 'mono')}
+        ${td('VLAN', esc(d.vlan))}
+        ${td('Uplink', p ? esc(p.nama) + (d.port_uplink ? ` <span class="muted">(${esc(d.port_uplink)})</span>` : '') : '<span class="muted">—</span>')}
+        ${td('Media', esc(d.media ? (MEDIA[d.media].short || d.media) : ''))}
+        ${td('Bandwidth', esc(fmtBw(d.bandwidth_mbps)), 'num')}
+        ${td('Kabel', esc(COLS[8].show(d)), 'num')}
+        ${td('Status', `<span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>`, 'c-status')}
+        ${td('PIC', esc(d.pic))}
+        <td data-label="Konfigurasi" class="cfg${extra ? '' : ' empty'}" title="${esc(extra)}">${esc(extra)}</td>
       </tr>`;
     }).join('');
     $('#dev-table').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${COLS.length + 1}" class="muted center">Tidak ada perangkat${S.list.length ? ' yang cocok' : ' — tambahkan dari tab Denah'}.</td></tr>`}</tbody>`;

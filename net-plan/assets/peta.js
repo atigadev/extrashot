@@ -12,7 +12,11 @@
   const SVGNS = 'http://www.w3.org/2000/svg';
   const DEFAULT_W = 2000;
   const DEFAULT_H = 1250;
-  const R = 12; // jari-jari titik (px layar)
+  // Layar sentuh: titik & pegangan lebih besar agar mudah diketuk.
+  const COARSE = matchMedia('(pointer: coarse)').matches;
+  const R = COARSE ? 15 : 12; // jari-jari titik (px layar)
+  const MID_R = COARSE ? 9 : 5; // pegangan tengah ruas jalur kabel
+  const WP = COARSE ? 20 : 12; // sisi kotak lekukan
 
   function Peta(svg, cb) {
     svg.innerHTML = `
@@ -41,6 +45,8 @@
       layers: { label: true, garis: true, jarak: false, cakupan: true },
       hidden: new Set(), // jenis yang disembunyikan
       measure: [], linkSrc: null, cursor: null, flash: null,
+      userView: false, // pengguna sudah zoom/pan sendiri
+      inset: 0, // tinggi panel bawah yang menutupi peta (px)
       opacity: 1, // opasitas gambar denah (di atas latar putih -> makin pudar = makin terang)
     };
     const nodeEls = new Map();
@@ -213,10 +219,10 @@
       for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i], b = pts[i + 1];
         if (Math.hypot(b.x - a.x, b.y - a.y) < 28) continue;
-        h += `<circle class="mid" data-seg="${i}" cx="${(a.x + b.x) / 2}" cy="${(a.y + b.y) / 2}" r="5"><title>Tarik untuk membuat lekukan</title></circle>`;
+        h += `<circle class="mid" data-seg="${i}" cx="${(a.x + b.x) / 2}" cy="${(a.y + b.y) / 2}" r="${MID_R}"><title>Tarik untuk membuat lekukan</title></circle>`;
       }
       for (let i = 1; i < pts.length - 1; i++) {
-        h += `<rect class="wp" data-i="${i - 1}" x="${pts[i].x - 6}" y="${pts[i].y - 6}" width="12" height="12" rx="2"><title>Geser lekukan · klik ganda / klik kanan untuk menghapus</title></rect>`;
+        h += `<rect class="wp" data-i="${i - 1}" x="${pts[i].x - WP / 2}" y="${pts[i].y - WP / 2}" width="${WP}" height="${WP}" rx="3"><title>Geser lekukan · klik ganda / klik kanan untuk menghapus</title></rect>`;
       }
       gHandles.innerHTML = h;
     }
@@ -251,10 +257,12 @@
       const r = svg.getBoundingClientRect();
       if (!r.width || !r.height) return;
       const pad = 24;
-      st.z = Math.min((r.width - pad * 2) / st.W, (r.height - pad * 2) / st.H);
+      const h = Math.max(120, r.height - st.inset); // area di atas panel bawah
+      st.z = Math.min((r.width - pad * 2) / st.W, (h - pad * 2) / st.H);
       st.tx = (r.width - st.W * st.z) / 2;
-      st.ty = (r.height - st.H * st.z) / 2;
+      st.ty = (h - st.H * st.z) / 2;
       st.fitted = true;
+      st.userView = false;
       layout();
     }
 
@@ -269,6 +277,7 @@
       st.tx = cx - (cx - st.tx) * f;
       st.ty = cy - (cy - st.ty) * f;
       st.z = z;
+      st.userView = true;
       layout();
     }
 
@@ -282,9 +291,34 @@
       if (!d) return;
       const r = svg.getBoundingClientRect();
       if (st.z < 0.6) st.z = Math.min(1, st.z * 2.5);
+      // Pusatkan di area yang tidak tertutup panel bawah (HP/tablet).
       st.tx = r.width / 2 - d.x * st.z;
-      st.ty = r.height / 2 - d.y * st.z;
+      st.ty = Math.max(60, r.height - st.inset) / 2 - d.y * st.z;
+      st.userView = true;
       layout();
+    }
+
+    /** Geser tampilan seperlunya agar titik tidak tertutup panel bawah / keluar layar (zoom tidak berubah). */
+    function ensureVisible(id) {
+      const d = st.model && st.model.byId.get(id);
+      if (!d) return;
+      const r = svg.getBoundingClientRect();
+      const visH = Math.max(80, r.height - st.inset);
+      const m = 40;
+      const x = sx(d.x), y = sy(d.y);
+      let moved = false;
+      if (x < m || x > r.width - m) {
+        st.tx += r.width / 2 - x;
+        moved = true;
+      }
+      if (y < m || y > visH - m) {
+        st.ty += visH / 2 - y;
+        moved = true;
+      }
+      if (moved) {
+        st.userView = true;
+        layout();
+      }
     }
 
     function flash(id) {
@@ -377,6 +411,7 @@
       if (!gesture.moved && Math.hypot(dx, dy) < 5) return;
       gesture.moved = true;
       if (gesture.type === 'pan') {
+        st.userView = true;
         st.tx = gesture.tx + dx;
         st.ty = gesture.ty + dy;
         layout();
@@ -525,9 +560,20 @@
       zoomAt(f, p.x, p.y);
     }, { passive: false });
 
+    // Ukuran berubah (rotasi layar, panel dibuka): bila pengguna belum zoom/pan, sesuaikan ulang ke seluruh denah;
+    // bila sudah, pertahankan titik tengah tampilan.
+    let lastSize = null;
     new ResizeObserver(() => {
-      if (!st.fitted) fit();
-      else layout();
+      const r = svg.getBoundingClientRect();
+      if (!st.fitted || !st.userView) fit();
+      else {
+        if (lastSize) {
+          st.tx += (r.width - lastSize.w) / 2;
+          st.ty += (r.height - lastSize.h) / 2;
+        }
+        layout();
+      }
+      lastSize = { w: r.width, h: r.height };
     }).observe(svg);
 
     // ------------------------------------------------------------------ API publik
@@ -570,6 +616,8 @@
         if (img) img.setAttribute('opacity', v);
       },
       get opacity() { return st.opacity; },
+      setInset(px) { st.inset = px || 0; },
+      ensureVisible,
       get tool() { return st.tool; },
       get linkSrc() { return st.linkSrc; },
       get layers() { return st.layers; },

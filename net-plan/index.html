@@ -24,12 +24,12 @@
 <header class="topbar">
   <a class="brand" href="#/" id="brand">
     <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><circle cx="5" cy="18" r="2.6"/><circle cx="19" cy="18" r="2.6"/><path d="M12 7.6v4.4M12 12l-5.4 4M12 12l5.4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-    Net Plan
+    <span class="brand-txt">Net Plan</span>
   </a>
   <div class="crumb" id="crumb"></div>
   <span class="spacer"></span>
   <span class="save-state" id="save-state"></span>
-  <button type="button" id="btn-print" hidden>Cetak</button>
+  <button type="button" id="btn-print" class="hide-phone" hidden>Cetak</button>
   <button type="button" id="btn-logout" hidden>Keluar</button>
 </header>
 
@@ -49,8 +49,8 @@
 <div id="editor" class="editor" hidden>
   <nav class="tabs" id="tabs">
     <button type="button" data-tab="denah">Denah</button>
-    <button type="button" data-tab="daftar">Daftar perangkat</button>
-    <button type="button" data-tab="topologi">Topologi &amp; cek</button>
+    <button type="button" data-tab="daftar">Daftar<span class="hide-phone"> perangkat</span></button>
+    <button type="button" data-tab="topologi">Topologi<span class="hide-phone"> &amp; cek</span></button>
     <button type="button" data-tab="proyek">Proyek</button>
   </nav>
 
@@ -64,6 +64,7 @@
           <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
           <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
           <button type="button" data-zoom="fit" title="Seluruh denah (F)">⤢</button>
+          <button type="button" class="layers-btn" id="btn-layers" title="Lapisan &amp; kecerahan denah" aria-expanded="false">☰</button>
         </div>
         <div class="map-layers" id="map-layers">
           <label><input type="checkbox" data-layer="label" checked> Label</label>
@@ -75,7 +76,14 @@
             <output id="denah-opacity-val">100%</output></label>
         </div>
       </div>
-      <aside class="panel" id="panel"></aside>
+      <aside class="panel" id="panel" data-sheet="peek">
+        <div class="sheet-bar" id="sheet-bar">
+          <span class="grip"></span>
+          <span class="sheet-title" id="sheet-title"></span>
+          <button type="button" class="icon" id="sheet-toggle" aria-label="Perbesar/perkecil panel">▴</button>
+        </div>
+        <div id="panel-body"></div>
+      </aside>
     </div>
   </section>
 

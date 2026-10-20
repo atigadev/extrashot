@@ -16,6 +16,7 @@
  * POST {"action":"denah_hapus","id":N}
  * POST {"action":"perangkat_save", id? | proyek_id, ...isian}  -> isian yang dikirim saja yang diubah
  * POST {"action":"perangkat_delete","ids":[N,...]}
+ * POST {"action":"perangkat_hapus_semua","id":N}  -> hapus semua perangkat event (event & denah tetap)
  * POST {"action":"perangkat_import","proyek_id":N,"perangkat":[...]} -> tambah perangkat dari file ekspor JSON
  *
  * Setiap POST wajib membawa header "X-NP: 1" (pengaman CSRF: browser tidak bisa mengirim header ini lintas situs
@@ -154,6 +155,13 @@ switch ($method . ' ' . $action) {
         $pdo->prepare("DELETE FROM np_perangkat WHERE id IN ($in)")->execute($ids);
         $pdo->commit();
         json_out(['ok' => true]);
+
+    case 'POST perangkat_hapus_semua':
+        find_proyek($id);
+        $st = $pdo->prepare('DELETE FROM np_perangkat WHERE proyek_id = ?');
+        $st->execute([$id]);
+        $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$id]);
+        json_out(['ok' => true, 'jumlah' => $st->rowCount()] + proyek_lengkap(find_proyek($id)));
 
     case 'POST perangkat_import':
         $p = find_proyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);

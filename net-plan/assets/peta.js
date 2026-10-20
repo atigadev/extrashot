@@ -18,6 +18,7 @@
   const MID_R = COARSE ? 9 : 5; // pegangan tengah ruas jalur kabel
   const WP = COARSE ? 20 : 12; // sisi kotak lekukan
   const BADGE = COARSE ? 6.5 : 5.5; // jari-jari lencana status internet
+  const UNLINK_R = COARSE ? 13 : 9; // tombol ✕ hapus koneksi di garis
 
   function Peta(svg, cb) {
     svg.innerHTML = `
@@ -207,30 +208,64 @@
       return pts[0] || { x: 0, y: 0 };
     }
 
-    /** Perangkat terpilih yang jalur kabelnya bisa dibentuk (punya uplink, bukan wireless). */
-    function routeDev() {
+    /** Perangkat terpilih yang garis uplinknya bisa diedit (dihapus / dibentuk). */
+    function linkedDev() {
       const m = st.model;
       if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || !st.layers.garis) return null;
       const d = m.byId.get(st.sel);
-      return d && m.parentOf(d) && d.media !== 'wireless' && !st.hidden.has(d.jenis) ? d : null;
+      return d && m.parentOf(d) && !st.hidden.has(d.jenis) ? d : null;
     }
 
-    /** Pegangan jalur: kotak = lekukan (geser / klik ganda hapus), bulatan kecil = tengah ruas (tarik = lekukan baru). */
+    /** Perangkat terpilih yang jalur kabelnya bisa dibentuk (punya uplink, bukan wireless). */
+    function routeDev() {
+      const d = linkedDev();
+      return d && d.media !== 'wireless' ? d : null;
+    }
+
+    /**
+     * Pegangan garis perangkat terpilih: kotak = lekukan (geser / klik ganda hapus), bulatan kecil = tengah ruas
+     * (tarik = lekukan baru), tombol ✕ merah = hapus koneksi ke uplink.
+     */
     function drawHandles() {
-      const d = routeDev();
+      const d = linkedDev();
       if (!d) {
         gHandles.textContent = '';
         return;
       }
       const pts = st.model.routePts(d).map(q => ({ x: sx(q.x), y: sy(q.y) }));
       let h = '';
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = pts[i], b = pts[i + 1];
-        if (Math.hypot(b.x - a.x, b.y - a.y) < 28) continue;
-        h += `<circle class="mid" data-seg="${i}" cx="${(a.x + b.x) / 2}" cy="${(a.y + b.y) / 2}" r="${MID_R}"><title>Tarik untuk membuat lekukan</title></circle>`;
+      const taken = [];
+      if (d.media !== 'wireless') {
+        for (let i = 0; i < pts.length - 1; i++) {
+          const a = pts[i], b = pts[i + 1];
+          if (Math.hypot(b.x - a.x, b.y - a.y) < 28) continue;
+          const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          taken.push(c);
+          h += `<circle class="mid" data-seg="${i}" cx="${c.x}" cy="${c.y}" r="${MID_R}"><title>Tarik untuk membuat lekukan</title></circle>`;
+        }
+        for (let i = 1; i < pts.length - 1; i++) {
+          taken.push(pts[i]);
+          h += `<rect class="wp" data-i="${i - 1}" x="${pts[i].x - WP / 2}" y="${pts[i].y - WP / 2}" width="${WP}" height="${WP}" rx="3"><title>Geser lekukan · klik ganda / klik kanan untuk menghapus</title></rect>`;
+        }
       }
-      for (let i = 1; i < pts.length - 1; i++) {
-        h += `<rect class="wp" data-i="${i - 1}" x="${pts[i].x - WP / 2}" y="${pts[i].y - WP / 2}" width="${WP}" height="${WP}" rx="3"><title>Geser lekukan · klik ganda / klik kanan untuk menghapus</title></rect>`;
+      // Tombol hapus koneksi: di seperempat garis dari sisi perangkat, hindari pegangan lain & titik perangkat.
+      const total = pts.reduce((s, q, i) => i ? s + Math.hypot(q.x - pts[i - 1].x, q.y - pts[i - 1].y) : 0, 0);
+      if (total > R * 2 + UNLINK_R * 2) {
+        let pos = null;
+        for (const f of [0.25, 0.75, 0.4, 0.6]) {
+          const c = alongPolyline(pts, f);
+          const free = taken.every(t => Math.hypot(t.x - c.x, t.y - c.y) > UNLINK_R + MID_R + 4) &&
+            Math.hypot(c.x - pts[0].x, c.y - pts[0].y) > R + UNLINK_R + 2 &&
+            Math.hypot(c.x - pts[pts.length - 1].x, c.y - pts[pts.length - 1].y) > R + UNLINK_R + 2;
+          if (free) {
+            pos = c;
+            break;
+          }
+        }
+        pos = pos || alongPolyline(pts, 0.25);
+        const k = UNLINK_R * 0.42;
+        h += `<g class="unlink" transform="translate(${pos.x.toFixed(1)},${pos.y.toFixed(1)})"><circle r="${UNLINK_R}"/>` +
+          `<path d="M${-k} ${-k}L${k} ${k}M${k} ${-k}L${-k} ${k}"/><title>Hapus koneksi ke uplink</title></g>`;
       }
       gHandles.innerHTML = h;
     }
@@ -370,6 +405,13 @@
       }
       const hit = nodeIdAt(e);
       const middle = e.button === 1;
+      const unlink = !middle && e.target.closest && e.target.closest('.unlink');
+      const ld = unlink && linkedDev();
+      if (ld) {
+        pointers.delete(e.pointerId);
+        cb.onUnlink(ld.id);
+        return;
+      }
       const handle = !middle && e.target.closest && e.target.closest('.wp, .mid');
       const rd = handle && routeDev();
       if (rd) {

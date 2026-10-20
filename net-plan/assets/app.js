@@ -254,15 +254,27 @@
       return;
     }
     grid.innerHTML = res.proyek.map(p => `
-      <a class="proj-card" href="#/p/${p.id}">
-        <div class="thumb">${p.denah_v ? `<img src="api/denah.php?id=${p.id}&v=${p.denah_v}" alt="" loading="lazy">` : '<span>Belum ada denah</span>'}</div>
-        <div class="info">
-          <b>${esc(p.nama)}</b>
-          <span class="muted">${esc(p.venue || '—')}</span>
-          <span class="meta">${p.tanggal_mulai ? esc(fmtDate(p.tanggal_mulai)) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + esc(fmtDate(p.tanggal_selesai)) : '') + ' · ' : ''}${p.jumlah} perangkat</span>
-        </div>
-      </a>`).join('');
+      <div class="proj-wrap">
+        <a class="proj-card" href="#/p/${p.id}">
+          <div class="thumb">${p.denah_v ? `<img src="api/denah.php?id=${p.id}&v=${p.denah_v}" alt="" loading="lazy">` : '<span>Belum ada denah</span>'}</div>
+          <div class="info">
+            <b>${esc(p.nama)}</b>
+            <span class="muted">${esc(p.venue || '—')}</span>
+            <span class="meta">${p.tanggal_mulai ? esc(fmtDate(p.tanggal_mulai)) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + esc(fmtDate(p.tanggal_selesai)) : '') + ' · ' : ''}${p.jumlah} perangkat</span>
+          </div>
+        </a>
+        <button type="button" class="card-del" data-del="${p.id}" data-nama="${esc(p.nama)}" data-jumlah="${p.jumlah}" title="Hapus event" aria-label="Hapus event ${esc(p.nama)}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+        </button>
+      </div>`).join('');
   }
+
+  $('#proj-grid').addEventListener('click', async e => {
+    const b = e.target.closest('[data-del]');
+    if (!b) return;
+    e.preventDefault();
+    if (await hapusEvent(+b.dataset.del, b.dataset.nama, +b.dataset.jumlah)) showHome();
+  });
 
   $('#btn-new').addEventListener('click', () => openProyekDialog(null));
 
@@ -376,6 +388,9 @@
     onLink(childId, parentId) {
       linkDev(childId, parentId);
     },
+    onUnlink(id) {
+      putusKoneksi(id);
+    },
     onRoute(id, jalur) {
       saveDev(id, { jalur }, { keepPanel: true }).catch(() => {});
     },
@@ -453,6 +468,20 @@
     const patch = { uplink_id: parentId };
     if (!c.media) patch.media = 'utp';
     saveDev(childId, patch).then(() => toast(`${c.nama} → uplink ${p.nama}`)).catch(() => {});
+  }
+
+  /** Hapus koneksi perangkat ke uplinknya (port uplink & bentuk jalur ikut dikosongkan). Bisa dibatalkan. */
+  function putusKoneksi(id) {
+    const d = S.model.byId.get(id);
+    const p = d && S.model.parentOf(d);
+    if (!p || !S.canEdit) return;
+    const sebelum = { uplink_id: d.uplink_id, port_uplink: d.port_uplink, jalur: d.jalur };
+    saveDev(id, { uplink_id: null, port_uplink: '', jalur: null })
+      .then(() => toast(`Koneksi ${d.nama} → ${p.nama} dihapus`, false, {
+        label: 'Batalkan',
+        fn: () => saveDev(id, sebelum).then(() => toast(`${d.nama} → ${p.nama} tersambung lagi`)).catch(() => {}),
+      }))
+      .catch(() => {});
   }
 
   async function deleteDev(ids) {
@@ -852,7 +881,8 @@
           <div class="fgrid">
             <label class="field wide"><span>Uplink (sumber koneksi)</span>
               <div class="inline"><select data-f="uplink_id"${dis}>${uplinkOptions(d)}</select>
-              ${S.canEdit ? '<button type="button" class="small" data-act="pick" title="Pilih uplink dengan klik di denah">Pilih di denah</button>' : ''}</div></label>
+              ${S.canEdit ? '<button type="button" class="small" data-act="pick" title="Pilih uplink dengan klik di denah">Pilih di denah</button>' : ''}
+              ${S.canEdit && d.uplink_id != null ? '<button type="button" class="small danger" data-act="unlink" title="Hapus koneksi ke uplink">Putuskan</button>' : ''}</div></label>
             ${fieldHtml({ k: 'port_uplink', label: 'Port di uplink', ph: 'mis. ether3 / port 5' }, d.port_uplink, dis)}
             ${fieldHtml({ k: 'port_lokal', label: 'Port di perangkat ini', ph: 'mis. ether1 / WAN' }, d.port_lokal, dis)}
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
@@ -915,7 +945,7 @@
         : d.media === 'wireless' ? fmtM(jarak) : `≈ ${fmtM(kabel)} <span class="muted">(${berbelok ? 'jalur' : 'lurus'} ${fmtM(m.jalurM(d))} + ${S.proyek.slack_kabel}%)</span>`}</b></div>`;
     }
     if (kids.length) {
-      h += `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span><div class="path wrap">${kids.map(chip).join('')}</div></div>`;
+      h += `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span><div class="path wrap">${kids.map(c => S.canEdit ? `<span class="chip-x">${chip(c)}<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button></span>` : chip(c)).join('')}</div></div>`;
     }
     if (issues.length) {
       h += `<ul class="issues">${issues.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>`;
@@ -971,6 +1001,8 @@
     }
     const chip = e.target.closest('[data-sel]');
     if (chip) return selectDev(+chip.dataset.sel, true);
+    const ul = e.target.closest('[data-unlink]');
+    if (ul) return putusKoneksi(+ul.dataset.unlink);
     const rt = e.target.closest('[data-route]');
     if (rt && S.canEdit && S.sel != null) {
       const d = S.model.byId.get(S.sel);
@@ -1006,6 +1038,7 @@
       case 'dup': return duplicateDev(id);
       case 'del': return deleteDev(id);
       case 'pick': return setTool('hubung');
+      case 'unlink': return putusKoneksi(id);
     }
   });
 
@@ -1161,6 +1194,7 @@
   });
 
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
+  $('#btn-del-all').addEventListener('click', () => hapusSemuaPerangkat());
   $('#import-file').addEventListener('change', async e => {
     const file = e.target.files[0];
     e.target.value = '';
@@ -1337,9 +1371,19 @@
         <h2>Aksi</h2>
         <div class="btn-row">
           <button type="button" data-p="dup">Duplikat event</button>
-          <button type="button" class="danger" data-p="del">Hapus event</button>
         </div>
         <p class="muted small">Duplikat menyalin denah, skala, dan semua perangkat — cocok untuk event berulang di venue yang sama.</p>
+        <div class="danger-zone">
+          <h4>Zona berbahaya</h4>
+          <div class="dz-row">
+            <div><b>Hapus semua perangkat</b><p class="muted small">${S.list.length} perangkat dihapus. Event, denah, skala, dan link lihat-saja tetap.</p></div>
+            <button type="button" class="danger" data-p="del-all"${S.list.length ? '' : ' disabled'}>Hapus semua perangkat</button>
+          </div>
+          <div class="dz-row">
+            <div><b>Hapus event</b><p class="muted small">Event, gambar denah, dan semua perangkatnya dihapus permanen.</p></div>
+            <button type="button" class="danger" data-p="del">Hapus event</button>
+          </div>
+        </div>
       </div>`;
   }
 
@@ -1426,17 +1470,58 @@
         return;
       }
       case 'del':
-        if (!confirm(`Hapus event "${p.nama}" beserta denah dan ${S.list.length} perangkatnya? Tidak bisa dibatalkan.`)) return;
-        try {
-          await api(API, { action: 'proyek_delete', id: p.id });
+        if (await hapusEvent(p.id, p.nama, S.list.length)) {
           S.proyek = null;
           location.hash = '#/';
-          toast('Event dihapus');
-        } catch (err) {
-          toast(err.message, true);
         }
+        return;
+      case 'del-all':
+        return hapusSemuaPerangkat();
     }
   });
+
+  /** Konfirmasi tindakan berbahaya: pengguna harus mengetik nama event. */
+  function konfirmasiNama(nama, pesan) {
+    const v = prompt(`${pesan}\n\nTindakan ini tidak bisa dibatalkan. Ketik nama event untuk melanjutkan:\n${nama}`);
+    if (v == null) return false;
+    if (v.trim().toLowerCase() !== nama.trim().toLowerCase()) {
+      toast('Nama event tidak cocok — tidak ada yang dihapus', true);
+      return false;
+    }
+    return true;
+  }
+
+  /** Hapus event beserta denah & semua perangkatnya. true bila berhasil. */
+  async function hapusEvent(id, nama, jumlah) {
+    if (!konfirmasiNama(nama, `Hapus event "${nama}" beserta denah dan ${jumlah} perangkatnya?`)) return false;
+    try {
+      await api(API, { action: 'proyek_delete', id });
+      toast('Event dihapus');
+      return true;
+    } catch (err) {
+      toast(err.message, true);
+      return false;
+    }
+  }
+
+  /** Kosongkan event: semua perangkat dihapus, event/denah/skala tetap. */
+  async function hapusSemuaPerangkat() {
+    const p = S.proyek;
+    if (!S.list.length) return toast('Event ini belum punya perangkat');
+    if (!konfirmasiNama(p.nama, `Hapus SEMUA ${S.list.length} perangkat di event "${p.nama}"?\nEvent, denah, dan skala tetap tersimpan.`)) return;
+    try {
+      const res = await enqueue(() => api(API, { action: 'perangkat_hapus_semua', id: p.id }));
+      S.proyek = res.proyek;
+      S.list = res.perangkat;
+      S.sel = null;
+      S.parentCtx = null;
+      refreshModel();
+      toast(`${res.jumlah} perangkat dihapus`);
+    } catch (err) {
+      setSaveState('error');
+      toast(err.message, true);
+    }
+  }
 
   // ======================================================================== cetak
 

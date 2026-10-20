@@ -181,7 +181,8 @@
   }
 
   let toastTimer;
-  function toast(msg, isErr) {
+  /** Notifikasi singkat. action = {label, fn} menambahkan tombol (mis. "Batalkan") dan memperpanjang tampilnya. */
+  function toast(msg, isErr, action) {
     let el = document.querySelector('.toast');
     if (!el) {
       el = document.createElement('div');
@@ -191,9 +192,20 @@
     }
     el.textContent = msg;
     el.classList.toggle('err', !!isErr);
+    el.classList.toggle('has-action', !!action);
+    if (action) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = action.label;
+      b.addEventListener('click', () => {
+        el.classList.remove('show');
+        action.fn();
+      }, { once: true });
+      el.appendChild(b);
+    }
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), isErr ? 4500 : 2200);
+    toastTimer = setTimeout(() => el.classList.remove('show'), action ? 7000 : isErr ? 4500 : 2200);
   }
 
   async function copy(text) {

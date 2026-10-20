@@ -79,6 +79,10 @@ kbd { font: 11px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 }
 .toast.show { opacity: 1; transform: translateX(-50%); }
 .toast.err { background: var(--danger); }
+.toast.has-action { display: flex; align-items: center; gap: 14px; pointer-events: none; }
+.toast.has-action.show { pointer-events: auto; }
+.toast button { background: none; border: 0; color: #93c5fd; font-weight: 700; padding: 2px 4px; text-transform: uppercase; font-size: 13px; letter-spacing: .03em; }
+.toast button:hover { background: rgba(255, 255, 255, .1); }
 
 .overlay { position: fixed; inset: 0; background: rgba(15, 18, 30, .55); display: grid; place-items: center; z-index: 50; padding: 16px; }
 .overlay .card { width: 100%; max-width: 360px; }
@@ -118,6 +122,21 @@ kbd { font: 11px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 .proj-card .thumb img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
 .proj-card .info { padding: 10px 12px; display: flex; flex-direction: column; gap: 1px; }
 .proj-card .meta { font-size: 12px; color: var(--muted); }
+.proj-wrap { position: relative; }
+.proj-wrap .proj-card { display: block; height: 100%; }
+.card-del {
+  position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; padding: 0; border-radius: 8px;
+  background: rgba(255, 255, 255, .92); color: var(--danger); border-color: var(--line); opacity: 0; transition: opacity .15s;
+}
+.proj-wrap:hover .card-del, .card-del:focus-visible { opacity: 1; }
+.card-del:hover { background: var(--danger-soft); border-color: var(--danger); }
+@media (hover: none) { .card-del { opacity: 1; } }
+.danger-zone { margin-top: 16px; border: 1px solid #f3c1bc; border-radius: 8px; padding: 4px 12px; }
+.danger-zone h4 { margin: 8px 0 2px; color: var(--danger); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.dz-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid #fbe3e0; flex-wrap: wrap; }
+.dz-row:first-of-type { border-top: 0; }
+.dz-row p { margin: 2px 0 0; }
+button.danger:not(:disabled):hover { background: var(--danger-soft); border-color: var(--danger); }
 .empty-big { grid-column: 1 / -1; background: #fff; border: 1px dashed #c3c8d2; border-radius: var(--radius); padding: 40px; text-align: center; color: var(--muted); }
 
 /* ---------- Editor ---------- */
@@ -175,6 +194,10 @@ kbd { font: 11px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 .map .handles .mid:hover { fill: var(--accent); }
 .map .handles .wp { fill: var(--accent); stroke: #fff; stroke-width: 2; cursor: move; }
 .map .handles .wp:hover { fill: #1d4ed8; }
+.map .handles .unlink { cursor: pointer; }
+.map .handles .unlink circle { fill: #dc2626; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35)); }
+.map .handles .unlink path { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; pointer-events: none; }
+.map .handles .unlink:hover circle { fill: #991b1b; }
 /* Jalur ke WAN dari perangkat terpilih: disorot dengan pendar kuning, warna media tetap terlihat. */
 .map .link.on-path .case { stroke: #facc15; stroke-width: 12; opacity: 1; }
 .map .link.on-path .ln { stroke-width: 5; }
@@ -221,6 +244,10 @@ kbd { font: 11px ui-monospace, Consolas, monospace; border: 1px solid var(--line
 .path .arr { color: var(--muted); }
 .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #fff; }
 .chip i { width: 9px; height: 9px; border-radius: 50%; }
+.chip-x { display: inline-flex; align-items: center; }
+.chip-x .chip { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
+.chip-x > button { padding: 2px 7px; border-radius: 0 999px 999px 0; font-size: 11px; color: var(--muted); background: #fff; }
+.chip-x > button:hover { color: #fff; background: var(--danger); border-color: var(--danger); }
 .issues { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
 .issues li { font-size: 13px; padding: 6px 9px; border-radius: 6px; border-left: 3px solid; }
 .lv-err { background: var(--danger-soft); border-color: var(--danger) !important; }

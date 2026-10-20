@@ -40,6 +40,10 @@ Tombol **Cetak** membuat laporan A4 landscape berisi denah bertitik, tabel konfi
 
 Panjang kabel dihitung mengikuti jalur ini. Link wireless selalu digambar lurus.
 
+**Hapus koneksi.** Pilih perangkat, lalu klik tombol ✕ merah di garis kabelnya, atau tombol **Putuskan** di samping
+pilihan Uplink. Perangkat di bawah switch/router juga bisa diputus lewat ✕ di daftar *Terhubung ke sini*. Port uplink
+dan bentuk jalur ikut dikosongkan. Klik **Batalkan** pada notifikasi untuk memulihkan koneksinya.
+
 **Kecerahan denah.** Slider *Denah* di pojok kiri bawah peta memudarkan gambar denah (10–100%) agar titik dan garis
 lebih jelas. Pengaturan ini tersimpan per browser dan ikut dipakai saat mencetak.
 

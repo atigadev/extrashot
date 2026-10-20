@@ -1525,16 +1525,20 @@
 
   // ======================================================================== cetak
 
-  $('#btn-print').addEventListener('click', printReport);
-
-  /** SVG statis seluruh denah untuk laporan cetak (ukuran titik relatif terhadap denah). */
-  function staticMap() {
+  /**
+   * SVG statis denah untuk laporan cetak (ukuran titik relatif terhadap area yang ditampilkan).
+   * opts.vb = [x, y, w, h] untuk potongan denah; opts.focus = id perangkat yang disorot; opts.cls = kelas SVG.
+   */
+  function staticMap(opts) {
+    opts = opts || {};
     const m = S.model;
     const { W, H } = peta.size();
-    const u = Math.max(W, H) / 1100;
+    const vb = opts.vb || [0, 0, W, H];
+    const u = Math.max(vb[2], vb[3]) / 1100 * (opts.vb ? 2.2 : 1);
     const r = 9 * u;
     const img = denahUrl();
-    let h = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" class="print-map">`;
+    let h = `<svg viewBox="${vb.join(' ')}" xmlns="http://www.w3.org/2000/svg" class="${opts.cls || 'print-map'}" preserveAspectRatio="xMidYMid ${opts.vb ? 'slice' : 'meet'}">`;
+    if (opts.vb) h += `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="#fff"/>`;
     h += img ? `<rect width="${W}" height="${H}" fill="#fff"/><image href="${esc(img)}" width="${W}" height="${H}" opacity="${peta.opacity}"/>` : `<rect width="${W}" height="${H}" fill="#fff" stroke="#ccc"/>`;
     for (const d of m.list) {
       const rr = d.jenis === 'ap' && m.apRadiusPx(d);
@@ -1564,7 +1568,236 @@
         <text text-anchor="middle" y="${r + 11 * u}" font-size="${9 * u}" font-weight="700" fill="#111" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(d.nama)}</text>
       </g>`;
     }
+    const f = opts.focus != null && m.byId.get(opts.focus);
+    if (f) {
+      h += `<circle cx="${f.x}" cy="${f.y}" r="${r + 9 * u}" fill="none" stroke="#dc2626" stroke-width="${3 * u}"/>
+        <circle cx="${f.x}" cy="${f.y}" r="${r + 15 * u}" fill="none" stroke="#dc2626" stroke-width="${1.2 * u}" stroke-dasharray="${4 * u} ${3 * u}"/>`;
+    }
     return h + '</svg>';
+  }
+
+  /** Potongan denah di sekitar perangkat (rasio 4:3), tetap di dalam batas denah. */
+  function cropAround(d) {
+    const { W, H } = peta.size();
+    let w = Math.max(W, H) * 0.3;
+    let h = w * 0.75;
+    if (w > W) { w = W; h = w * 0.75; }
+    if (h > H) { h = H; w = h / 0.75; }
+    const x = Math.max(0, Math.min(W - w, d.x - w / 2));
+    const y = Math.max(0, Math.min(H - h, d.y - h / 2));
+    return [x, y, w, h].map(v => Math.round(v * 10) / 10);
+  }
+
+  // ------------------------------------------------------------------------ dialog cetak
+
+  const dlgPrint = $('#dlg-print');
+  const formPrint = $('#form-print');
+
+  $('#btn-print').addEventListener('click', () => {
+    const nAp = S.list.filter(d => d.jenis === 'ap').length;
+    const nBr = S.list.filter(d => d.jenis === 'bridge').length;
+    $('#opt-bridge').hidden = !nBr;
+    $('#print-info').textContent = `${nAp} access point${nBr ? ` · ${nBr} wireless bridge` : ''} · ${S.list.length} perangkat total` +
+      (S.lihat ? ' · password disamarkan di link lihat-saja' : '');
+    if (!nAp && !nBr) formPrint.elements.jenis.value = 'lengkap';
+    syncPrintOpts();
+    dlgPrint.showModal();
+  });
+  formPrint.addEventListener('change', syncPrintOpts);
+  function syncPrintOpts() {
+    const ap = formPrint.elements.jenis.value === 'ap';
+    $('#ap-opts').hidden = !ap;
+    $('#btn-ap-csv').hidden = !ap;
+  }
+  $('#form-print [data-close]').addEventListener('click', () => dlgPrint.close());
+
+  function apOpts() {
+    const f = formPrint.elements;
+    return { password: f.password.checked && !S.lihat, peta: f.peta.checked && !!S.proyek.denah_v, bridge: f.bridge.checked };
+  }
+
+  formPrint.addEventListener('submit', e => {
+    e.preventDefault();
+    const jenis = formPrint.elements.jenis.value;
+    if (jenis === 'ap') {
+      if (!apList(apOpts()).length) return toast('Belum ada access point di event ini', true);
+      dlgPrint.close();
+      printApSheet(apOpts());
+    } else {
+      dlgPrint.close();
+      printReport();
+    }
+  });
+
+  $('#btn-ap-csv').addEventListener('click', () => {
+    const o = apOpts();
+    const list = apList(o);
+    if (!list.length) return toast('Belum ada access point di event ini', true);
+    const rows = [['Nama', 'Jenis', 'Nama alat', 'Status', 'Internet', 'IP', 'VLAN', 'Gateway', 'Subnet', 'DNS', 'Uplink', 'Port di uplink',
+      'Port lokal', 'PoE uplink', 'Media', 'Kabel (m)', 'SSID', 'Keamanan', 'Password', 'SSID tambahan', 'Band', 'Channel', 'Lebar kanal',
+      'TX power', 'Target user', 'Radius (m)', 'Controller', 'Pemasangan', 'Limit (Mbps)', 'Bandwidth maks. (Mbps)', 'PIC', 'Keterangan konfigurasi']];
+    for (const d of list) {
+      const a = d.atribut || {};
+      const n = netInfo(d);
+      const k = S.model.kabelM(d);
+      rows.push([d.nama, TYPES[d.jenis].label, d.model, (STATUS[d.status] || STATUS.rencana).label, KONEKSI[S.model.koneksi(d)].label,
+        d.ip, d.vlan, n.gw, n.subnet, n.dns, n.up ? n.up.nama : '', d.port_uplink, d.port_lokal, n.poe, d.media ? MEDIA[d.media].label : '',
+        k == null ? '' : Math.round(k), a.ssid, a.keamanan, o.password ? a.password : (a.password ? '••••' : ''), a.ssid_lain, a.band,
+        a.channel || a.frekuensi, a.lebar_kanal, a.tx_power, a.maks_user, a.radius_m, a.controller, a.mounting,
+        d.bandwidth_mbps == null ? '' : d.bandwidth_mbps, S.model.bwEfektif(d).mbps == null ? '' : S.model.bwEfektif(d).mbps, d.pic, d.catatan]);
+    }
+    downloadCsv(rows, `sheet-ap-${slug(S.proyek.nama)}.csv`);
+  });
+
+  // ------------------------------------------------------------------------ sheet konfigurasi AP
+
+  /** AP (dan bridge bila dipilih), urut nama alami. */
+  function apList(o) {
+    return S.list.filter(d => d.jenis === 'ap' || (o.bridge && d.jenis === 'bridge'))
+      .sort((a, b) => (a.jenis === b.jenis ? 0 : a.jenis === 'ap' ? -1 : 1) || a.nama.localeCompare(b.nama, 'id', { numeric: true }));
+  }
+
+  /** Info jaringan dari jalur uplink: router terdekat (gateway, subnet, DNS, DHCP), perangkat uplink & PoE-nya. */
+  function netInfo(d) {
+    const m = S.model;
+    const router = m.path(d).slice(1).find(n => n.jenis === 'router') || null;
+    const ra = (router && router.atribut) || {};
+    const up = m.parentOf(d);
+    const ua = (up && up.atribut) || {};
+    return {
+      router,
+      gw: router && router.ip ? router.ip.replace(/\/\d+$/, '') : '',
+      subnet: ra.subnet_lan || '',
+      dns: ra.dns || '',
+      dhcp: ra.dhcp || '',
+      up,
+      poe: up && up.jenis === 'switch' ? (ua.poe || '') : '',
+      wan: m.wanOf(d),
+    };
+  }
+
+  function printApSheet(o) {
+    const m = S.model;
+    const p = S.proyek;
+    const list = apList(o);
+    const aps = list.filter(d => d.jenis === 'ap');
+    const tgl = p.tanggal_mulai ? fmtDate(p.tanggal_mulai) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + fmtDate(p.tanggal_selesai) : '') : '';
+    const v = x => (x == null || x === '' ? '<span class="blank"></span>' : esc(x));
+    const pw = x => (!x ? '<span class="blank"></span>' : o.password ? `<span class="mono">${esc(x)}</span>` : '••••••••');
+
+    // Ringkasan SSID
+    const ssid = new Map();
+    for (const d of aps) {
+      const a = d.atribut || {};
+      const key = a.ssid || '(SSID belum diisi)';
+      if (!ssid.has(key)) ssid.set(key, { keamanan: new Set(), password: new Set(), vlan: new Set(), band: new Set(), ap: [] });
+      const s = ssid.get(key);
+      if (a.keamanan) s.keamanan.add(a.keamanan);
+      if (a.password) s.password.add(a.password);
+      if (d.vlan) s.vlan.add(d.vlan);
+      if (a.band) s.band.add(a.band);
+      s.ap.push(d.nama);
+    }
+    const join = set => esc([...set].join(', ')) || '—';
+    const ssidTable = aps.length ? `<h2>Ringkasan SSID</h2>
+      <table class="pr-table"><thead><tr><th>SSID</th><th>Keamanan</th><th>Password</th><th>VLAN</th><th>Band</th><th>AP</th></tr></thead><tbody>
+      ${[...ssid].map(([k, s]) => `<tr><td><b>${esc(k)}</b></td><td>${join(s.keamanan)}</td><td>${s.password.size ? (o.password ? `<span class="mono">${join(s.password)}</span>` : '••••••••') : '—'}</td>
+        <td>${join(s.vlan)}</td><td>${join(s.band)}</td><td>${s.ap.length}: ${esc(s.ap.join(', '))}</td></tr>`).join('')}</tbody></table>` : '';
+
+    // Rencana channel & alamat
+    const planTable = `<h2>Rencana channel &amp; alamat</h2>
+      <table class="pr-table plan"><thead><tr><th>Perangkat</th><th>Nama alat</th><th>IP</th><th>VLAN</th><th>Uplink : port</th><th>SSID</th><th>Band</th><th>Ch</th><th>Lebar</th><th>TX</th><th>Status</th></tr></thead><tbody>
+      ${list.map(d => {
+        const a = d.atribut || {};
+        const up = m.parentOf(d);
+        return `<tr><td><b>${esc(d.nama)}</b>${d.jenis === 'bridge' ? ' <span class="muted">(bridge)</span>' : ''}</td><td>${esc(d.model)}</td><td class="mono">${esc(d.ip)}</td><td>${esc(d.vlan)}</td>
+          <td>${up ? esc(up.nama) + (d.port_uplink ? ' : ' + esc(d.port_uplink) : '') : '—'}</td><td>${esc(a.ssid)}</td><td>${esc(a.band)}</td>
+          <td><b>${esc(a.channel || a.frekuensi)}</b></td><td>${esc(a.lebar_kanal)}</td><td>${esc(a.tx_power)}</td><td>${esc((STATUS[d.status] || STATUS.rencana).label)}</td></tr>`;
+      }).join('')}</tbody></table>`;
+
+    // Satu kartu per perangkat
+    const cards = list.map((d, i) => {
+      const t = TYPES[d.jenis];
+      const a = d.atribut || {};
+      const n = netInfo(d);
+      const k = m.kabelM(d);
+      const bw = m.bwEfektif(d);
+      const kv = (label, val, cls) => `<tr${cls ? ` class="${cls}"` : ''}><th>${esc(label)}</th><td>${val}</td></tr>`;
+      // Isian khusus jenis, selain SSID & password yang sudah ditampilkan besar di atas.
+      const khusus = t.fields.filter(f => f.k !== 'ssid' && f.k !== 'password')
+        .map(f => `<div><small>${esc(f.label)}</small><span>${v(a[f.k])}</span></div>`).join('');
+      return `<section class="ap-card">
+        <header class="ap-head">
+          <i style="background:${t.color}">${esc(t.short)}</i>
+          <div class="grow"><h3>${esc(d.nama)}</h3><span>${esc(t.label)}${d.model ? ' · ' + esc(d.model) : ''}</span></div>
+          <div class="ap-meta"><span>${esc((STATUS[d.status] || STATUS.rencana).label)}</span>${konBadge(m.koneksi(d))}<span class="muted">${i + 1} / ${list.length}</span></div>
+        </header>
+        <div class="ap-key">
+          <div><small>SSID</small><b>${v(a.ssid)}</b></div>
+          <div><small>Password</small><b>${pw(a.password)}</b></div>
+          <div><small>${d.jenis === 'ap' ? 'Channel' + (a.band ? ' · ' + esc(a.band) : '') : 'Frekuensi'}</small><b>${v(d.jenis === 'ap' ? a.channel : a.frekuensi)}</b></div>
+          <div><small>IP</small><b class="mono">${v(d.ip)}</b></div>
+        </div>
+        <div class="ap-body${o.peta ? '' : ' no-map'}">
+          ${o.peta ? `<div class="ap-map">${staticMap({ vb: cropAround(d), focus: d.id, cls: 'crop-map' })}<p class="muted">Lokasi ${esc(d.nama)}${a.mounting ? ' · ' + esc(a.mounting) : ''}</p></div>` : ''}
+          <div class="ap-cols">
+            <table class="kv-t"><caption>Jaringan</caption>
+              ${kv('IP address', `<span class="mono">${v(d.ip)}</span>`)}
+              ${kv('VLAN', v(d.vlan))}
+              ${kv('Gateway', n.gw ? `<span class="mono">${esc(n.gw)}</span> <span class="muted">(${esc(n.router.nama)})</span>` : v(''))}
+              ${kv('Subnet', v(n.subnet))}
+              ${kv('DNS', v(n.dns))}
+              ${kv('Sumber WAN', n.wan ? esc(n.wan.nama) + (n.wan.atribut.provider ? ' · ' + esc(n.wan.atribut.provider) : '') : '<b class="bad">belum terhubung</b>')}
+            </table>
+            <table class="kv-t"><caption>Uplink</caption>
+              ${kv('Terhubung ke', n.up ? `<b>${esc(n.up.nama)}</b>${n.up.model ? ' · ' + esc(n.up.model) : ''}` : v(''))}
+              ${kv('Port di uplink', v(d.port_uplink))}
+              ${kv('Port di perangkat', v(d.port_lokal))}
+              ${kv('Media / kabel', esc([d.media ? MEDIA[d.media].label : '', k != null ? '≈ ' + fmtM(k) : ''].filter(Boolean).join(' · ')) || v(''))}
+              ${n.poe ? kv('PoE switch', esc(n.poe)) : ''}
+              ${kv('Bandwidth', esc([d.bandwidth_mbps != null ? 'limit ' + fmtBw(d.bandwidth_mbps) : '', bw.mbps != null ? 'maks. ' + fmtBw(bw.mbps) : ''].filter(Boolean).join(' · ')) || '—')}
+            </table>
+          </div>
+        </div>
+        <div class="kv-g-wrap"><div class="cap">Setting ${esc(t.label)}</div><div class="kv-g">${khusus}</div></div>
+        ${d.catatan ? `<div class="ap-note"><b>Keterangan konfigurasi</b><div class="pre">${esc(d.catatan)}</div></div>` : ''}
+        <div class="ap-check">
+          <div class="cl">${['Terpasang &amp; menyala', 'Firmware / adopsi controller', 'SSID &amp; password sesuai', 'Channel &amp; TX power sesuai', 'IP / VLAN sesuai', 'Label nama di perangkat'].map(x => `<span>☐ ${x}</span>`).join('')}
+            <span>☐ Uji koneksi: ______ Mbps</span></div>
+          <div class="sign"><span>Disetel oleh: ____________________</span><span>Tanggal / jam: ______________</span><span>Paraf: ________</span></div>
+        </div>
+      </section>`;
+    }).join('');
+
+    const pr = $('#print');
+    pr.className = 'print ap-mode';
+    pr.innerHTML = `
+      <div class="pr-head"><h1>Sheet Konfigurasi Access Point</h1>
+        <p><b>${esc(p.nama)}</b>${p.venue ? ' · ' + esc(p.venue) : ''}${tgl ? ' · ' + esc(tgl) : ''} · ${aps.length} AP${list.length > aps.length ? ` + ${list.length - aps.length} bridge` : ''} · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>
+      ${o.peta ? `<div class="pr-map ov">${staticMap()}</div>` : ''}
+      ${ssidTable}
+      ${planTable}
+      ${!o.password ? '<p class="muted">Password disamarkan.</p>' : ''}
+      <div class="ap-cards">${cards}</div>`;
+    printWith('A4 portrait');
+  }
+
+  /** Atur ukuran halaman cetak lalu buka dialog cetak setelah gambar denah dimuat. */
+  function printWith(size) {
+    let st = document.getElementById('print-page');
+    if (!st) {
+      st = document.createElement('style');
+      st.id = 'print-page';
+      document.head.appendChild(st);
+    }
+    st.textContent = `@media print { @page { size: ${size}; margin: 10mm; } }`;
+    const imgEl = $('#print image');
+    const doPrint = () => setTimeout(() => window.print(), 50);
+    if (!imgEl) return doPrint();
+    // Pastikan gambar denah sudah dimuat sebelum dialog cetak muncul.
+    const pre = new Image();
+    pre.onload = pre.onerror = doPrint;
+    pre.src = imgEl.getAttribute('href');
   }
 
   function printReport() {
@@ -1603,13 +1836,8 @@
           ${Object.keys(kb.tot).length ? `<h2>Estimasi kabel</h2><table class="pr-table">${Object.keys(kb.tot).map(k => `<tr><td>${esc(MEDIA[k].label)}</td><td>${kb.tot[k].n} link</td><td>≈ ${esc(fmtM(kb.tot[k].m))}</td></tr>`).join('')}</table>` : ''}</div>
         <div><h2>Pemeriksaan desain</h2>${checks.length ? `<ul>${checks.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>` : '<p>Tidak ada masalah terdeteksi.</p>'}</div>
       </div>`;
-    const imgEl = $('#print image');
-    const doPrint = () => setTimeout(() => window.print(), 50);
-    if (!imgEl) return doPrint();
-    // Pastikan gambar denah sudah dimuat sebelum dialog cetak muncul.
-    const pre = new Image();
-    pre.onload = pre.onerror = doPrint;
-    pre.src = imgEl.getAttribute('href');
+    $('#print').className = 'print';
+    printWith('A4 landscape');
   }
 
   boot();

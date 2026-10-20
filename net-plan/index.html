@@ -147,6 +147,33 @@
   </form>
 </dialog>
 
+<!-- Dialog cetak / unduh laporan -->
+<dialog id="dlg-print" class="dlg">
+  <form method="dialog" id="form-print">
+    <h2>Cetak laporan</h2>
+    <div class="radio-list">
+      <label><input type="radio" name="jenis" value="ap" checked>
+        <span><b>Sheet konfigurasi AP</b><small>Satu kartu per access point berisi lokasi, IP/VLAN, uplink &amp; port, SSID, password, channel, catatan, dan checklist pemasangan. Acuan teknisi saat setting AP. A4 tegak.</small></span></label>
+      <label><input type="radio" name="jenis" value="lengkap">
+        <span><b>Laporan lengkap</b><small>Denah bertitik, tabel semua perangkat, kebutuhan perangkat, estimasi kabel, dan hasil pemeriksaan. A4 mendatar.</small></span></label>
+    </div>
+    <fieldset class="print-opts" id="ap-opts">
+      <label class="check"><input type="checkbox" name="password" checked>
+        <span>Tampilkan password WiFi<small>Matikan bila lembar akan ditempel/dibagikan di area publik.</small></span></label>
+      <label class="check"><input type="checkbox" name="peta" checked>
+        <span>Potongan denah lokasi tiap AP</span></label>
+      <label class="check" id="opt-bridge"><input type="checkbox" name="bridge" checked>
+        <span>Sertakan wireless bridge (PtP/PtMP)</span></label>
+    </fieldset>
+    <p class="muted small" id="print-info"></p>
+    <div class="btn-row end">
+      <button type="button" data-close>Batal</button>
+      <button type="button" id="btn-ap-csv">Unduh CSV</button>
+      <button type="submit" class="primary">Cetak</button>
+    </div>
+  </form>
+</dialog>
+
 <div id="print" class="print"></div>
 
 <script src="vendor/qrcode.min.js"></script>

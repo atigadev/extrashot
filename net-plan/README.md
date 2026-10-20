@@ -14,7 +14,21 @@ keterangan konfigurasi bebas.
 | **Topologi & cek** | Pohon topologi dari WAN ke perangkat paling ujung, pemeriksaan desain, ringkasan WAN/SSID, kebutuhan perangkat (BOM), estimasi kabel |
 | **Proyek** | Info event, upload/ganti denah, skala, link lihat-saja + QR, duplikat/hapus event |
 
-Tombol **Cetak** membuat laporan A4 landscape berisi denah bertitik, tabel konfigurasi, BOM, dan hasil pemeriksaan.
+Tombol **Cetak** menyediakan dua jenis laporan:
+
+- **Sheet konfigurasi AP** (A4 tegak) adalah acuan teknisi saat setting AP. Halaman pertama berisi denah, ringkasan
+  SSID, dan rencana channel & alamat. Setelah itu ada satu kartu per AP, dua kartu per halaman, berisi:
+  - potongan denah lokasi;
+  - SSID, password, channel, dan IP dalam ukuran besar;
+  - gateway/subnet/DNS (diambil dari router di jalurnya);
+  - switch, port, dan PoE uplink;
+  - semua setting WiFi dan keterangan konfigurasi;
+  - checklist pemasangan dan kolom paraf.
+
+  Isian yang kosong dicetak sebagai garis untuk diisi tangan. Wireless bridge bisa ikut disertakan, dan password bisa
+  disembunyikan. Tombol **Unduh CSV** menghasilkan data yang sama untuk Excel.
+- **Laporan lengkap** (A4 mendatar) berisi denah bertitik, tabel konfigurasi semua perangkat, BOM, dan hasil
+  pemeriksaan.
 
 ## Alur pakai
 

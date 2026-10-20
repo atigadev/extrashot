@@ -447,6 +447,14 @@ body.mode-lihat .edit-only { display: none !important; }
   .map-ctrl button { width: 40px; height: 40px; }
 }
 
+/* Dialog cetak */
+.radio-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.radio-list label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+.radio-list label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.radio-list input { margin-top: 4px; }
+.radio-list small { display: block; color: var(--muted); }
+.print-opts { border: 0; padding: 0 2px; margin: 0 0 6px; }
+
 /* ---------- Cetak ---------- */
 .print { display: none; }
 @media print {
@@ -471,4 +479,45 @@ body.mode-lihat .edit-only { display: none !important; }
   .pr-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; break-before: page; }
   .print .muted { color: #555; }
   .print svg, .print .pr-map { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print .kon { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* Sheet konfigurasi AP (A4 tegak) */
+  .ap-mode .pr-map.ov { break-after: auto; page-break-after: auto; }
+  .ap-mode .pr-map.ov .print-map { max-height: 95mm; }
+  .ap-mode .pr-table.plan td, .ap-mode .pr-table.plan th { font-size: 9px; padding: 2px 4px; }
+  .ap-cards { break-before: page; }
+  .ap-card { border: 1.2px solid #333; border-radius: 6px; padding: 2.5mm 3.5mm; margin-bottom: 3mm; break-inside: avoid; page-break-inside: avoid; }
+  .ap-card .mono, .ap-mode .pr-table .mono { font-size: inherit; }
+  .ap-head { display: flex; align-items: center; gap: 3mm; border-bottom: 1px solid #999; padding-bottom: 1.5mm; margin-bottom: 1.5mm; }
+  .ap-head > i { width: 9mm; height: 9mm; border-radius: 50%; color: #fff; font: 700 9px/9mm Arial; text-align: center; font-style: normal; flex: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .ap-head .grow { flex: 1; }
+  .ap-head h3 { margin: 0; font-size: 15px; line-height: 1.2; }
+  .ap-head .grow span { color: #444; }
+  .ap-meta { display: flex; gap: 3mm; align-items: center; }
+  .ap-key { display: grid; grid-template-columns: 1.2fr 1.2fr 1.3fr 1fr; gap: 2mm; margin-bottom: 1.5mm; }
+  .ap-key > div { border: 1px solid #bbb; border-radius: 4px; padding: 1mm 2mm; line-height: 1.25; }
+  .ap-key small { display: block; font-size: 8px; color: #555; text-transform: uppercase; letter-spacing: .04em; }
+  .ap-key b { font-size: 12.5px; overflow-wrap: anywhere; }
+  .ap-body { display: grid; grid-template-columns: 62mm 1fr; gap: 3mm; }
+  .ap-body.no-map { grid-template-columns: 1fr; }
+  .ap-map .crop-map { width: 100%; height: 38mm; display: block; border: 1px solid #bbb; border-radius: 4px; }
+  .ap-map p { margin: 1mm 0 0; font-size: 8.5px; }
+  .ap-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; align-content: start; }
+  .kv-t { border-collapse: collapse; width: 100%; font-size: 9px; line-height: 1.25; }
+  .kv-t caption { text-align: left; font-weight: 700; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; color: #333; padding-bottom: 1mm; }
+  .kv-t th { text-align: left; font-weight: 400; color: #555; padding: .4mm 2mm .4mm 0; white-space: nowrap; vertical-align: top; width: 1%; }
+  .kv-t td { padding: .4mm 0; border-bottom: .5px solid #ddd; }
+  .kv-g-wrap { margin-top: 1.5mm; }
+  .kv-g-wrap .cap { font-weight: 700; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; color: #333; margin-bottom: 1mm; }
+  .kv-g { display: grid; grid-template-columns: repeat(5, 1fr); gap: .8mm 3mm; font-size: 9px; line-height: 1.25; }
+  .kv-g > div { border-bottom: .5px solid #ddd; padding-bottom: .5mm; min-width: 0; overflow-wrap: anywhere; }
+  .kv-g small { display: block; font-size: 7.5px; color: #555; }
+  .blank { display: inline-block; min-width: 24mm; border-bottom: .8px solid #888; height: 1em; vertical-align: bottom; }
+  .ap-key .blank { min-width: 100%; }
+  .bad { color: #b91c1c; }
+  .ap-note { margin-top: 1.5mm; font-size: 9px; }
+  .ap-note .pre { font-size: 8px; line-height: 1.3; max-height: 28mm; overflow: hidden; border: .5px solid #ccc; margin-top: .5mm; padding: 1mm 2mm; }
+  .ap-check { margin-top: 1.5mm; border-top: 1px dashed #999; padding-top: 1mm; font-size: 8.5px; }
+  .ap-check .cl { display: flex; flex-wrap: wrap; gap: .5mm 3.5mm; }
+  .ap-check .sign { display: flex; justify-content: space-between; gap: 4mm; margin-top: 2mm; }
 }

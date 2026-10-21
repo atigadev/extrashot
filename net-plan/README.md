@@ -10,7 +10,7 @@ keterangan konfigurasi bebas.
 | Tab | Isi |
 |---|---|
 | **Denah** | Peta interaktif: tambah/geser titik, hubungkan ke uplink, ukur jarak & kalibrasi skala, lingkaran cakupan AP, panel konfigurasi per perangkat |
-| **Daftar perangkat** | Tabel semua perangkat (cari, filter jenis/status/koneksi, urutkan), **pilih banyak** (centang, Shift+klik, pilih semua yang tampil) lalu hapus atau putuskan koneksi sekaligus, unduh CSV, ekspor/impor JSON |
+| **Daftar perangkat** | Tabel semua perangkat (cari, filter jenis/status/koneksi, urutkan), **pilih banyak** (centang, Shift+klik, pilih semua yang tampil) lalu **ubah status**, hapus, atau putuskan koneksi sekaligus (ubah status massal bisa dibatalkan, tercatat di riwayat; link tim hanya bisa ubah status yang diizinkan pada kategori tugasnya), unduh CSV, ekspor/impor JSON |
 | **Topologi & cek** | Pohon topologi dari WAN ke perangkat paling ujung, pemeriksaan desain, ringkasan WAN/SSID, kebutuhan perangkat (BOM), estimasi kabel |
 | **Proyek** | Info event, upload/ganti denah, skala, link lihat-saja + QR, duplikat/hapus event |
 

@@ -17,6 +17,7 @@
  * POST {"action":"perangkat_save", id? | proyek_id, ...isian}  -> isian yang dikirim saja yang diubah
  * POST {"action":"perangkat_delete","ids":[N,...]}
  * POST {"action":"perangkat_rename","items":[{"id":N,"nama":"..."},...]}  -> ganti nama massal (penamaan group)
+ * POST {"action":"perangkat_status_massal","ids":[N,...],"status":"terpasang","catatan":"..."} -> ubah status massal + riwayat
  * GET  ?action=katalog_list[&proyek_id=N]  -> katalog perangkat + jumlah pemakaian (semua event / event N)
  * POST {"action":"katalog_save", id?, jenis, merek, model, stok, spesifikasi:{}, konfigurasi:{}, bandwidth_mbps, catatan_konfig, keterangan}
  * POST {"action":"katalog_delete","id":N}   -> perangkat yang memakainya dilepas dari katalog (data tetap)
@@ -273,6 +274,39 @@ switch ($method . ' ' . $action) {
         }
         $pdo->prepare('DELETE FROM np_endpoint_tipe WHERE id = ?')->execute([$id]);
         json_out(['ok' => true, 'endpoint_tipe' => endpoint_tipe_list()]);
+
+    case 'POST perangkat_status_massal':
+        // Ubah status banyak perangkat sekaligus; setiap perubahan dicatat di riwayat.
+        $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
+        $status = isset($req['status']) ? (string) $req['status'] : '';
+        if (!$ids || count($ids) > 1000) {
+            json_error('Tidak ada perangkat yang dipilih');
+        }
+        if (!in_array($status, NP_STATUS, true)) {
+            json_error('Status tidak dikenal');
+        }
+        $catatan = text_field($req, 'catatan', 2000, 'Catatan');
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare("SELECT id, proyek_id, nama, status FROM np_perangkat WHERE id IN ($in)");
+        $st->execute($ids);
+        $pdo->beginTransaction();
+        $upd = $pdo->prepare('UPDATE np_perangkat SET status = ? WHERE id = ?');
+        $n = 0;
+        $proyekIds = [];
+        foreach ($st->fetchAll() as $d) {
+            if ($d['status'] === $status) {
+                continue;
+            }
+            $upd->execute([$status, $d['id']]);
+            tulis_log((int) $d['proyek_id'], $d, null, 'Admin', $d['status'], $status, $catatan);
+            $proyekIds[(int) $d['proyek_id']] = true;
+            $n++;
+        }
+        foreach (array_keys($proyekIds) as $pid) {
+            $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$pid]);
+        }
+        $pdo->commit();
+        json_out(['ok' => true, 'jumlah' => $n]);
 
     case 'GET akses_list':
         $p = find_proyek($id);

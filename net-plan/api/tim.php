@@ -6,6 +6,7 @@
  * GET  ?t=TOKEN&action=log[&id=N]     -> riwayat event / perangkat N
  * POST {"t":TOKEN,"action":"status","id":N,"status":"terpasang","catatan":"..."}  (peran "status")
  * POST {"t":TOKEN,"action":"catatan","id":N,"catatan":"..."}                     (peran "status")
+ * POST {"t":TOKEN,"action":"status_massal","ids":[N,...],"status":"diuji","catatan":"..."} (peran "status")
  *
  * Tim hanya boleh mengubah status yang diizinkan admin (status_boleh) pada kategori tugasnya (jenis_boleh; kosong = semua).
  * POST wajib header "X-NP: 1" (pengaman CSRF, sama seperti admin).
@@ -57,6 +58,44 @@ if ($method === 'GET' && $action === '') {
 if ($method === 'GET' && $action === 'log') {
     $pid = isset($req['id']) ? (int) $req['id'] : 0;
     json_out(['ok' => true, 'log' => log_list($proyek['id'], $pid ?: null, $pid ? 50 : 100)]);
+}
+
+if ($method === 'POST' && $action === 'status_massal') {
+    // Ubah status banyak perangkat: hanya status yang diizinkan, perangkat di luar tugas tim dilewati.
+    if ($akses['peran'] !== 'status') {
+        json_error('Akses tim ini hanya untuk melihat', 403);
+    }
+    $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
+    $baru = isset($req['status']) ? (string) $req['status'] : '';
+    if (!$ids || count($ids) > 1000) {
+        json_error('Tidak ada perangkat yang dipilih');
+    }
+    if (!in_array($baru, $akses['status_boleh'], true)) {
+        json_error('"' . $akses['nama'] . '" tidak diizinkan mengubah status menjadi "' . $baru . '"', 403);
+    }
+    $catatan = text_field($req, 'catatan', 2000, 'Catatan');
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("SELECT * FROM np_perangkat WHERE proyek_id = ? AND id IN ($in)");
+    $st->execute(array_merge([$proyek['id']], $ids));
+    $pdo->beginTransaction();
+    $upd = $pdo->prepare('UPDATE np_perangkat SET status = ? WHERE id = ?');
+    $hasil = [];
+    $dilewati = 0;
+    foreach ($st->fetchAll() as $d) {
+        if ($akses['jenis_boleh'] && !in_array($d['jenis'], $akses['jenis_boleh'], true)) {
+            $dilewati++;
+            continue;
+        }
+        if ($d['status'] !== $baru) {
+            $upd->execute([$baru, $d['id']]);
+            tulis_log($proyek['id'], $d, $akses['id'], $akses['nama'], $d['status'], $baru, $catatan);
+            $d['status'] = $baru;
+        }
+        $hasil[] = perangkat_row($d, !$akses['lihat_password']);
+    }
+    $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyek['id']]);
+    $pdo->commit();
+    json_out(['ok' => true, 'perangkat' => $hasil, 'dilewati' => $dilewati]);
 }
 
 if ($method === 'POST' && ($action === 'status' || $action === 'catatan')) {

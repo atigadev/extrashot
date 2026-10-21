@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=15">
+<link rel="stylesheet" href="assets/np.css?v=17">
 </head>
 <body>
 
@@ -132,12 +132,13 @@
         <button type="button" id="btn-del-all" class="edit-only danger">Hapus semua…</button>
         <input type="file" id="import-file" accept=".json,application/json" hidden>
       </div>
-      <div class="bulk-bar edit-only" id="bulk-bar" hidden>
+      <div class="bulk-bar pilih-only" id="bulk-bar" hidden>
         <b id="bulk-n"></b>
         <span class="spacer"></span>
         <button type="button" class="small" id="bulk-all">Pilih semua yang tampil</button>
-        <button type="button" class="small" id="bulk-unlink" title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
-        <button type="button" class="small danger" id="bulk-del">Hapus terpilih</button>
+        <select id="bulk-status" class="small-select" aria-label="Ubah status perangkat terpilih"><option value="">Ubah status…</option></select>
+        <button type="button" class="small edit-only" id="bulk-unlink" title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
+        <button type="button" class="small danger edit-only" id="bulk-del">Hapus terpilih</button>
         <button type="button" class="small" id="bulk-clear">Batal pilih</button>
       </div>
       <div class="table-wrap"><table class="dev-table" id="dev-table"></table></div>
@@ -288,12 +289,12 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=15"></script>
-<script src="assets/common.js?v=15"></script>
-<script src="assets/analisis.js?v=15"></script>
-<script src="assets/peta.js?v=15"></script>
-<script src="assets/katalog.js?v=15"></script>
-<script src="assets/backup.js?v=15"></script>
-<script src="assets/app.js?v=15"></script>
+<script src="vendor/qrcode.min.js?v=17"></script>
+<script src="assets/common.js?v=17"></script>
+<script src="assets/analisis.js?v=17"></script>
+<script src="assets/peta.js?v=17"></script>
+<script src="assets/katalog.js?v=17"></script>
+<script src="assets/backup.js?v=17"></script>
+<script src="assets/app.js?v=17"></script>
 </body>
 </html>

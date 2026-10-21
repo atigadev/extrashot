@@ -183,6 +183,9 @@
         return;
       }
       peta.setEditable(false);
+      // Link tim yang boleh update status: kolom centang & ubah status massal di Daftar perangkat.
+      document.body.classList.toggle('boleh-status', bolehStatus());
+      isiPilihanStatus();
       showEditor();
       return;
     }
@@ -764,6 +767,8 @@
     const p = S.model.byId.get(parentId);
     const anggota = grupAnggota(parentId, jenis);
     const g = grupNama(parentId, jenis);
+    // Perangkat sejenis yang belum punya uplink tidak termasuk group mana pun -> beri tahu agar tidak membingungkan.
+    const lepas = S.list.filter(d => d.jenis === jenis && d.uplink_id == null).length;
     const t = TYPES[jenis] || TYPES.lainnya;
     const contoh = n => (g ? grupLabel(g, 1) + (n > 1 ? ' … ' + grupLabel(g, n) : '') : '');
     if (!S.canEdit) {
@@ -775,6 +780,7 @@
         <button type="button" class="small" data-grup-apply>${g ? 'Ubah' : 'Terapkan'}</button></div>
       <p class="muted small grp-hint">${g ? `Anggota dinamai <b>${esc(contoh(anggota.length))}</b>, urut nomor port lalu nomor lama. Perangkat baru di sini otomatis lanjut nomornya.`
         : `Isi nama group agar ${anggota.length > 1 ? 'semua ' + anggota.length + ' ' : ''}${esc(t.label)} di ${esc(p.nama)} otomatis dinamai NAMA-01, NAMA-02, …`}</p>
+      ${lepas ? `<p class="note grp-lepas">${lepas} ${esc(t.label)} lain belum tersambung ke uplink mana pun, jadi tidak ikut group ini. Sambungkan dulu ke ${esc(p.nama)} (alat <b>Hubungkan</b> atau pilihan Uplink) agar ikut dinamai.</p>` : ''}
     </div>`;
   }
 
@@ -1601,8 +1607,15 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function applyGrup(box) {
     const inp = box.querySelector('.grup-input');
     delete inp.dataset.dirty;
+    // Nama sama dengan yang tersimpan (mis. blur setelah Enter): tidak perlu disimpan ulang.
+    if (grupDasar(inp.value) === grupNama(+box.dataset.grupParent, box.dataset.grupJenis)) return;
     setGrupNama(+box.dataset.grupParent, box.dataset.grupJenis, inp.value);
   }
+  // Seperti isian lain: nama group juga diterapkan saat pindah isian (blur), bukan hanya dengan Enter / tombol.
+  $('#panel').addEventListener('change', e => {
+    const inp = e.target.closest('.grup-input');
+    if (inp && S.canEdit) applyGrup(inp.closest('.grp'));
+  });
   $('#panel').addEventListener('input', e => {
     const inp = e.target.closest('.grup-input');
     if (!inp) return;
@@ -1728,13 +1741,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'id', { numeric: true });
       return (c || a.nama.localeCompare(b.nama, 'id', { numeric: true })) * S.sort.dir;
     });
+    isiPilihanStatus();
     // Pilihan untuk aksi massal hanya berlaku pada baris yang tampil: baris yang tersembunyi oleh filter/pencarian
     // (atau sudah terhapus) dilepas, agar "Hapus terpilih" tidak pernah mengenai perangkat yang tidak terlihat.
     const tampil = new Set(rows.map(d => d.id));
     S.pilih.forEach(id => { if (!tampil.has(id)) S.pilih.delete(id); });
     S.urutDaftar = rows.map(d => d.id);
     const semua = rows.length > 0 && rows.every(d => S.pilih.has(d.id));
-    const head = `<th class="c-cek edit-only"><input type="checkbox" id="cek-semua" title="Pilih semua yang tampil"${semua ? ' checked' : ''} aria-label="Pilih semua"></th>` +
+    const head = `<th class="c-cek pilih-only"><input type="checkbox" id="cek-semua" title="Pilih semua yang tampil"${semua ? ' checked' : ''} aria-label="Pilih semua"></th>` +
       COLS.map(c => `<th data-sort="${c.k}" class="${c.k === S.sort.k ? (S.sort.dir > 0 ? 'asc' : 'desc') : ''}">${c.label}</th>`).join('') + '<th>Konfigurasi</th>';
     const body = rows.map(d => {
       const t = TYPES[d.jenis] || TYPES.lainnya;
@@ -1743,7 +1757,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       // data-label dipakai tampilan kartu di HP; sel kosong disembunyikan di sana.
       const td = (label, html, cls) => `<td data-label="${label}" class="${cls || ''}${html ? '' : ' empty'}">${html}</td>`;
       return `<tr data-id="${d.id}"${S.pilih.has(d.id) ? ' class="dipilih"' : ''}>
-        <td class="c-cek edit-only"><input type="checkbox" data-cek="${d.id}"${S.pilih.has(d.id) ? ' checked' : ''} aria-label="Pilih ${esc(d.nama)}"></td>
+        <td class="c-cek pilih-only"><input type="checkbox" data-cek="${d.id}"${S.pilih.has(d.id) ? ' checked' : ''} aria-label="Pilih ${esc(d.nama)}"></td>
         ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b></span>`, 'c-nama')}
         ${td('Jenis', esc(jenisLabel(d)), 'c-jenis')}
         ${td('Nama alat', esc(d.model))}
@@ -1769,7 +1783,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
 
   function updateBulk() {
     const n = S.pilih.size;
-    $('#bulk-bar').hidden = !n || !S.canEdit;
+    $('#bulk-bar').hidden = !n || !(S.canEdit || bolehStatus());
     $('#bulk-n').textContent = `${n} perangkat dipilih`;
     const semua = $('#cek-semua');
     if (semua) {
@@ -1851,6 +1865,77 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     await deleteDev(ids);
     renderDaftar();
   });
+  /** Link tim dengan peran update status. */
+  function bolehStatus() {
+    return !!(S.tim && S.akses && S.akses.peran === 'status');
+  }
+
+  /** Pilihan status di bar aksi: admin semua status, tim hanya status yang diizinkan PM. */
+  function isiPilihanStatus() {
+    const boleh = S.canEdit ? Object.keys(STATUS) : bolehStatus() ? S.akses.status_boleh : [];
+    $('#bulk-status').innerHTML = '<option value="">Ubah status…</option>' +
+      boleh.map(k => `<option value="${k}">→ ${esc(STATUS[k].label)}</option>`).join('');
+  }
+
+  /** Ubah status perangkat terpilih sekaligus. Admin bisa membatalkan (status lama tiap perangkat dikembalikan). */
+  async function statusMassal(ids, status, tanpaUndo, dilewati) {
+    try {
+      if (S.tim) {
+        const res = await api('api/tim.php', { t: S.tim, action: 'status_massal', ids, status });
+        res.perangkat.forEach(p => {
+          const i = S.list.findIndex(x => x.id === p.id);
+          if (i >= 0) S.list[i] = p;
+        });
+        riwayat.id = null;
+        refreshModel();
+        const lewat = res.dilewati + (dilewati || 0);
+        toast(`${res.perangkat.length} perangkat → ${STATUS[status].label}` + (lewat ? ` · ${lewat} di luar tugas tim dilewati` : ''));
+        return;
+      }
+      const lama = new Map(ids.map(id => [id, (S.model.byId.get(id) || {}).status]));
+      const res = await enqueue(() => api(API, { action: 'perangkat_status_massal', ids, status }));
+      ids.forEach(id => {
+        const d = S.model.byId.get(id);
+        if (d) d.status = status;
+      });
+      riwayat.id = null;
+      refreshModel();
+      toast(`${res.jumlah} perangkat → ${STATUS[status].label}`, false, tanpaUndo ? undefined : {
+        label: 'Batalkan',
+        fn: async () => {
+          // Kelompokkan per status lama, lalu kembalikan per kelompok.
+          const grup = new Map();
+          lama.forEach((st, id) => {
+            if (!st || st === status) return;
+            if (!grup.has(st)) grup.set(st, []);
+            grup.get(st).push(id);
+          });
+          for (const [st, gids] of grup) await statusMassal(gids, st, true);
+          toast('Status dikembalikan');
+        },
+      });
+    } catch (err) {
+      setSaveState('error');
+      toast(err.message, true);
+    }
+  }
+
+  $('#bulk-status').addEventListener('change', e => {
+    const status = e.target.value;
+    e.target.value = '';
+    if (!status) return;
+    let ids = [...S.pilih];
+    if (S.tim) {
+      // Tim hanya mengubah perangkat dalam kategori tugasnya.
+      const luar = ids.filter(id => !tugasTim(S.model.byId.get(id)));
+      ids = ids.filter(id => !luar.includes(id));
+      if (!ids.length) return toast('Perangkat terpilih di luar tugas tim Anda', true);
+      ids.dilewati = luar.length;
+    }
+    if (!confirm(`Ubah status ${ids.length} perangkat menjadi "${STATUS[status].label}"?`)) return;
+    statusMassal(ids, status, false, ids.dilewati || 0);
+  });
+
   $('#bulk-unlink').addEventListener('click', async () => {
     const ds = [...S.pilih].map(id => S.model.byId.get(id)).filter(d => d && d.uplink_id != null);
     if (!ds.length) return toast('Perangkat terpilih tidak punya koneksi uplink');

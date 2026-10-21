@@ -360,6 +360,9 @@ table.mini tr.tot td { font-weight: 700; border-bottom: 0; }
 
 /* Mode lihat-saja */
 body.mode-lihat .edit-only { display: none !important; }
+/* Pilih banyak di Daftar perangkat: admin, atau link tim yang boleh update status. */
+body.mode-lihat:not(.boleh-status) .pilih-only { display: none !important; }
+.small-select { width: auto; padding: 3px 8px; font-size: 13px; }
 
 /* ---------- Responsif ---------- */
 .sheet-bar, .layers-btn, .show-phone { display: none; }

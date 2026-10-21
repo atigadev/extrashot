@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=20">
+<link rel="stylesheet" href="assets/np.css?v=27">
 </head>
 <body>
 
@@ -31,8 +31,16 @@
   <span class="spacer"></span>
   <span class="save-state" id="save-state"></span>
   <button type="button" id="btn-print" class="hide-phone" hidden>Cetak</button>
-  <button type="button" id="btn-akun" class="hide-phone" hidden title="Ganti password login">Ganti password</button>
-  <button type="button" id="btn-logout" hidden>Keluar</button>
+  <details class="menu menu-akun" id="menu-akun">
+    <summary aria-label="Menu akun" title="Menu akun">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+    </summary>
+    <div class="menu-pop">
+      <button type="button" id="btn-akun" hidden>Ganti password</button>
+      <button type="button" id="btn-pintasan">Pintasan keyboard <kbd>?</kbd></button>
+      <button type="button" id="btn-logout" class="danger" hidden>Keluar</button>
+    </div>
+  </details>
 </header>
 
 <!-- Daftar event -->
@@ -80,6 +88,19 @@
     <button type="button" data-tab="daftar">Daftar<span class="hide-phone"> perangkat</span></button>
     <button type="button" data-tab="topologi">Topologi<span class="hide-phone"> &amp; cek</span></button>
     <button type="button" data-tab="proyek">Proyek</button>
+    <span class="spacer"></span>
+    <div class="tab-actions">
+      <button type="button" class="ta edit-only" id="btn-undo" disabled title="Batalkan (Ctrl+Z)" aria-label="Batalkan">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>
+      </button>
+      <button type="button" class="ta edit-only" id="btn-redo" disabled title="Ulangi (Ctrl+Y)" aria-label="Ulangi">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/></svg>
+      </button>
+      <button type="button" class="ta cari-btn" id="btn-cari" title="Cari perangkat &amp; perintah (Ctrl+K)">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <span class="hide-phone">Cari</span><kbd class="hide-phone">Ctrl K</kbd>
+      </button>
+    </div>
   </nav>
 
   <section class="tab-pane" data-pane="denah">
@@ -93,6 +114,9 @@
           <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
           <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
           <button type="button" data-zoom="fit" title="Seluruh denah (F)">⤢</button>
+          <button type="button" id="btn-panel" class="hide-sheet" title="Sembunyikan panel kanan (P)" aria-label="Sembunyikan / tampilkan panel kanan" aria-pressed="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path class="pnl-fill" d="M15 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4z" fill="currentColor" stroke="none"/></svg>
+          </button>
           <button type="button" id="btn-full" title="Peta layar penuh" aria-label="Peta layar penuh" aria-pressed="false">⛶</button>
           <button type="button" class="layers-btn" id="btn-layers" title="Lapisan &amp; kecerahan denah" aria-expanded="false">☰</button>
         </div>
@@ -125,12 +149,21 @@
         <select id="list-jenis"><option value="">Semua jenis</option></select>
         <select id="list-status"><option value="">Semua status</option></select>
         <select id="list-koneksi"><option value="">Semua koneksi</option></select>
+        <button type="button" class="small ghost" id="list-reset" hidden>Reset filter</button>
         <span class="spacer"></span>
+        <span class="muted small" id="list-count"></span>
         <button type="button" id="btn-csv">Unduh CSV</button>
-        <button type="button" id="btn-export">Ekspor JSON</button>
-        <button type="button" id="btn-import" class="edit-only">Impor JSON…</button>
-        <button type="button" id="btn-rapikan" class="edit-only" title="Namai ulang anggota setiap group bernama agar berurutan">Rapikan nama</button>
-        <button type="button" id="btn-del-all" class="edit-only danger">Hapus semua…</button>
+        <details class="menu">
+          <summary class="btn">Lainnya ▾</summary>
+          <div class="menu-pop right">
+            <button type="button" id="btn-export">Ekspor JSON</button>
+            <button type="button" id="btn-import" class="edit-only">Impor JSON…</button>
+            <button type="button" id="btn-rapikan" class="edit-only" title="Namai ulang anggota setiap group bernama agar berurutan">Rapikan nama group</button>
+            <button type="button" id="btn-kolom">Kolom kosong: <b id="kolom-mode">disembunyikan</b></button>
+            <hr class="edit-only">
+            <button type="button" id="btn-del-all" class="edit-only danger">Hapus semua perangkat…</button>
+          </div>
+        </details>
         <input type="file" id="import-file" accept=".json,application/json" hidden>
       </div>
       <div class="bulk-bar pilih-only" id="bulk-bar" hidden>
@@ -149,7 +182,14 @@
   <section class="tab-pane scroll" data-pane="topologi" hidden>
     <div class="page topo-layout">
       <div class="card">
-        <h2>Pohon topologi <span class="muted small" id="topo-count"></span></h2>
+        <div class="tree-head">
+          <h2>Pohon topologi <span class="muted small" id="topo-count"></span></h2>
+          <div class="btn-row">
+            <button type="button" class="small" data-tree="buka" title="Tampilkan semua cabang">Buka semua</button>
+            <button type="button" class="small" data-tree="ringkas" title="Tutup cabang yang isinya hanya endpoint (laptop, printer, …)">Tutup endpoint</button>
+            <button type="button" class="small" data-tree="tutup" title="Tampilkan hanya perangkat akar">Tutup semua</button>
+          </div>
+        </div>
         <div class="tree" id="tree"></div>
       </div>
       <div class="topo-side">
@@ -318,14 +358,56 @@
   </form>
 </dialog>
 
+<!-- Cari cepat (Ctrl+K): perangkat + perintah -->
+<dialog id="dlg-cari" class="dlg dlg-cari" aria-label="Cari perangkat dan perintah">
+  <div class="cari-box">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+    <input type="search" id="cari-q" placeholder="Cari nama, IP, SSID, merek… atau perintah" autocomplete="off" spellcheck="false">
+    <kbd>Esc</kbd>
+  </div>
+  <div class="cari-list" id="cari-list" role="listbox"></div>
+  <div class="cari-foot muted small"><span><kbd>↑</kbd><kbd>↓</kbd> pilih</span><span><kbd>Enter</kbd> buka di denah</span><span><kbd>Shift</kbd>+<kbd>Enter</kbd> lihat di daftar</span></div>
+</dialog>
+
+<!-- Daftar pintasan keyboard -->
+<dialog id="dlg-pintasan" class="dlg dlg-wide">
+  <h2>Pintasan keyboard</h2>
+  <div class="pintasan">
+    <section>
+      <h3>Umum</h3>
+      <p><kbd>Ctrl</kbd> <kbd>K</kbd> atau <kbd>/</kbd><span>Cari perangkat &amp; perintah</span></p>
+      <p><kbd>Ctrl</kbd> <kbd>Z</kbd><span>Batalkan perubahan terakhir</span></p>
+      <p><kbd>Ctrl</kbd> <kbd>Y</kbd> / <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd><span>Ulangi</span></p>
+      <p><kbd>Alt</kbd> <kbd>1</kbd>–<kbd>4</kbd><span>Pindah tab Denah · Daftar · Topologi · Proyek</span></p>
+      <p><kbd>?</kbd><span>Tampilkan bantuan ini</span></p>
+    </section>
+    <section>
+      <h3>Denah</h3>
+      <p><kbd>V</kbd><span>Pilih / geser</span></p>
+      <p><kbd>L</kbd><span>Hubungkan ke uplink</span></p>
+      <p><kbd>M</kbd><span>Ukur jarak / kalibrasi</span></p>
+      <p><kbd>1</kbd>–<kbd>9</kbd><span>Tambah perangkat (urutan toolbar)</span></p>
+      <p><kbd>Ctrl</kbd> <kbd>D</kbd><span>Duplikat perangkat terpilih</span></p>
+      <p><kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd><span>Geser perangkat terpilih (Shift = 10×)</span></p>
+      <p><kbd>Tab</kbd> / <kbd>Shift</kbd> <kbd>Tab</kbd><span>Perangkat berikut / sebelumnya</span></p>
+      <p><kbd>U</kbd><span>Lompat ke uplink perangkat terpilih</span></p>
+      <p><kbd>Del</kbd><span>Hapus perangkat terpilih</span></p>
+      <p><kbd>F</kbd> · <kbd>+</kbd> · <kbd>−</kbd><span>Seluruh denah · perbesar · perkecil</span></p>
+      <p><kbd>P</kbd><span>Sembunyikan / tampilkan panel kanan</span></p>
+      <p><kbd>Esc</kbd><span>Selesai alat / batal pilih</span></p>
+    </section>
+  </div>
+  <div class="btn-row end"><button type="button" class="primary" data-close>Tutup</button></div>
+</dialog>
+
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=20"></script>
-<script src="assets/common.js?v=20"></script>
-<script src="assets/analisis.js?v=20"></script>
-<script src="assets/peta.js?v=20"></script>
-<script src="assets/katalog.js?v=20"></script>
-<script src="assets/backup.js?v=20"></script>
-<script src="assets/app.js?v=20"></script>
+<script src="vendor/qrcode.min.js?v=27"></script>
+<script src="assets/common.js?v=27"></script>
+<script src="assets/analisis.js?v=27"></script>
+<script src="assets/peta.js?v=27"></script>
+<script src="assets/katalog.js?v=27"></script>
+<script src="assets/backup.js?v=27"></script>
+<script src="assets/app.js?v=27"></script>
 </body>
 </html>

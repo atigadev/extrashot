@@ -453,6 +453,25 @@ switch ($method . ' ' . $action) {
         }
         $n = salin_perangkat((int) $p['id'], $list);
         json_out(['ok' => true, 'jumlah' => $n] + proyek_lengkap(find_proyek((int) $p['id'])));
+
+    case 'POST perangkat_pulihkan':
+        // Batalkan hapus (Ctrl+Z): perangkat kembali dengan id semula, lalu perangkat lain yang tadinya terhubung
+        // ke situ disambungkan lagi.
+        $pid = (int) find_proyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0)['id'];
+        $list = isset($req['perangkat']) && is_array($req['perangkat']) ? $req['perangkat'] : [];
+        if (!$list || count($list) > 2000) {
+            json_error('Tidak ada perangkat untuk dikembalikan');
+        }
+        salin_perangkat($pid, $list, true);
+        $sambung = isset($req['sambung']) && is_array($req['sambung']) ? $req['sambung'] : [];
+        $upd = $pdo->prepare('UPDATE np_perangkat a JOIN np_perangkat b ON b.id = ? AND b.proyek_id = a.proyek_id
+            SET a.uplink_id = b.id WHERE a.id = ? AND a.proyek_id = ? AND a.uplink_id IS NULL');
+        foreach (array_slice($sambung, 0, 5000) as $s) {
+            if (is_array($s) && isset($s['id'], $s['uplink_id'])) {
+                $upd->execute([(int) $s['uplink_id'], (int) $s['id'], $pid]);
+            }
+        }
+        json_out(['ok' => true] + proyek_lengkap(find_proyek($pid)));
 }
 
 json_error('Aksi tidak dikenal', 404);
@@ -581,6 +600,7 @@ function izin_admin_event($aksi, $req, $id)
             }
             return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
         case 'POST perangkat_import':
+        case 'POST perangkat_pulihkan':
             return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
         case 'POST perangkat_delete':
         case 'POST perangkat_status_massal':
@@ -921,22 +941,29 @@ function jalur_json($j, $fx = 1, $fy = 1)
 }
 
 /** Tambahkan daftar perangkat (dari ekspor/duplikat) ke proyek; relasi uplink dipetakan ke id baru. */
-function salin_perangkat($proyekId, $list)
+function salin_perangkat($proyekId, $list, $idSemula = false)
 {
     $pdo = db();
     $pdo->beginTransaction();
     $map = [];
     $uplinks = [];
-    $ins = $pdo->prepare('INSERT INTO np_perangkat (proyek_id, jenis, nama, model, ip, vlan, port_uplink, port_lokal, media,
-        bandwidth_mbps, status, pic, catatan, atribut, jalur, katalog_id, x, y) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $ins = $pdo->prepare('INSERT INTO np_perangkat (id, proyek_id, jenis, nama, model, ip, vlan, port_uplink, port_lokal, media,
+        bandwidth_mbps, status, pic, catatan, atribut, jalur, katalog_id, x, y) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $ada = $pdo->prepare('SELECT 1 FROM np_perangkat WHERE id = ?');
     foreach ($list as $d) {
         if (!is_array($d)) {
             continue;
         }
         $jenis = isset($d['jenis']) && in_array($d['jenis'], NP_JENIS, true) ? $d['jenis'] : 'lainnya';
         $bw = isset($d['bandwidth_mbps']) && is_numeric($d['bandwidth_mbps']) ? (float) $d['bandwidth_mbps'] : null;
+        // Pemulihan (batalkan hapus): pakai id semula bila id itu belum dipakai lagi; selain itu id baru.
+        $idPakai = null;
+        if ($idSemula && isset($d['id']) && (int) $d['id'] > 0) {
+            $ada->execute([(int) $d['id']]);
+            $idPakai = $ada->fetchColumn() ? null : (int) $d['id'];
+        }
         $ins->execute([
-            $proyekId, $jenis,
+            $idPakai, $proyekId, $jenis,
             str_field($d, 'nama', 100, true, 'Nama perangkat'),
             str_field($d, 'model', 150), str_field($d, 'ip', 64), str_field($d, 'vlan', 50),
             str_field($d, 'port_uplink', 50), str_field($d, 'port_lokal', 50),
@@ -960,9 +987,14 @@ function salin_perangkat($proyekId, $list)
         }
     }
     $upd = $pdo->prepare('UPDATE np_perangkat SET uplink_id = ? WHERE id = ?');
+    $updLuar = $pdo->prepare('UPDATE np_perangkat a JOIN np_perangkat b ON b.id = ? AND b.proyek_id = a.proyek_id
+        SET a.uplink_id = b.id WHERE a.id = ?');
     foreach ($uplinks as $newId => $oldUp) {
         if (isset($map[$oldUp])) {
             $upd->execute([$map[$oldUp], $newId]);
+        } elseif ($idSemula) {
+            // Uplink-nya perangkat yang tidak ikut dihapus: sambungkan lagi bila masih ada di event yang sama.
+            $updLuar->execute([$oldUp, $newId]);
         }
     }
     $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyekId]);

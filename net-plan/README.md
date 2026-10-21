@@ -11,7 +11,7 @@ keterangan konfigurasi bebas.
 |---|---|
 | **Denah** | Peta interaktif: tambah/geser titik, hubungkan ke uplink, ukur jarak & kalibrasi skala, lingkaran cakupan AP, panel konfigurasi per perangkat |
 | **Daftar perangkat** | Tabel semua perangkat (cari, filter jenis/status/koneksi, urutkan), **pilih banyak** (centang, Shift+klik, pilih semua yang tampil) lalu **ubah status**, hapus, atau putuskan koneksi sekaligus (ubah status massal bisa dibatalkan, tercatat di riwayat; link tim hanya bisa ubah status yang diizinkan pada kategori tugasnya), unduh CSV, ekspor/impor JSON |
-| **Topologi & cek** | Pohon topologi dari WAN ke perangkat paling ujung, pemeriksaan desain, ringkasan WAN/SSID, kebutuhan perangkat (BOM), estimasi kabel |
+| **Topologi & cek** | Pohon topologi dari WAN ke perangkat paling ujung (cabang bisa dibuka/tutup: ▸ per cabang, *Buka semua*, *Tutup endpoint*, *Tutup semua*; tersimpan per event), pemeriksaan desain, ringkasan WAN/SSID, kebutuhan perangkat (BOM), estimasi kabel |
 | **Proyek** | Info event, upload/ganti denah, skala, link lihat-saja + QR, duplikat/hapus event |
 
 Tombol **Cetak** menyediakan dua jenis laporan:
@@ -159,9 +159,52 @@ dipilih. Pemeriksaan co-channel memperhitungkan arah: dua AP sektoral yang salin
 **Kecerahan denah.** Slider *Denah* di pojok kiri bawah peta memudarkan gambar denah (10–100%) agar titik dan garis
 lebih jelas. Pengaturan ini tersimpan per browser dan ikut dipakai saat mencetak.
 
-Pintasan di Denah: `V` pilih/geser · `L` hubungkan · `M` ukur · `1`–`9` tambah perangkat · `Del` hapus ·
-`F` seluruh denah · `Esc` batal. Scroll/pinch untuk zoom, geser latar untuk pan. Saat menghubungkan, Shift+klik
-menghubungkan beberapa perangkat sekaligus.
+**Cari cepat & batalkan.** Tombol *Cari* (`Ctrl+K` atau `/`) mencari perangkat (nama, IP, SSID, merek) dan perintah
+(pindah tab, tambah perangkat, cetak). `Enter` membuka perangkat di denah, `Shift+Enter` di Daftar. Hampir semua
+perubahan bisa dibatalkan dengan `Ctrl+Z` dan diulang dengan `Ctrl+Y`, juga lewat tombol ↶ ↷ di bar tab. Ini mencakup
+geser, sambung/putus, bentuk jalur, isian, nama group, status massal, tambah, dan hapus. Perangkat yang dihapus kembali
+dengan id, koneksi, dan riwayat semula. Karena itu, menghapus satu perangkat tanpa sambungan tidak lagi meminta
+konfirmasi. Riwayat berlaku per event selama halaman terbuka. *Hapus semua perangkat* tidak termasuk, jadi pakai backup.
+
+**Panel perangkat bertab.** Panel kanan dibagi menjadi beberapa tab. Nama dan tombol Pusatkan/Duplikat/Hapus selalu
+terlihat di atas tab.
+
+| Tab | Isi |
+|---|---|
+| **Info** | Status internet, jalur ke WAN, kabel, perangkat yang terhubung, catatan desain, riwayat. Titik oranye/merah = ada peringatan atau masalah. |
+| **Identitas** | Nama, jenis, katalog, nama alat, status, PIC |
+| **Koneksi** | Uplink, port, media, bandwidth, bentuk jalur kabel, IP, VLAN |
+| **[Jenis]** | Pengaturan khusus jenis perangkat (mis. *Switch*, *Access Point*, *Laptop*) dan keterangan konfigurasi |
+| **Group** | Nama group perangkat ini, dan group perangkat yang terhubung ke sini. Angka di tab = jumlah group bernama. |
+
+Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
+untuk perangkat berikutnya.
+
+**Label bertumpuk.** Label yang saling menimpa disembunyikan otomatis. Label perangkat jaringan diutamakan di atas
+label endpoint, lalu label muncul lagi saat di-zoom atau saat kursor diarahkan.
+
+**Daftar perangkat.** Kolom yang kosong di semua baris disembunyikan, dan bisa ditampilkan lagi lewat *Lainnya → Kolom
+kosong*. Ekspor/impor JSON, *Rapikan nama group*, dan *Hapus semua* ada di menu *Lainnya*.
+
+Pintasan di Denah:
+
+| Tombol | Fungsi |
+|---|---|
+| `V` / `L` / `M` | Pilih/geser / hubungkan / ukur |
+| `1`–`9` | Tambah perangkat |
+| `Ctrl+D` | Duplikat perangkat |
+| Panah | Geser perangkat (`Shift` = 10×) |
+| `Tab` | Perangkat berikutnya |
+| `U` | Lompat ke uplink |
+| `Del` | Hapus |
+| `F` | Seluruh denah |
+| `P` | Sembunyikan / tampilkan panel kanan (desktop) |
+| `Esc` | Batal |
+| `Alt+1`–`4` | Pindah tab |
+| `?` | Daftar semua pintasan (juga di menu akun) |
+
+Scroll/pinch untuk zoom, geser latar untuk pan. Saat menghubungkan, Shift+klik menghubungkan beberapa perangkat
+sekaligus.
 
 ## Logika jaringan
 

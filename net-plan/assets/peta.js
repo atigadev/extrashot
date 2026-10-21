@@ -193,6 +193,7 @@
         const d = m.byId.get(id);
         g.setAttribute('transform', `translate(${sx(d.x).toFixed(1)},${sy(d.y).toFixed(1)})`);
       }
+      declutter();
       for (const [id, g] of linkEls) {
         const d = m.byId.get(id);
         const p = m.parentOf(d);
@@ -209,6 +210,37 @@
       }
       drawHandles();
       drawTool();
+    }
+
+    /**
+     * Label yang bertumpuk disembunyikan (yang lebih penting menang: terpilih, lalu perangkat jaringan sebelum
+     * endpoint). Label muncul lagi saat di-zoom; nama lengkap tetap ada di tooltip & panel.
+     */
+    function declutter() {
+      const m = st.model;
+      if (!m || !st.layers.label) return;
+      const rank = j => (j === 'endpoint' ? 2 : TYPES[j] && TYPES[j].parent ? 1 : 0);
+      const items = [];
+      for (const [id, g] of nodeEls) {
+        const d = m.byId.get(id);
+        if (st.hidden.has(d.jenis)) continue;
+        items.push({ g, d, p: id === st.sel ? -1 : rank(d.jenis) });
+      }
+      items.sort((a, b) => a.p - b.p);
+      const CELL = 60;
+      const grid = new Map();
+      for (const it of items) {
+        const w = it.d.nama.length * 6.6 + 6;
+        const cx = sx(it.d.x), y0 = sy(it.d.y) + R + 5;
+        const box = { x0: cx - w / 2, x1: cx + w / 2, y0, y1: y0 + 13 };
+        const keys = [];
+        for (let gx = Math.floor(box.x0 / CELL); gx <= Math.floor(box.x1 / CELL); gx++) {
+          for (let gy = Math.floor(box.y0 / CELL); gy <= Math.floor(box.y1 / CELL); gy++) keys.push(gx + ',' + gy);
+        }
+        const tabrak = it.p >= 0 && keys.some(k => (grid.get(k) || []).some(o => o.x0 < box.x1 && box.x0 < o.x1 && o.y0 < box.y1 && box.y0 < o.y1));
+        it.g.classList.toggle('lbl-off', tabrak);
+        if (!tabrak) keys.forEach(k => { if (!grid.has(k)) grid.set(k, []); grid.get(k).push(box); });
+      }
     }
 
     /** Titik pada polyline di posisi fraksi f (0..1) dari panjang totalnya. */
@@ -574,7 +606,7 @@
       if (g.type === 'rot') {
         const d = st.model.byId.get(g.id);
         if (g.moved && e.type !== 'pointercancel') {
-          cb.onAtribut(d.id, d.atribut);
+          cb.onAtribut(d.id, d.atribut, g.orig);
         } else if (g.moved) {
           d.atribut = g.orig;
           build();
@@ -585,7 +617,7 @@
       if (g.type === 'route') {
         const d = st.model.byId.get(g.id);
         if (g.moved && e.type !== 'pointercancel') {
-          cb.onRoute(d.id, d.jalur);
+          cb.onRoute(d.id, d.jalur, g.orig);
         } else if (g.inserted || g.moved) {
           // Batal: kembalikan bentuk semula. (Klik biasa pada lekukan tidak menggambar ulang,
           // agar klik ganda untuk menghapusnya tetap mengenai elemen yang sama.)
@@ -626,11 +658,12 @@
       const wp = e.target.closest && e.target.closest('.wp');
       const d = wp && routeDev();
       if (!d) return;
+      const orig = d.jalur;
       const pts = st.model.routePts(d).slice(1, -1);
       pts.splice(+wp.dataset.i, 1);
       d.jalur = pts.length ? { m: 'bebas', p: pts.map(q => [q.x, q.y]) } : null;
       layout();
-      cb.onRoute(d.id, d.jalur);
+      cb.onRoute(d.id, d.jalur, orig);
     }
 
     function click(p, hit, e) {
@@ -751,6 +784,7 @@
       clearMeasure() { st.measure = []; drawTool(); },
       refresh() { build(); layout(); },
       size() { return { W: st.W, H: st.H }; },
+      get zoom() { return st.z; },
       viewCenter() {
         const r = svg.getBoundingClientRect();
         return { x: clampX((r.width / 2 - st.tx) / st.z), y: clampY((r.height / 2 - st.ty) / st.z) };

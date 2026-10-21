@@ -54,11 +54,104 @@
     return p;
   }
 
+  // ======================================================================== riwayat ubah (Ctrl+Z / Ctrl+Y)
+
+  const hist = { undo: [], redo: [], grup: null, sibuk: false };
+  const salin = v => (v == null ? v : JSON.parse(JSON.stringify(v)));
+
+  /** Catat satu langkah {label, undo, redo}. Langkah di dalam kelompok() digabung jadi satu. */
+  function catat(langkah) {
+    if (hist.sibuk || !S.canEdit) return;
+    if (hist.grup) return void hist.grup.push(langkah);
+    hist.undo.push(langkah);
+    if (hist.undo.length > 100) hist.undo.shift();
+    hist.redo.length = 0;
+    syncRiwayat();
+  }
+
+  /** Jalankan fn; semua perubahan di dalamnya dibatalkan/diulang sekaligus. */
+  async function kelompok(label, fn) {
+    const g = hist.grup = [];
+    try {
+      return await fn();
+    } finally {
+      hist.grup = null;
+      if (g.length) {
+        catat({
+          label,
+          undo: async () => { for (const l of g.slice().reverse()) await l.undo(); },
+          redo: async () => { for (const l of g) await l.redo(); },
+        });
+      }
+    }
+  }
+
+  async function jalankanRiwayat(arah) {
+    if (!S.canEdit || hist.sibuk) return;
+    const dari = arah === 'undo' ? hist.undo : hist.redo;
+    const ke = arah === 'undo' ? hist.redo : hist.undo;
+    const l = dari.pop();
+    if (!l) return toast(arah === 'undo' ? 'Tidak ada perubahan untuk dibatalkan' : 'Tidak ada perubahan untuk diulang');
+    hist.sibuk = true;
+    try {
+      await l[arah]();
+      ke.push(l);
+      toast((arah === 'undo' ? 'Dibatalkan: ' : 'Diulang: ') + l.label);
+    } catch (e) {
+      // Data di server sudah berbeda (mis. diubah dari perangkat lain): riwayat tidak lagi bisa dipercaya.
+      setSaveState('error');
+      toast(e.message || 'Gagal membatalkan', true);
+      reloadProyek();
+      hist.undo.length = 0;
+      hist.redo.length = 0;
+    } finally {
+      hist.sibuk = false;
+      syncRiwayat();
+    }
+  }
+
+  function resetRiwayat() {
+    hist.undo.length = 0;
+    hist.redo.length = 0;
+    syncRiwayat();
+  }
+
+  function syncRiwayat() {
+    const u = $('#btn-undo'), r = $('#btn-redo');
+    if (!u) return;
+    const lu = hist.undo[hist.undo.length - 1], lr = hist.redo[hist.redo.length - 1];
+    u.disabled = !lu;
+    r.disabled = !lr;
+    u.title = lu ? `Batalkan: ${lu.label} (Ctrl+Z)` : 'Batalkan (Ctrl+Z)';
+    r.title = lr ? `Ulangi: ${lr.label} (Ctrl+Y)` : 'Ulangi (Ctrl+Y)';
+  }
+
+  function labelUbah(d, patch) {
+    if ('x' in patch) return 'geser ' + d.nama;
+    if ('uplink_id' in patch) return 'koneksi ' + d.nama;
+    if ('jalur' in patch) return 'jalur kabel ' + d.nama;
+    if ('nama' in patch) return `nama ${d.nama} → ${patch.nama}`;
+    if ('status' in patch) return 'status ' + d.nama;
+    return 'ubah ' + d.nama;
+  }
+
   /** Simpan sebagian isian perangkat (optimistis: tampilan diperbarui dulu). */
   function saveDev(id, patch, opts) {
     opts = opts || {};
     const d = S.model.byId.get(id);
     if (!d) return Promise.resolve();
+    if (!opts.noHistory) {
+      const sebelum = {};
+      for (const k in patch) sebelum[k] = salin(d[k]);
+      const sesudah = salin(patch);
+      if (JSON.stringify(sebelum) !== JSON.stringify(sesudah)) {
+        catat({
+          label: labelUbah(d, patch),
+          undo: () => saveDev(id, sebelum, { noHistory: true }),
+          redo: () => saveDev(id, sesudah, { noHistory: true }),
+        });
+      }
+    }
     Object.assign(d, patch);
     refreshModel(opts);
     pendingById.set(id, (pendingById.get(id) || 0) + 1);
@@ -133,6 +226,7 @@
     if (changed) {
       S.sel = null;
       S.parentCtx = null;
+      resetRiwayat();
     }
     return changed;
   }
@@ -561,7 +655,11 @@
     onPlace(jenis, x, y) {
       addDev(jenis, x, y);
     },
-    onMove(id, x, y) {
+    // Peta sudah mengubah posisi/arah/jalur selama drag; kembalikan nilai awal dulu agar saveDev mencatat
+    // "sebelum" yang benar untuk Ctrl+Z.
+    onMove(id, x, y, ox, oy) {
+      const d = S.model.byId.get(id);
+      if (d && ox != null) Object.assign(d, { x: ox, y: oy });
       saveDev(id, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }, { keepPanel: true }).catch(() => {});
     },
     onLink(childId, parentId) {
@@ -570,11 +668,15 @@
     onUnlink(id) {
       putusKoneksi(id);
     },
-    onAtribut(id, atribut) {
+    onAtribut(id, atribut, awal) {
       // Arah sektor AP diputar di denah -> isian "Arah sektor" di panel ikut diperbarui.
+      const d = S.model.byId.get(id);
+      if (d && awal !== undefined) d.atribut = awal;
       saveDev(id, { atribut }).catch(() => {});
     },
-    onRoute(id, jalur) {
+    onRoute(id, jalur, awal) {
+      const d = S.model.byId.get(id);
+      if (d && awal !== undefined) d.jalur = awal;
       saveDev(id, { jalur }, { keepPanel: true }).catch(() => {});
     },
     onMeasure(pts) {
@@ -592,6 +694,7 @@
     if (d && TYPES[d.jenis] && TYPES[d.jenis].parent) S.parentCtx = id;
     peta.select(id);
     if (peta.tool !== 'ukur') renderPanel();
+    panelIkutPilihan(id);
     if (id != null) openSheet();
     else if (mqSheet.matches) setSheet('peek');
     updateInset(); // ukuran layar bisa berubah (rotasi) sejak terakhir dihitung
@@ -818,6 +921,10 @@
         if (d) d.nama = x.baru;
       }
       refreshModel();
+      if (!tanpaUndo) {
+        const balik = items.map(x => ({ id: x.id, lama: x.baru, baru: x.lama }));
+        catat({ label: pesan, undo: () => terapkanNama(balik, 'Nama dikembalikan', true), redo: () => terapkanNama(items, pesan, true) });
+      }
       toast(pesan, false, tanpaUndo ? undefined : {
         label: 'Batalkan',
         fn: async () => {
@@ -843,6 +950,11 @@
     if (nama) atr[grupKey(jenis)] = nama;
     else delete atr[grupKey(jenis)];
     const rencana = grupRencana(parentId, jenis, nama);
+    // Nama group + nama anggotanya = satu langkah Ctrl+Z.
+    return kelompok('nama group ' + (nama || TYPES[jenis].label), () => grupSimpan(p, parentId, jenis, nama, atr, atrLama, rencana));
+  }
+
+  async function grupSimpan(p, parentId, jenis, nama, atr, atrLama, rencana) {
     try {
       await saveDev(parentId, { atribut: atr }, { keepPanel: true });
     } catch (e) {
@@ -851,8 +963,8 @@
     if (!nama) return toast(`Nama group ${TYPES[jenis].label} di ${p.nama} dihapus`);
     if (!rencana.length) return toast(`Group ${nama} tersimpan — nama sudah berurutan`);
     // Batalkan = kembalikan nama perangkat dan nama group sebelumnya.
-    terapkanNama(rencana, `${rencana.length} perangkat dinamai ${grupLabel(nama, 1)} …`, false,
-      () => saveDev(parentId, { atribut: atrLama }, { keepPanel: true }).catch(() => {}));
+    await terapkanNama(rencana, `${rencana.length} perangkat dinamai ${grupLabel(nama, 1)} …`, false,
+      () => saveDev(parentId, { atribut: atrLama }, { keepPanel: true, noHistory: true }).catch(() => {}));
   }
 
   /** Editor nama group untuk perangkat sejenis di bawah satu uplink. */
@@ -909,6 +1021,12 @@
       S.sel = res.perangkat.id;
       refreshModel();
       peta.flash(res.perangkat.id);
+      const row = salin(res.perangkat);
+      catat({
+        label: 'tambah ' + row.nama,
+        undo: () => hapusLangsung([row.id]),
+        redo: () => pulihkanPerangkat([row], []),
+      });
       return res.perangkat;
     } catch (e) {
       setSaveState('error');
@@ -952,17 +1070,44 @@
     const anak = ids.reduce((n, id) => n + S.model.kids(id).filter(c => !ids.includes(c.id)).length, 0);
     // Hapus massal: tampilkan maksimal 12 nama agar dialog konfirmasi tetap terbaca.
     const daftar = names.length > 12 ? names.slice(0, 12).join(', ') + ` … dan ${names.length - 12} lainnya` : names.join(', ');
-    if (!confirm(`Hapus ${names.length > 1 ? names.length + ' perangkat: ' : ''}${daftar}?` + (anak ? `\n\n${anak} perangkat yang terhubung ke sini akan menjadi tanpa uplink.` : ''))) return;
+    // Satu perangkat tanpa sambungan: langsung hapus (bisa dibatalkan). Selebihnya minta konfirmasi dulu.
+    if ((names.length > 1 || anak) && !confirm(`Hapus ${names.length > 1 ? names.length + ' perangkat: ' : ''}${daftar}?` + (anak ? `\n\n${anak} perangkat yang terhubung ke sini akan menjadi tanpa uplink.` : '') + '\n\nBisa dibatalkan dengan Ctrl+Z.')) return;
+    const rows = ids.map(id => S.list.find(d => d.id === id)).filter(Boolean).map(salin);
+    const sambung = S.list.filter(d => ids.includes(d.uplink_id) && !ids.includes(d.id)).map(d => ({ id: d.id, uplink_id: d.uplink_id }));
     try {
-      await enqueue(() => api(API, { action: 'perangkat_delete', ids }));
-      S.list = S.list.filter(d => !ids.includes(d.id));
-      S.list.forEach(d => { if (ids.includes(d.uplink_id)) d.uplink_id = null; });
-      if (ids.includes(S.sel)) S.sel = null;
-      refreshModel();
-      toast('Dihapus');
+      await hapusLangsung(ids);
+      catat({
+        label: names.length > 1 ? `hapus ${names.length} perangkat` : 'hapus ' + names[0],
+        undo: () => pulihkanPerangkat(rows, sambung),
+        redo: () => hapusLangsung(ids),
+      });
+      toast(names.length > 1 ? `${names.length} perangkat dihapus` : names[0] + ' dihapus', false, {
+        label: 'Batalkan',
+        fn: () => jalankanRiwayat('undo'),
+      });
     } catch (e) {
       setSaveState('error');
       toast(e.message, true);
+    }
+  }
+
+  async function hapusLangsung(ids) {
+    await enqueue(() => api(API, { action: 'perangkat_delete', ids }));
+    S.list = S.list.filter(d => !ids.includes(d.id));
+    S.list.forEach(d => { if (ids.includes(d.uplink_id)) d.uplink_id = null; });
+    ids.forEach(id => S.pilih.delete(id));
+    if (ids.includes(S.sel)) S.sel = null;
+    refreshModel();
+  }
+
+  /** Kembalikan perangkat yang dihapus (id semula) beserta sambungan perangkat lain ke situ. */
+  async function pulihkanPerangkat(rows, sambung) {
+    const res = await enqueue(() => api(API, { action: 'perangkat_pulihkan', proyek_id: S.proyek.id, perangkat: rows, sambung }));
+    S.list = res.perangkat;
+    refreshModel();
+    if (rows.length === 1 && S.model.byId.has(rows[0].id)) {
+      if (S.tab === 'denah') selectDev(rows[0].id);
+      peta.flash(rows[0].id);
     }
   }
 
@@ -1083,12 +1228,30 @@
       if (e.key === 'Escape') e.target.blur();
       return;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === 'd' && S.sel != null && S.canEdit) {
+      e.preventDefault();
+      return duplicateDev(S.sel);
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const arah = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }[k];
     if (k === 'escape') {
       if (peta.tool !== 'pilih') setTool('pilih');
       else if (S.sel != null) selectDev(null);
-    } else if (k === 'v') setTool('pilih');
+    } else if (arah && S.sel != null && S.canEdit) geserKeyboard(S.sel, arah, e.shiftKey);
+    else if (k === 'tab' && S.model.list.length) {
+      // Telusuri perangkat satu per satu (urutan topologi), peta mengikuti.
+      const urut = NP.Model.sortDev(S.model.list.filter(d => !hiddenTypes.has(d.jenis)));
+      if (!urut.length) return;
+      const i = urut.findIndex(d => d.id === S.sel);
+      const n = i < 0 ? (e.shiftKey ? urut.length - 1 : 0) : (i + (e.shiftKey ? -1 : 1) + urut.length) % urut.length;
+      selectDev(urut[n].id, true);
+    } else if (k === 'u' && S.sel != null) {
+      const p = S.model.parentOf(S.model.byId.get(S.sel));
+      if (p) selectDev(p.id, true);
+      else toast('Perangkat ini belum punya uplink');
+    } else if (k === 'p' && !mqSheet.matches) togglePanel();
+    else if (k === 'v') setTool('pilih');
     else if (k === 'l' && S.canEdit) setTool('hubung');
     else if (k === 'm') setTool('ukur');
     else if (k === 'f') peta.fit();
@@ -1099,6 +1262,226 @@
     else return;
     e.preventDefault();
   });
+
+  /**
+   * Geser perangkat terpilih dengan tombol panah (1 px layar, Shift = 10 px). Tekan beruntun disimpan sekali
+   * setelah berhenti menekan, sehingga satu Ctrl+Z mengembalikan seluruh geseran.
+   */
+  const geser = { id: null, x0: 0, y0: 0, t: 0 };
+  function geserKeyboard(id, arah, jauh) {
+    const d = S.model.byId.get(id);
+    if (!d) return;
+    if (geser.id !== id) {
+      if (geser.id != null) simpanGeser();
+      Object.assign(geser, { id, x0: d.x, y0: d.y });
+    }
+    const step = (jauh ? 10 : 1) / (peta.zoom || 1);
+    const { W, H } = peta.size();
+    d.x = Math.max(0, Math.min(W, d.x + arah[0] * step));
+    d.y = Math.max(0, Math.min(H, d.y + arah[1] * step));
+    refreshModel({ keepPanel: true });
+    clearTimeout(geser.t);
+    geser.t = setTimeout(simpanGeser, 450);
+  }
+  function simpanGeser() {
+    clearTimeout(geser.t);
+    const d = geser.id != null && S.model.byId.get(geser.id);
+    const id = geser.id;
+    geser.id = null;
+    if (!d) return;
+    const x = Math.round(d.x * 10) / 10, y = Math.round(d.y * 10) / 10;
+    d.x = geser.x0;
+    d.y = geser.y0;
+    saveDev(id, { x, y }, { keepPanel: true }).catch(() => {});
+  }
+
+  // ------------------------------------------------------------------------ pintasan global, menu, riwayat
+
+  /** Menu tarik-turun (<details class="menu">): tutup saat klik di luar atau setelah memilih item. */
+  document.addEventListener('click', e => {
+    $$('details.menu[open]').forEach(m => {
+      if (!m.contains(e.target) || e.target.closest('.menu-pop button')) m.open = false;
+    });
+  });
+
+  // Tandai kotak teks yang sedang diketik (belum tersimpan) — Ctrl+Z di situ tetap undo teks bawaan browser.
+  document.addEventListener('input', e => {
+    if (e.target.matches && e.target.matches('input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea')) e.target.dataset.ketik = '1';
+  }, true);
+  document.addEventListener('change', e => { if (e.target.dataset) delete e.target.dataset.ketik; }, true);
+  document.addEventListener('focusin', e => { if (e.target.dataset) delete e.target.dataset.ketik; }, true);
+
+  $('#btn-undo').addEventListener('click', () => jalankanRiwayat('undo'));
+  $('#btn-redo').addEventListener('click', () => jalankanRiwayat('redo'));
+  $('#btn-pintasan').addEventListener('click', () => $('#dlg-pintasan').showModal());
+  $('#dlg-pintasan [data-close]').addEventListener('click', () => $('#dlg-pintasan').close());
+
+  document.addEventListener('keydown', e => {
+    const diEditor = !$('#editor').hidden;
+    const k = e.key.toLowerCase();
+    const mod = e.ctrlKey || e.metaKey;
+    const dlg = document.querySelector('dialog[open]');
+    const ketik = e.target.closest && e.target.closest('input, textarea, select, [contenteditable]');
+    if (mod && k === 'k' && diEditor && !(dlg && dlg.id !== 'dlg-cari')) {
+      e.preventDefault();
+      return dlg ? dlg.close() : bukaCari();
+    }
+    if (dlg || !diEditor) return;
+    if (mod && !e.altKey && (k === 'z' || k === 'y')) {
+      // Di kotak isian: undo teks bawaan browser hanya selama sedang mengetik (belum tersimpan);
+      // selebihnya (isian sudah tersimpan, dropdown, centang) = batalkan perubahan aplikasi.
+      if (ketik && ketik.dataset.ketik === '1') return;
+      e.preventDefault();
+      if (ketik) ketik.blur();
+      if (geser.id != null) simpanGeser();
+      return jalankanRiwayat(k === 'y' || e.shiftKey ? 'redo' : 'undo');
+    }
+    if (ketik) return;
+    if (e.altKey && !mod && /^[1-4]$/.test(e.key)) {
+      e.preventDefault();
+      return go(['denah', 'daftar', 'topologi', 'proyek'][+e.key - 1]);
+    }
+    if (mod || e.altKey) return;
+    if (e.key === '/') {
+      e.preventDefault();
+      bukaCari();
+    } else if (e.key === '?') {
+      e.preventDefault();
+      $('#dlg-pintasan').showModal();
+    }
+  });
+
+  // ------------------------------------------------------------------------ cari cepat (Ctrl+K)
+
+  const cari = { items: [], i: 0 };
+
+  function bukaCari() {
+    if (!S.model) return;
+    $('#cari-q').value = '';
+    renderCari();
+    $('#dlg-cari').showModal();
+    $('#cari-q').focus();
+  }
+
+  /** Perintah yang bisa dijalankan dari kotak cari. */
+  function perintahCari() {
+    const c = [
+      { t: 'Buka tab Denah', k: 'denah peta', fn: () => go('denah') },
+      { t: 'Buka Daftar perangkat', k: 'daftar tabel list', fn: () => go('daftar') },
+      { t: 'Buka Topologi & cek', k: 'topologi pohon cek pemeriksaan bom kebutuhan kabel', fn: () => go('topologi') },
+      { t: S.lihat ? 'Buka Info event' : 'Buka Proyek (info, denah, akses tim)', k: 'proyek info event akses tim link', fn: () => go('proyek') },
+      { t: 'Cetak laporan / sheet AP', k: 'cetak print laporan sheet ap pdf', fn: () => $('#btn-print').click() },
+      { t: 'Seluruh denah (zoom pas)', k: 'fit zoom seluruh denah', fn: () => { go('denah'); setTimeout(() => peta.fit(), 80); } },
+      { t: 'Pintasan keyboard', k: 'bantuan help shortcut pintasan keyboard', fn: () => $('#dlg-pintasan').showModal() },
+    ];
+    if (S.canEdit) {
+      c.push({ t: 'Batalkan perubahan terakhir', k: 'undo batalkan', fn: () => jalankanRiwayat('undo') });
+      TYPE_ORDER.forEach((j, i) => c.push({
+        t: 'Tambah ' + TYPES[j].label, k: 'tambah taruh baru ' + j + ' ' + TYPES[j].label, kbd: i < 9 ? String(i + 1) : '',
+        fn: () => { go('denah'); setTimeout(() => setTool('tambah:' + j), 80); },
+      }));
+      c.push({ t: 'Unduh CSV perangkat', k: 'csv unduh export excel', fn: () => $('#btn-csv').click() });
+    }
+    return c;
+  }
+
+  function renderCari() {
+    const q = $('#cari-q').value.trim().toLowerCase();
+    const kata = q.split(/\s+/).filter(Boolean);
+    const cocok = teks => kata.every(w => teks.includes(w));
+    const m = S.model;
+    // Perangkat: nama diutamakan (awalan nama > bagian nama > isian lain).
+    const dev = m.list.map(d => {
+      const nama = d.nama.toLowerCase();
+      const isi = [d.nama, d.model, d.ip, d.vlan, d.pic, jenisLabel(d), ...Object.values(d.atribut || {})].join(' ').toLowerCase();
+      if (q && !cocok(isi)) return null;
+      return { d, skor: !q ? 0 : nama.startsWith(q) ? 0 : nama.includes(q) ? 1 : 2 };
+    }).filter(Boolean).sort((a, b) => a.skor - b.skor || a.d.nama.localeCompare(b.d.nama, 'id', { numeric: true }));
+    const cmd = perintahCari().filter(c => !q || cocok((c.t + ' ' + c.k).toLowerCase()));
+    cari.items = [...dev.slice(0, 50).map(x => ({ dev: x.d })), ...(q ? cmd : cmd.slice(0, 6)).map(c => ({ cmd: c }))];
+    cari.i = 0;
+    let h = '';
+    let judul = null;
+    cari.items.forEach((it, i) => {
+      const grup = it.dev ? 'Perangkat' + (dev.length > 50 ? ` (50 dari ${dev.length})` : ` (${dev.length})`) : 'Perintah';
+      if (grup !== judul) {
+        h += `<div class="cari-grup">${grup}</div>`;
+        judul = grup;
+      }
+      if (it.dev) {
+        const d = it.dev;
+        const p = m.parentOf(d);
+        const kon = KONEKSI[m.koneksi(d)];
+        h += `<div class="cari-item" role="option" data-i="${i}">
+          <i class="dotc" style="background:${NP.tampil(d).color}"></i>
+          <b>${esc(d.nama)}</b><span class="muted">${esc(jenisLabel(d))}${d.ip ? ' · ' + esc(d.ip) : ''}${p ? ' · ↑ ' + esc(p.nama) : ''}</span>
+          <span class="spacer"></span><span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>
+          <span class="kon" title="${esc(kon.label)}" style="color:${kon.color}">${kon.icon}</span></div>`;
+      } else {
+        h += `<div class="cari-item cmd" role="option" data-i="${i}"><i class="dotc cmd">›</i><span>${esc(it.cmd.t)}</span>
+          <span class="spacer"></span>${it.cmd.kbd ? `<kbd>${it.cmd.kbd}</kbd>` : ''}</div>`;
+      }
+    });
+    $('#cari-list').innerHTML = h || '<div class="muted center cari-kosong">Tidak ada yang cocok</div>';
+    tandaiCari();
+  }
+
+  function tandaiCari() {
+    $$('#cari-list .cari-item').forEach(el => el.classList.toggle('aktif', +el.dataset.i === cari.i));
+    const a = $('#cari-list .cari-item.aktif');
+    if (a) a.scrollIntoView({ block: 'nearest' });
+  }
+
+  function pilihCari(i, keDaftar) {
+    const it = cari.items[i];
+    if (!it) return;
+    $('#dlg-cari').close();
+    if (it.cmd) return it.cmd.fn();
+    const id = it.dev.id;
+    if (keDaftar) {
+      $('#list-q').value = it.dev.nama;
+      ['#list-jenis', '#list-status', '#list-koneksi'].forEach(s => { $(s).value = ''; });
+      go('daftar');
+      setTimeout(renderDaftar, 60);
+      return;
+    }
+    hiddenTypes.delete(it.dev.jenis);
+    peta.setHidden(new Set(hiddenTypes));
+    if (S.tab !== 'denah') {
+      S.sel = id;
+      go('denah');
+      setTimeout(() => selectDev(id, true), 80);
+    } else {
+      selectDev(id, true);
+    }
+  }
+
+  $('#btn-cari').addEventListener('click', bukaCari);
+  $('#cari-q').addEventListener('input', renderCari);
+  $('#cari-q').addEventListener('keydown', e => {
+    const n = cari.items.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (n) cari.i = (cari.i + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+      tandaiCari();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      pilihCari(cari.i, e.shiftKey);
+    }
+  });
+  $('#cari-list').addEventListener('click', e => {
+    const it = e.target.closest('.cari-item');
+    if (it) pilihCari(+it.dataset.i, e.shiftKey);
+  });
+  $('#cari-list').addEventListener('mousemove', e => {
+    const it = e.target.closest('.cari-item');
+    if (it && +it.dataset.i !== cari.i) {
+      cari.i = +it.dataset.i;
+      tandaiCari();
+    }
+  });
+  // Klik di luar kotak (latar) menutup dialog.
+  $('#dlg-cari').addEventListener('click', e => { if (e.target === $('#dlg-cari')) $('#dlg-cari').close(); });
 
   // ------------------------------------------------------------------------ panel kanan
 
@@ -1113,7 +1496,10 @@
     const d = S.sel != null && S.model.byId.get(S.sel);
     panel.innerHTML = d ? panelDev(d) : panelRingkasan();
     $('#sheet-title').textContent = d ? d.nama : 'Ringkasan · ' + S.model.list.length + ' perangkat';
-    if (d) renderPanelInfo();
+    if (d) {
+      renderPanelInfo();
+      terapkanPnTab();
+    }
   }
 
   // ------------------------------------------------------------------------ panel sebagai lembar bawah (HP & tablet)
@@ -1188,6 +1574,36 @@
     requestAnimationFrame(updateInset);
   }
   $('#btn-full').addEventListener('click', () => setFull(!document.body.classList.contains('map-full')));
+
+  // Panel kanan (desktop) bisa disembunyikan agar denah lebih luas. Saat tersembunyi, memilih perangkat tetap
+  // membuka panel sementara (untuk isian), dan panel tertutup lagi setelah pilihan dilepas. Disimpan per browser.
+  const panelSt = { tutup: false, sementara: false };
+  try { panelSt.tutup = localStorage.getItem('np-panel') === 'tutup'; } catch (err) { /* abaikan */ }
+
+  function terapkanPanel() {
+    const tutup = panelSt.tutup && !panelSt.sementara;
+    $('.peta-layout').classList.toggle('panel-tutup', tutup);
+    const b = $('#btn-panel');
+    b.setAttribute('aria-pressed', String(!panelSt.tutup));
+    b.title = panelSt.tutup ? 'Tampilkan panel kanan (P)' : 'Sembunyikan panel kanan (P)';
+  }
+
+  function togglePanel() {
+    panelSt.tutup = !panelSt.tutup;
+    panelSt.sementara = false;
+    try { localStorage.setItem('np-panel', panelSt.tutup ? 'tutup' : 'buka'); } catch (err) { /* abaikan */ }
+    terapkanPanel();
+  }
+
+  /** Dipanggil saat pilihan perangkat berubah. */
+  function panelIkutPilihan(id) {
+    if (!panelSt.tutup) return;
+    panelSt.sementara = id != null;
+    terapkanPanel();
+  }
+
+  $('#btn-panel').addEventListener('click', togglePanel);
+  terapkanPanel();
   // Keluar dari fullscreen lewat tombol Back / Esc browser -> kembalikan tampilan.
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && document.body.classList.contains('map-full')) setFull(false);
@@ -1391,6 +1807,7 @@
     const dis = S.canEdit ? '' : ' disabled';
     const a = d.atribut || {};
     return `
+      <div class="pn-top">
       <div class="pn-head">
         <i class="glyph${NP.tampil(d).ikon ? ' sq' : ''}" style="background:${NP.tampil(d).color}">${NP.tampil(d).ikon ? NP.ikonSvg(NP.tampil(d).ikon, 20) : esc(NP.tampil(d).short)}</i>
         <div class="grow"><h3 id="pn-nama">${esc(d.nama)}</h3><span class="muted small">${esc(t.label)}${d.model ? ' · ' + esc(d.model) : ''}</span></div>
@@ -1401,11 +1818,21 @@
         ${S.canEdit ? `<button type="button" class="small" data-act="dup">Duplikat</button>
         <button type="button" class="small danger" data-act="del">Hapus</button>` : ''}
       </div>
-      <div id="pn-info"></div>
-      <div id="pn-tim"></div>
+      <nav class="pn-tabs" role="tablist" aria-label="Bagian isian perangkat">
+        <button type="button" role="tab" data-pt="info">Info<i class="pt-dot" hidden></i></button>
+        <button type="button" role="tab" data-pt="identitas">Identitas</button>
+        <button type="button" role="tab" data-pt="koneksi">Koneksi</button>
+        <button type="button" role="tab" data-pt="jenis">${esc(tabJenis(d))}</button>
+        <button type="button" role="tab" data-pt="grup">Group<span class="pt-n" hidden></span></button>
+      </nav>
+      </div>
+      <div data-pp="info">
+        <div id="pn-info"></div>
+        <div id="pn-tim"></div>
+        ${!S.lihat || S.tim ? '<div class="pn-sec" id="pn-riwayat"><h4>Riwayat status &amp; catatan</h4><p class="muted small">Memuat…</p></div>' : ''}
+      </div>
       <form id="dev-form" autocomplete="off" onsubmit="return false">
-        <div class="pn-sec">
-          <h4>Identitas</h4>
+        <div class="pn-sec" data-pp="identitas">
           <div class="fgrid">
             ${fieldHtml({ k: 'nama', label: 'Nama / label *' }, d.nama, dis)}
             <label class="field"><span>Jenis</span><select data-f="jenis"${dis}>${TYPE_ORDER.map(j => `<option value="${j}"${j === d.jenis ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select></label>
@@ -1415,8 +1842,7 @@
             ${fieldHtml({ k: 'pic', label: 'PIC / teknisi' }, d.pic, dis)}
           </div>
         </div>
-        <div class="pn-sec">
-          <h4>Koneksi</h4>
+        <div class="pn-sec" data-pp="koneksi">
           <div class="fgrid">
             <label class="field wide"><span>Uplink (sumber koneksi)</span>
               <div class="inline"><select data-f="uplink_id"${dis}>${uplinkOptions(d)}</select>
@@ -1426,24 +1852,60 @@
             ${fieldHtml({ k: 'port_lokal', label: 'Port di perangkat ini', ph: 'mis. ether1 / WAN' }, d.port_lokal, dis)}
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
             ${fieldHtml({ k: 'bandwidth_mbps', label: t.bwLabel, type: 'number' }, d.bandwidth_mbps, dis)}
-            <div class="wide" id="pn-grup"></div>
             <div class="wide" id="pn-route"></div>
             ${fieldHtml({ k: 'ip', label: 'IP address', ph: 'mis. 10.10.0.11/22 · DHCP' }, d.ip, dis)}
             ${fieldHtml({ k: 'vlan', label: 'VLAN', ph: 'mis. 10 (tamu)' }, d.vlan, dis)}
           </div>
         </div>
-        ${t.fields.length ? `<div class="pn-sec">
-          <h4>${esc(t.label)}</h4>
-          <div class="fgrid">${t.fields.map(f => fieldHtml(Object.assign({ attr: true }, f), a[f.k], dis)).join('')}</div>
-        </div>` : ''}
-        <div class="pn-sec">
-          <h4>Keterangan konfigurasi</h4>
-          <textarea data-f="catatan" rows="8" class="mono" placeholder="Catatan setting, mis.&#10;- ether1 → WAN Indihome (PPPoE: user@telkom.net)&#10;- bridge-lan: ether2-5, VLAN 10/20&#10;- /ip dhcp-server ... lease 30m&#10;- AP mode: access point, controller 10.10.0.5"${dis}>${esc(d.catatan)}</textarea>
-          ${S.canEdit ? '<p class="muted small">Tersimpan otomatis saat pindah isian.</p>' : ''}
+        <div data-pp="jenis">
+          ${t.fields.length ? `<div class="pn-sec">
+            <h4>Pengaturan ${esc(t.label)}</h4>
+            <div class="fgrid">${t.fields.map(f => fieldHtml(Object.assign({ attr: true }, f), a[f.k], dis)).join('')}</div>
+          </div>` : ''}
+          <div class="pn-sec">
+            <h4>Keterangan konfigurasi</h4>
+            <textarea data-f="catatan" rows="8" class="mono" placeholder="Catatan setting, mis.&#10;- ether1 → WAN Indihome (PPPoE: user@telkom.net)&#10;- bridge-lan: ether2-5, VLAN 10/20&#10;- /ip dhcp-server ... lease 30m&#10;- AP mode: access point, controller 10.10.0.5"${dis}>${esc(d.catatan)}</textarea>
+          </div>
         </div>
       </form>
-      ${!S.lihat || S.tim ? '<div class="pn-sec" id="pn-riwayat"><h4>Riwayat status &amp; catatan</h4><p class="muted small">Memuat…</p></div>' : ''}`;
+      <div data-pp="grup">
+        <div class="pn-sec" id="pn-grup-sec"><h4>Group perangkat ini</h4><div id="pn-grup"></div></div>
+        <div class="pn-sec" id="pn-grup-anak-sec"><h4>Group perangkat yang terhubung ke sini</h4><div id="pn-grup-anak-box"></div></div>
+      </div>
+      ${S.canEdit ? '<p class="muted small pn-auto">Semua isian tersimpan otomatis saat pindah isian · Ctrl+Z membatalkan.</p>' : ''}`;
   }
+
+  /** Label tab pengaturan khusus jenis: "Switch", "Access Point", "Sumber WAN", "Laptop", … */
+  function tabJenis(d) {
+    if (d.jenis === 'endpoint') return NP.tampil(d).label || 'Endpoint';
+    const t = TYPES[d.jenis] || TYPES.lainnya;
+    return t.label.replace(/\s*\(.*\)/, '').split(' / ')[0] || 'Konfigurasi';
+  }
+
+  // Tab panel perangkat; tab terakhir diingat agar mengisi banyak perangkat (mis. IP) tidak perlu pindah tab terus.
+  let pnTab = 'info';
+  try { pnTab = localStorage.getItem('np-pn-tab') || 'info'; } catch (err) { /* abaikan */ }
+
+  function terapkanPnTab() {
+    const body = $('#panel-body');
+    if (!body.querySelector('.pn-tabs')) return;
+    $$('.pn-tabs [data-pt]', body).forEach(b => {
+      const on = b.dataset.pt === pnTab;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+    $$('[data-pp]', body).forEach(p => { p.hidden = p.dataset.pp !== pnTab; });
+  }
+
+  $('#panel').addEventListener('click', e => {
+    const b = e.target.closest('.pn-tabs [data-pt]');
+    if (!b) return;
+    pnTab = b.dataset.pt;
+    try { localStorage.setItem('np-pn-tab', pnTab); } catch (err) { /* abaikan */ }
+    terapkanPnTab();
+    $('#panel').scrollTop = 0;
+    $('#panel-body').scrollTop = 0;
+  });
 
   /** Bagian info (jalur WAN, bandwidth, kabel, anak, peringatan) — diperbarui tanpa mengganggu form. */
   function renderPanelInfo() {
@@ -1453,7 +1915,7 @@
       if (!box && S.tab === 'denah' && peta.tool !== 'ukur') renderPanel();
       return;
     }
-    if (box.querySelector('.grup-input[data-dirty]')) return; // nama group sedang diketik
+    if ($('#panel-body .grup-input[data-dirty]')) return; // nama group sedang diketik
     const m = S.model;
     const nm = $('#pn-nama');
     if (nm) nm.textContent = d.nama;
@@ -1488,8 +1950,6 @@
     }
     if (kids.length) {
       h += `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span><div class="path wrap">${kids.map(c => S.canEdit ? `<span class="chip-x">${chip(c)}<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button></span>` : chip(c)).join('')}</div></div>`;
-      const jenisAnak = [...new Set(kids.map(c => c.jenis))];
-      h += `<div class="grp-list" id="pn-grup-anak">${jenisAnak.map(j => grupEditor(d.id, j)).join('')}</div>`;
     }
     if (issues.length) {
       h += `<ul class="issues">${issues.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>`;
@@ -1499,9 +1959,24 @@
     renderRoute(d);
     renderTimBox(d);
     renderRiwayat(d);
-    const gb = $('#pn-grup');
-    // Jangan timpa nama group yang sedang diketik.
-    if (gb && !gb.querySelector('.grup-input[data-dirty]')) gb.innerHTML = d.uplink_id != null ? grupEditor(d.uplink_id, d.jenis) : '';
+    // Tab Group: group perangkat ini (di uplinknya) + group tiap jenis perangkat yang terhubung ke sini.
+    const p = m.parentOf(d);
+    const gSendiri = p ? grupEditor(p.id, d.jenis) : '';
+    const jenisAnak = [...new Set(kids.map(c => c.jenis))];
+    const gAnak = jenisAnak.map(j => grupEditor(d.id, j)).join('');
+    $('#pn-grup').innerHTML = gSendiri || `<p class="muted small">${p ? 'Belum ada nama group.' : 'Sambungkan perangkat ini ke uplink dulu (tab Koneksi) — perangkat sejenis di uplink yang sama bisa diberi nama group, mis. BOOTH-A-01, BOOTH-A-02.'}</p>`;
+    $('#pn-grup-anak-box').innerHTML = `<div class="grp-list">${gAnak}</div>`;
+    $('#pn-grup-anak-sec').hidden = !gAnak;
+    const nGrup = (p && grupNama(p.id, d.jenis) ? 1 : 0) + jenisAnak.filter(j => grupNama(d.id, j)).length;
+    const pn = $('.pn-tabs .pt-n');
+    pn.textContent = nGrup;
+    pn.hidden = !nGrup;
+    // Tanda di tab Info bila ada masalah/peringatan desain pada perangkat ini.
+    const dot = $('.pn-tabs .pt-dot');
+    const lv = issues.some(c => c.level === 'err') ? 'err' : issues.some(c => c.level === 'warn') ? 'warn' : '';
+    dot.hidden = !lv;
+    dot.className = 'pt-dot ' + lv;
+    dot.title = lv ? issues.length + ' catatan desain' : '';
   }
 
   // ------------------------------------------------------------------------ akses tim: update status & riwayat
@@ -1877,8 +2352,40 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       </tr>`;
     }).join('');
     $('#dev-table').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${COLS.length + 2}" class="muted center">Tidak ada perangkat${S.list.length ? ' yang cocok' : ' — tambahkan dari tab Denah'}.</td></tr>`}</tbody>`;
+    sembunyikanKolomKosong(rows.length);
+    const adaFilter = ['#list-q', '#list-jenis', '#list-status', '#list-koneksi'].some(s => $(s).value);
+    $('#list-reset').hidden = !adaFilter;
+    $('#list-count').textContent = adaFilter ? `${rows.length} dari ${S.list.length} perangkat` : `${S.list.length} perangkat`;
     updateBulk();
   }
+
+  // Kolom yang kosong di semua baris yang tampil disembunyikan agar tabel ringkas (bisa dimatikan di menu Lainnya).
+  let kolomSemua = false;
+  try { kolomSemua = localStorage.getItem('np-kolom') === 'semua'; } catch (err) { /* abaikan */ }
+
+  function sembunyikanKolomKosong(n) {
+    $('#kolom-mode').textContent = kolomSemua ? 'ditampilkan' : 'disembunyikan';
+    const tb = $('#dev-table');
+    const rows = $$('tbody tr[data-id]', tb);
+    const ths = $$('thead th', tb);
+    ths.forEach((th, i) => {
+      if (th.classList.contains('c-cek') || i <= 2) return; // centang, nama & jenis selalu tampil
+      const kosong = !kolomSemua && n > 0 && rows.every(tr => tr.children[i] && tr.children[i].classList.contains('empty'));
+      th.classList.toggle('col-off', kosong);
+      rows.forEach(tr => tr.children[i] && tr.children[i].classList.toggle('col-off', kosong));
+    });
+  }
+
+  $('#btn-kolom').addEventListener('click', () => {
+    kolomSemua = !kolomSemua;
+    try { localStorage.setItem('np-kolom', kolomSemua ? 'semua' : 'auto'); } catch (err) { /* abaikan */ }
+    renderDaftar();
+  });
+
+  $('#list-reset').addEventListener('click', () => {
+    ['#list-q', '#list-jenis', '#list-status', '#list-koneksi'].forEach(s => { $(s).value = ''; });
+    renderDaftar();
+  });
 
   // ---- pilih banyak & aksi massal
   let cekTerakhir = null; // id baris terakhir yang dicentang (untuk Shift+klik)
@@ -2002,17 +2509,11 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       });
       riwayat.id = null;
       refreshModel();
+      if (!tanpaUndo) catat({ label: `status ${ids.length} perangkat`, undo: () => kembalikanStatus(lama, status), redo: () => statusMassal(ids, status, true) });
       toast(`${res.jumlah} perangkat → ${STATUS[status].label}`, false, tanpaUndo ? undefined : {
         label: 'Batalkan',
         fn: async () => {
-          // Kelompokkan per status lama, lalu kembalikan per kelompok.
-          const grup = new Map();
-          lama.forEach((st, id) => {
-            if (!st || st === status) return;
-            if (!grup.has(st)) grup.set(st, []);
-            grup.get(st).push(id);
-          });
-          for (const [st, gids] of grup) await statusMassal(gids, st, true);
+          await kembalikanStatus(lama, status);
           toast('Status dikembalikan');
         },
       });
@@ -2020,6 +2521,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       setSaveState('error');
       toast(err.message, true);
     }
+  }
+
+  /** Kembalikan status lama tiap perangkat (dikelompokkan per status agar request sedikit). */
+  async function kembalikanStatus(lama, status) {
+    const grup = new Map();
+    lama.forEach((st, id) => {
+      if (!st || st === status) return;
+      if (!grup.has(st)) grup.set(st, []);
+      grup.get(st).push(id);
+    });
+    for (const [st, gids] of grup) await statusMassal(gids, st, true);
   }
 
   $('#bulk-status').addEventListener('change', e => {
@@ -2042,7 +2554,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const ds = [...S.pilih].map(id => S.model.byId.get(id)).filter(d => d && d.uplink_id != null);
     if (!ds.length) return toast('Perangkat terpilih tidak punya koneksi uplink');
     if (!confirm(`Putuskan koneksi uplink ${ds.length} perangkat?\nPort uplink & bentuk jalur kabelnya ikut dikosongkan.`)) return;
-    for (const d of ds) await saveDev(d.id, { uplink_id: null, port_uplink: '', jalur: null }, { keepPanel: true }).catch(() => {});
+    await kelompok(`putus ${ds.length} koneksi`, async () => {
+      for (const d of ds) await saveDev(d.id, { uplink_id: null, port_uplink: '', jalur: null }, { keepPanel: true }).catch(() => {});
+    });
     toast(`${ds.length} koneksi diputus`);
   });
 
@@ -2145,9 +2659,24 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const port = [d.port_lokal, d.port_uplink].filter(Boolean).join(' ↔ ');
       const lv = issuesBy.get(d.id);
       const kids = NP.Model.sortDev(m.kids(d.id));
+      const tutup = kids.length && treeTutup.has(d.id);
+      // Cabang tertutup: ringkasan isi cabang (jumlah per jenis) agar tetap informatif.
+      let ringkas = '';
+      if (tutup) {
+        const hit = new Map();
+        m.descendants(d.id).forEach(id => {
+          const x = m.byId.get(id);
+          const l = x ? NP.tampil(x).label : '';
+          if (l) hit.set(l, (hit.get(l) || 0) + 1);
+        });
+        ringkas = `<button type="button" class="tsum" data-twig="${d.id}">${[...hit].map(([l, n]) => `${n} ${esc(l)}`).join(' · ')}</button>`;
+      }
+      const tog = kids.length
+        ? `<button type="button" class="twig${tutup ? '' : ' buka'}" data-twig="${d.id}" aria-expanded="${!tutup}" title="${tutup ? 'Buka' : 'Tutup'} cabang (${m.descendants(d.id).size} perangkat)">▸</button>`
+        : '<span class="twig-x"></span>';
       return `<div class="tnode" style="--d:${depth}">
           <div class="trow">
-            ${chip(d)}
+            ${tog}${chip(d)}
             <span class="muted small">${esc(jenisLabel(d))}</span>
             ${port ? `<span class="port" title="Port lokal ↔ port di uplink">${esc(port)}${d.media ? ' · ' + esc(MEDIA[d.media].short || d.media) : ''}</span>` : d.media && depth ? `<span class="port">${esc(MEDIA[d.media].short || d.media)}</span>` : ''}
             <span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>
@@ -2155,8 +2684,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             ${lv ? `<span class="lv ${lv}">${lv === 'err' ? 'masalah' : lv === 'warn' ? 'peringatan' : 'catatan'}</span>` : ''}
           </div>
           ${meta.length ? `<div class="tmeta">${meta.map(esc).join(' · ')}</div>` : ''}
-        </div>` + kids.map(c => node(c, depth + 1)).join('');
+          ${ringkas ? `<div class="tmeta">${ringkas}</div>` : ''}
+        </div>` + (tutup ? '' : kids.map(c => node(c, depth + 1)).join(''));
     }
+    muatTreeTutup();
     const roots = m.roots();
     $('#tree').innerHTML = roots.length ? roots.map(r => node(r, 0)).join('') : '<p class="muted">Belum ada perangkat.</p>';
     $('#topo-count').textContent = `${m.list.length} perangkat · ${roots.length} akar`;
@@ -2192,7 +2723,37 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       (!keys.length && !kb.tanpaSkala ? '<p class="muted">Belum ada link kabel.</p>' : '');
   }
 
+  // Cabang pohon topologi yang ditutup, disimpan per event di browser.
+  let treeTutup = new Set();
+  let treeProyek = null;
+  function muatTreeTutup() {
+    if (treeProyek === S.proyek.id) return;
+    treeProyek = S.proyek.id;
+    try { treeTutup = new Set(JSON.parse(localStorage.getItem('np-tree-' + treeProyek) || '[]')); } catch (err) { treeTutup = new Set(); }
+  }
+  function simpanTreeTutup() {
+    try { localStorage.setItem('np-tree-' + treeProyek, JSON.stringify([...treeTutup])); } catch (err) { /* abaikan */ }
+  }
+
   $('[data-pane="topologi"]').addEventListener('click', e => {
+    const tw = e.target.closest('[data-twig]');
+    if (tw) {
+      const id = +tw.dataset.twig;
+      if (treeTutup.has(id)) treeTutup.delete(id);
+      else treeTutup.add(id);
+      simpanTreeTutup();
+      return renderTopologi();
+    }
+    const tb = e.target.closest('[data-tree]');
+    if (tb) {
+      const m = S.model;
+      const induk = m.list.filter(d => m.kids(d.id).length);
+      if (tb.dataset.tree === 'buka') treeTutup.clear();
+      else if (tb.dataset.tree === 'tutup') treeTutup = new Set(m.roots().filter(d => m.kids(d.id).length).map(d => d.id));
+      else treeTutup = new Set(induk.filter(d => m.kids(d.id).every(c => c.jenis === 'endpoint')).map(d => d.id));
+      simpanTreeTutup();
+      return renderTopologi();
+    }
     const a = e.target.closest('[data-sel]');
     if (!a) return;
     e.preventDefault();

@@ -1034,6 +1034,31 @@ function salin_perangkat($proyekId, $list, $idSemula = false)
             $updLuar->execute([$oldUp, $newId]);
         }
     }
+    // Multi-WAN: id Sumber WAN di atribut wan_lain ikut dipetakan ke id baru (salin event, impor, buka backup).
+    // Saat pemulihan (id semula), id yang tidak ikut dipulihkan tetap dipakai bila perangkatnya masih ada.
+    $atrUpd = $pdo->prepare('UPDATE np_perangkat SET atribut = ? WHERE id = ?');
+    foreach ($list as $d) {
+        if (!is_array($d) || !isset($d['id'], $map[(int) $d['id']], $d['atribut']) || !is_array($d['atribut']) || empty($d['atribut']['wan_lain'])) {
+            continue;
+        }
+        $wl = json_decode((string) $d['atribut']['wan_lain'], true);
+        $baru = [];
+        foreach (is_array($wl) ? $wl : [] as $w) {
+            $wid = is_array($w) && isset($w['id']) ? (int) $w['id'] : 0;
+            if (isset($map[$wid])) {
+                $baru[] = ['id' => $map[$wid], 'port' => isset($w['port']) ? (string) $w['port'] : ''];
+            } elseif ($idSemula && $wid) {
+                $baru[] = ['id' => $wid, 'port' => isset($w['port']) ? (string) $w['port'] : ''];
+            }
+        }
+        $atr = $d['atribut'];
+        if ($baru) {
+            $atr['wan_lain'] = json_encode($baru, JSON_UNESCAPED_UNICODE);
+        } else {
+            unset($atr['wan_lain'], $atr['wan_mode']);
+        }
+        $atrUpd->execute([atribut_json($atr), $map[(int) $d['id']]]);
+    }
     $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyekId]);
     $pdo->commit();
     return count($map) ?: count($list);

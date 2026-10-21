@@ -95,35 +95,114 @@
       return j * (1 + (proyek.slack_kabel || 0) / 100);
     }
 
-    /** Bandwidth efektif = nilai terkecil di sepanjang jalur ke WAN (bottleneck). */
-    function bwEfektif(d) {
-      let min = null;
-      let at = null;
-      for (const n of path(d)) {
-        if (n.bandwidth_mbps != null && (min == null || n.bandwidth_mbps < min)) {
-          min = n.bandwidth_mbps;
-          at = n;
+    // ---- Multi-WAN: router dengan WAN tambahan (atribut wan_lain = JSON [{id, port}], wan_mode = failover|loadbalance).
+    // WAN utama tetap lewat uplink biasa; WAN tambahan adalah sambungan langsung ke Sumber WAN/ISP lain.
+
+    /** WAN tambahan perangkat: [{dev, port}] — hanya Sumber WAN/ISP yang masih ada, tanpa duplikat & tanpa uplink utama. */
+    function wanLain(d) {
+      const raw = d && d.atribut && d.atribut.wan_lain;
+      if (!raw) return [];
+      let arr;
+      try { arr = JSON.parse(raw); } catch (e) { return []; }
+      if (!Array.isArray(arr)) return [];
+      const seen = new Set([d.id, d.uplink_id]);
+      const out = [];
+      for (const w of arr) {
+        const dev = w && byId.get(+w.id);
+        if (!dev || dev.jenis !== 'isp' || seen.has(dev.id)) continue;
+        seen.add(dev.id);
+        out.push({ dev, port: String(w.port || '') });
+      }
+      return out;
+    }
+    const wanMode = d => (d && d.atribut && d.atribut.wan_mode === 'loadbalance' ? 'loadbalance' : 'failover');
+
+    /**
+     * Bandwidth efektif = bottleneck di sepanjang jalur ke WAN. Di router multi-WAN, kapasitas dari atas = gabungan
+     * semua WAN (load balance) atau WAN terbesar (failover).
+     */
+    const bwMemo = new Map();
+    function bwEfektif(d, _jejak) {
+      if (bwMemo.has(d.id)) return bwMemo.get(d.id);
+      const jejak = _jejak || new Set();
+      if (jejak.has(d.id)) return { mbps: null, at: null };
+      jejak.add(d.id);
+      const p = parentOf(d);
+      const cabang = [];
+      if (p) cabang.push(bwEfektif(p, jejak));
+      const lain = wanLain(d);
+      for (const w of lain) cabang.push(bwEfektif(w.dev, jejak));
+      let up = { mbps: null, at: null };
+      if (cabang.length === 1) up = cabang[0];
+      else if (cabang.length > 1) {
+        const ada = cabang.filter(b => b.mbps != null);
+        if (ada.length) {
+          up = wanMode(d) === 'loadbalance'
+            ? { mbps: ada.reduce((s, b) => s + b.mbps, 0), at: d, gabung: cabang.length }
+            : ada.reduce((a, b) => (b.mbps > a.mbps ? b : a));
         }
       }
-      return { mbps: min, at };
+      const r = d.bandwidth_mbps != null && (up.mbps == null || d.bandwidth_mbps < up.mbps) ? { mbps: d.bandwidth_mbps, at: d } : up;
+      jejak.delete(d.id);
+      if (!_jejak) bwMemo.set(d.id, r);
+      return r;
     }
 
+    /** Sumber WAN utama (akar jalur uplink) atau null. */
     function wanOf(d) {
       const p = path(d);
       const root = p[p.length - 1];
       return root && root.jenis === 'isp' ? root : null;
     }
 
-    /** 'online' | 'gangguan' | 'offline' — lihat NP.KONEKSI. Disimpan sementara per model. */
-    const koneksiMemo = new Map();
-    function koneksi(d) {
-      if (!koneksiMemo.has(d.id)) {
-        const p = path(d);
-        const root = p[p.length - 1];
-        koneksiMemo.set(d.id, !root || root.jenis !== 'isp' ? 'offline'
-          : p.some(n => n.status === 'bermasalah') ? 'gangguan' : 'online');
+    /** Semua Sumber WAN yang melayani perangkat ini: [{dev, utama, via, port}] (via = router multi-WAN). */
+    function wans(d) {
+      const out = [];
+      const ids = new Set();
+      const utama = wanOf(d);
+      if (utama) {
+        out.push({ dev: utama, utama: true, via: null, port: '' });
+        ids.add(utama.id);
       }
-      return koneksiMemo.get(d.id);
+      for (const n of path(d)) {
+        for (const w of wanLain(n)) {
+          if (ids.has(w.dev.id)) continue;
+          ids.add(w.dev.id);
+          out.push({ dev: w.dev, utama: false, via: n, port: w.port });
+        }
+      }
+      return out;
+    }
+
+    /** Router yang memakai Sumber WAN ini sebagai WAN tambahan. */
+    function pemakaiWan(ispId) {
+      return list.filter(d => wanLain(d).some(w => w.dev.id === ispId));
+    }
+
+    /**
+     * 'online' | 'gangguan' | 'offline' — lihat NP.KONEKSI. Multi-WAN: online bila salah satu WAN masih baik
+     * (redundansi), gangguan bila semua WAN yang tersambung bermasalah.
+     */
+    const koneksiMemo = new Map();
+    function koneksi(d, _jejak) {
+      if (koneksiMemo.has(d.id)) return koneksiMemo.get(d.id);
+      const jejak = _jejak || new Set();
+      if (jejak.has(d.id)) return 'offline';
+      jejak.add(d.id);
+      const p = parentOf(d);
+      const opsi = [p ? koneksi(p, jejak) : d.jenis === 'isp' ? 'online' : 'offline'];
+      for (const w of wanLain(d)) opsi.push(koneksi(w.dev, jejak));
+      let r = opsi.includes('online') ? 'online' : opsi.includes('gangguan') ? 'gangguan' : 'offline';
+      if (r !== 'offline' && d.status === 'bermasalah') r = 'gangguan';
+      jejak.delete(d.id);
+      if (!_jejak) koneksiMemo.set(d.id, r);
+      return r;
+    }
+
+    /** Panjang kabel ke WAN tambahan (garis lurus + tambahan) atau null bila skala belum dikalibrasi. */
+    function kabelWanM(d, isp) {
+      if (!proyek.skala) return null;
+      return distPx(d, isp) * proyek.skala * (1 + (proyek.slack_kabel || 0) / 100);
     }
 
     /** Status koneksi yang dibawa garis dari perangkat ke uplinknya = status uplink tersebut. */
@@ -173,8 +252,15 @@
         const a = d.atribut || {};
         if (!p && d.jenis !== 'isp') {
           add(list.length > 1 ? 'warn' : 'info', d, `${d.nama}: belum punya uplink (tidak tersambung ke sumber WAN)`);
-        } else if (p && !wanOf(d)) {
+        } else if (p && !wans(d).length) {
           add('warn', d, `${d.nama}: jalur uplink tidak berujung di Sumber WAN/ISP`);
+        }
+        // Multi-WAN: pemberitahuan bila WAN utama tidak sampai ke ISP (hanya WAN tambahan yang aktif).
+        if (wanLain(d).length && p && !wanOf(d)) {
+          add('info', d, `${d.nama}: WAN utama (uplink ${p.nama}) tidak berujung di Sumber WAN — hanya WAN tambahan yang aktif`);
+        }
+        if (!p && wanLain(d).length && d.jenis !== 'isp') {
+          add('info', d, `${d.nama}: hanya punya WAN tambahan — jadikan salah satunya uplink (WAN utama) agar pohon topologi rapi`);
         }
         if (d.status === 'bermasalah') add('err', d, `${d.nama}: berstatus bermasalah`);
 
@@ -323,6 +409,19 @@
         tot[key].m += k;
         tot[key].n++;
       }
+      // Kabel ke WAN tambahan (dihitung UTP, garis lurus + tambahan).
+      for (const d of list) {
+        for (const w of wanLain(d)) {
+          const k = kabelWanM(d, w.dev);
+          if (k == null) {
+            tanpaSkala++;
+            continue;
+          }
+          tot.utp = tot.utp || { m: 0, n: 0 };
+          tot.utp.m += k;
+          tot.utp.n++;
+        }
+      }
       return { tot, tanpaSkala };
     }
 
@@ -341,7 +440,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, ssids };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, ssids };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

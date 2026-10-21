@@ -55,6 +55,7 @@
     };
     const nodeEls = new Map();
     const linkEls = new Map();
+    const wanEls = []; // garis WAN tambahan router multi-WAN: {g, d, isp}
 
     // ------------------------------------------------------------------ data & gambar
 
@@ -86,6 +87,7 @@
       gLinks.textContent = '';
       nodeEls.clear();
       linkEls.clear();
+      wanEls.length = 0;
       // Perangkat terpilih digambar paling akhir agar berada di atas.
       const ordered = m.list.slice().sort((a, b) => (a.id === st.sel) - (b.id === st.sel));
       for (const d of m.list) {
@@ -99,6 +101,16 @@
           <text class="dist"></text>`;
         gLinks.appendChild(g);
         linkEls.set(d.id, g);
+      }
+      // WAN tambahan (multi-WAN): garis putus-putus ganda ke Sumber WAN lain, berlabel WAN2, WAN3, ...
+      for (const d of m.list) {
+        m.wanLain(d).forEach((w, i) => {
+          const g = el('g', { class: 'link wan2 k-' + m.koneksi(w.dev), 'data-id': d.id });
+          g.innerHTML = `<polyline class="hit"/><polyline class="case"/><polyline class="ln" stroke="#0f766e"/>
+            <text class="wan-lbl">WAN${i + 2}${m.wanMode(d) === 'loadbalance' ? ' · LB' : ''}</text><text class="dist"></text>`;
+          gLinks.appendChild(g);
+          wanEls.push({ g, d, isp: w.dev });
+        });
       }
       for (const d of ordered) {
         const t = NP.tampil(d);
@@ -173,6 +185,10 @@
         g.classList.toggle('on-path', onPath.has(id) && p && onPath.has(p.id));
         g.style.display = !st.layers.garis || st.hidden.has(d.jenis) || (p && st.hidden.has(p.jenis)) ? 'none' : '';
       }
+      for (const w of wanEls) {
+        w.g.classList.toggle('on-path', w.d.id === st.sel || w.isp.id === st.sel);
+        w.g.style.display = !st.layers.garis || st.hidden.has(w.d.jenis) || st.hidden.has(w.isp.jenis) ? 'none' : '';
+      }
       svg.classList.toggle('no-label', !st.layers.label);
       svg.classList.toggle('no-dist', !st.layers.jarak);
       svg.classList.toggle('no-net', !st.layers.internet);
@@ -206,6 +222,20 @@
         const k = d.media === 'wireless' ? m.jarakM(d) : m.kabelM(d);
         t.textContent = k != null ? fmtM(k) : '';
         const mid = alongPolyline(pts, 0.5);
+        t.setAttribute('x', mid.x);
+        t.setAttribute('y', mid.y - 4);
+      }
+      for (const w of wanEls) {
+        const pts = [{ x: sx(w.d.x), y: sy(w.d.y) }, { x: sx(w.isp.x), y: sy(w.isp.y) }];
+        const attr = pts.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join(' ');
+        for (const ln of w.g.querySelectorAll('polyline')) ln.setAttribute('points', attr);
+        const mid = alongPolyline(pts, 0.5);
+        const lbl = w.g.querySelector('.wan-lbl');
+        lbl.setAttribute('x', mid.x);
+        lbl.setAttribute('y', mid.y + 14);
+        const t = w.g.querySelector('.dist');
+        const k = m.kabelWanM(w.d, w.isp);
+        t.textContent = k != null ? fmtM(k) : '';
         t.setAttribute('x', mid.x);
         t.setAttribute('y', mid.y - 4);
       }

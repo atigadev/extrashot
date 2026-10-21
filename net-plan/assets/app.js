@@ -1038,6 +1038,13 @@
     const c = S.model.byId.get(childId);
     const p = S.model.byId.get(parentId);
     if (!c || !p) return;
+    // Router yang sudah punya uplink dihubungkan ke Sumber WAN lain = tambah WAN (multi-WAN), bukan ganti uplink.
+    if (c.jenis === 'router' && p.jenis === 'isp' && c.uplink_id != null && c.uplink_id !== parentId) {
+      if (S.model.wanLain(c).some(w => w.dev.id === parentId)) return toast(`${p.nama} sudah menjadi WAN ${c.nama}`);
+      simpanWan(c, [...wanList(c), { id: parentId, port: '' }], S.model.wanMode(c))
+        .then(() => toast(`${p.nama} ditambahkan sebagai WAN${S.model.wanLain(c).length + 1} untuk ${c.nama} (atur mode di tab Koneksi)`));
+      return;
+    }
     if (S.model.descendants(childId).has(parentId)) {
       toast(`${p.nama} berada di bawah ${c.nama} — tidak bisa jadi uplinknya (loop)`, true);
       return;
@@ -1885,6 +1892,7 @@
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
             ${fieldHtml({ k: 'bandwidth_mbps', label: t.bwLabel, type: 'number' }, d.bandwidth_mbps, dis)}
             <div class="wide" id="pn-route"></div>
+            ${d.jenis === 'router' || S.model.wanLain(d).length ? `<div class="wide" id="pn-wan">${wanEditor(d)}</div>` : ''}
             ${fieldHtml({ k: 'ip', label: 'IP address', ph: 'mis. 10.10.0.11/22 · DHCP' }, d.ip, dis)}
             ${fieldHtml({ k: 'vlan', label: 'VLAN', ph: 'mis. 10 (tamu)' }, d.vlan, dis)}
           </div>
@@ -1906,6 +1914,77 @@
       </div>
       ${S.canEdit ? '<p class="muted small pn-auto">Semua isian tersimpan otomatis saat pindah isian · Ctrl+Z membatalkan.</p>' : ''}`;
   }
+
+  // ------------------------------------------------------------------------ multi-WAN (router)
+
+  /** Simpan daftar WAN tambahan + mode di atribut perangkat (JSON [{id, port}]). */
+  function simpanWan(d, daftar, mode) {
+    const atr = Object.assign({}, d.atribut);
+    if (daftar.length) atr.wan_lain = JSON.stringify(daftar.map(w => ({ id: w.id, port: w.port || '' })));
+    else delete atr.wan_lain;
+    if (mode) atr.wan_mode = mode;
+    if (!daftar.length) delete atr.wan_mode;
+    return saveDev(d.id, { atribut: atr }).catch(() => {});
+  }
+  const wanList = d => S.model.wanLain(d).map(w => ({ id: w.dev.id, port: w.port }));
+
+  /** Editor WAN: WAN utama (lewat uplink) + WAN tambahan ke Sumber WAN/ISP lain, mode failover / load balance. */
+  function wanEditor(d) {
+    const m = S.model;
+    const dis = S.canEdit ? '' : ' disabled';
+    const utama = m.wanOf(d);
+    const lain = m.wanLain(d);
+    const mode = m.wanMode(d);
+    const bw = x => (x.bandwidth_mbps != null ? ' · ' + fmtBw(x.bandwidth_mbps) : '');
+    const prov = x => esc([x.atribut.provider, x.atribut.jenis_koneksi].filter(Boolean).join(' · '));
+    const pakai = new Set([d.id, d.uplink_id, ...lain.map(w => w.dev.id), utama && utama.id]);
+    const calon = NP.Model.sortDev(m.list.filter(x => x.jenis === 'isp' && !pakai.has(x.id)));
+    const baris = (no, x, isi) => `<div class="wan-row"><span class="wan-no">WAN${no}</span>
+      <span class="dotlbl"><i style="background:${NP.tampil(x).color}"></i><b>${esc(x.nama)}</b></span>
+      <span class="muted small">${prov(x)}${bw(x)}</span><span class="spacer"></span>${isi}</div>`;
+    let h = `<span class="route-lbl">WAN / sumber internet${lain.length ? ` · <b>${lain.length + (utama ? 1 : 0)} WAN</b>` : ''}</span><div class="wan-list">`;
+    h += utama
+      ? baris(1, utama, `<span class="tag-kat" title="Lewat uplink">utama</span>`)
+      : `<div class="wan-row muted small"><span class="wan-no">WAN1</span>Lewat uplink — ${d.uplink_id != null ? 'belum berujung di Sumber WAN' : 'pilih Uplink ke Sumber WAN/ISP di atas'}</div>`;
+    lain.forEach((w, i) => {
+      h += baris(i + 2, w.dev, `<input type="text" class="wan-port" data-wan-port="${w.dev.id}" value="${esc(w.port)}" placeholder="port, mis. ether2" aria-label="Port WAN${i + 2}"${dis}>` +
+        (S.canEdit ? `<button type="button" class="small danger" data-wan-del="${w.dev.id}" title="Lepas WAN${i + 2}">✕</button>` : ''));
+    });
+    h += '</div>';
+    if (S.canEdit) {
+      h += `<div class="inline wan-add">${calon.length
+        ? `<select data-wan-add aria-label="Tambah WAN"><option value="">+ Tambah WAN dari Sumber WAN/ISP…</option>${calon.map(x => `<option value="${x.id}">${esc(x.nama)}${x.atribut.provider ? ' — ' + esc(x.atribut.provider) : ''}${esc(bw(x))}</option>`).join('')}</select>`
+        : '<span class="muted small">Taruh Sumber WAN/ISP lain di denah untuk menambah WAN (atau alat Hubungkan: router → ISP kedua).</span>'}</div>`;
+    }
+    if (lain.length) {
+      h += `<label class="field"><span>Mode multi-WAN</span><select data-wan-mode${dis}>
+        <option value="failover"${mode === 'failover' ? ' selected' : ''}>Failover — WAN berikutnya cadangan bila WAN utama putus</option>
+        <option value="loadbalance"${mode === 'loadbalance' ? ' selected' : ''}>Load balance — bandwidth semua WAN digabung</option></select></label>
+        <p class="muted small">Internet dianggap tersambung selama salah satu WAN masih baik. Bandwidth maks.: ${mode === 'loadbalance' ? 'jumlah semua WAN' : 'WAN terbesar'}.</p>`;
+    }
+    return h;
+  }
+
+  $('#panel').addEventListener('change', e => {
+    if (!S.canEdit || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    const add = e.target.closest('[data-wan-add]');
+    if (add && add.value) {
+      const isp = S.model.byId.get(+add.value);
+      return simpanWan(d, [...wanList(d), { id: +add.value, port: '' }], S.model.wanMode(d))
+        .then(() => toast(`${isp.nama} ditambahkan sebagai WAN${S.model.wanLain(d).length + 1} untuk ${d.nama}`));
+    }
+    const port = e.target.closest('[data-wan-port]');
+    if (port) return simpanWan(d, wanList(d).map(w => (w.id === +port.dataset.wanPort ? { id: w.id, port: port.value.trim().slice(0, 50) } : w)), S.model.wanMode(d));
+    const mode = e.target.closest('[data-wan-mode]');
+    if (mode) return simpanWan(d, wanList(d), mode.value);
+  });
+  $('#panel').addEventListener('click', e => {
+    const del = e.target.closest('[data-wan-del]');
+    if (!del || !S.canEdit || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    simpanWan(d, wanList(d).filter(w => w.id !== +del.dataset.wanDel), S.model.wanMode(d));
+  });
 
   /** Label tab pengaturan khusus jenis: "Switch", "Access Point", "Sumber WAN", "Laptop", … */
   function tabJenis(d) {
@@ -1969,10 +2048,17 @@
       h += `<div class="kv"><span>Sumber WAN</span><b>${esc(d.atribut.provider || d.nama)}${d.bandwidth_mbps != null ? ' · ' + fmtBw(d.bandwidth_mbps) : ''}</b></div>`;
     } else {
       h += `<div class="kv col"><span>Jalur ke internet</span><div class="path">${path.map(chip).join('<span class="arr">→</span>')}${wan ? '' : '<span class="lv warn">tanpa sumber WAN</span>'}</div></div>`;
-      if (wan) h += `<div class="kv"><span>WAN</span><b>${esc([wan.atribut.provider, wan.atribut.jenis_koneksi].filter(Boolean).join(' · ') || wan.nama)}${wan.bandwidth_mbps != null ? ' · ' + fmtBw(wan.bandwidth_mbps) : ''}</b></div>`;
+      const semuaWan = m.wans(d);
+      const wanTxt = x => esc([x.atribut.provider, x.atribut.jenis_koneksi].filter(Boolean).join(' · ') || x.nama) + (x.bandwidth_mbps != null ? ' · ' + fmtBw(x.bandwidth_mbps) : '');
+      if (semuaWan.length === 1) h += `<div class="kv"><span>WAN</span><b>${wanTxt(semuaWan[0].dev)}</b></div>`;
+      else if (semuaWan.length > 1) {
+        const gw = semuaWan.find(w => w.via);
+        h += `<div class="kv col"><span>Multi-WAN (${semuaWan.length}) · ${m.wanMode(gw.via) === 'loadbalance' ? 'load balance' : 'failover'} di ${esc(gw.via.nama)}</span>
+          <div class="path wrap">${semuaWan.map((w, i) => `<span class="wan-chip">WAN${i + 1} ${chip(w.dev)} <span class="muted small">${wanTxt(w.dev)}</span> ${konBadge(m.koneksi(w.dev))}</span>`).join('')}</div></div>`;
+      }
     }
     if (bw.mbps != null) {
-      h += `<div class="kv"><span>Bandwidth maks.</span><b>${fmtBw(bw.mbps)}${bw.at && bw.at.id !== d.id ? ` <span class="muted">(dibatasi ${esc(bw.at.nama)})</span>` : ''}</b></div>`;
+      h += `<div class="kv"><span>Bandwidth maks.</span><b>${fmtBw(bw.mbps)}${bw.gabung ? ` <span class="muted">(gabungan ${bw.gabung} WAN)</span>` : bw.at && bw.at.id !== d.id ? ` <span class="muted">(dibatasi ${esc(bw.at.nama)})</span>` : ''}</b></div>`;
     }
     if (m.parentOf(d)) {
       const berbelok = m.routePts(d).length > 2;
@@ -2691,7 +2777,11 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       seen.add(d.id);
       const t = TYPES[d.jenis] || TYPES.lainnya;
       const a = d.atribut || {};
-      const meta = [d.model, d.ip, d.vlan ? 'VLAN ' + d.vlan : '', a.ssid ? 'SSID ' + a.ssid : '', a.channel ? 'ch ' + a.channel : '', fmtBw(d.bandwidth_mbps)].filter(Boolean);
+      const lainWan = m.wanLain(d);
+      const pakaiWan = d.jenis === 'isp' ? m.pemakaiWan(d.id) : [];
+      const meta = [d.model, d.ip, d.vlan ? 'VLAN ' + d.vlan : '', a.ssid ? 'SSID ' + a.ssid : '', a.channel ? 'ch ' + a.channel : '', fmtBw(d.bandwidth_mbps),
+        lainWan.length ? `+ WAN tambahan: ${lainWan.map(w => w.dev.nama + (w.port ? ' (' + w.port + ')' : '')).join(', ')} · ${m.wanMode(d) === 'loadbalance' ? 'load balance' : 'failover'}` : '',
+        pakaiWan.length ? 'WAN tambahan untuk ' + pakaiWan.map(x => x.nama).join(', ') : ''].filter(Boolean);
       const port = [d.port_lokal, d.port_uplink].filter(Boolean).join(' ↔ ');
       const lv = issuesBy.get(d.id);
       const kids = NP.Model.sortDev(m.kids(d.id));
@@ -2736,7 +2826,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const totalWan = wans.reduce((s, d) => s + (d.bandwidth_mbps || 0), 0);
     $('#wan-sum').innerHTML = wans.length ? `<table class="mini">${wans.map(w => {
       const n = m.descendants(w.id).size;
-      return `<tr><td>${chip(w)}</td><td>${esc([w.atribut.provider, w.atribut.jenis_koneksi].filter(Boolean).join(' · '))}</td><td class="num">${esc(fmtBw(w.bandwidth_mbps))}</td><td class="num muted">${n} perangkat</td></tr>`;
+      const pakai = m.pemakaiWan(w.id);
+      return `<tr><td>${chip(w)}</td><td>${esc([w.atribut.provider, w.atribut.jenis_koneksi].filter(Boolean).join(' · '))}</td><td class="num">${esc(fmtBw(w.bandwidth_mbps))}</td><td class="num muted">${n ? n + ' perangkat' : ''}${pakai.length ? `${n ? '<br>' : ''}WAN tambahan ${esc(pakai.map(x => x.nama).join(', '))}` : n ? '' : '0 perangkat'}</td></tr>`;
     }).join('')}${wans.length > 1 ? `<tr class="tot"><td colspan="2">Total kapasitas</td><td class="num">${esc(fmtBw(totalWan))}</td><td></td></tr>` : ''}</table>` : '<p class="muted">Belum ada Sumber WAN/ISP.</p>';
 
     const ss = m.ssids();

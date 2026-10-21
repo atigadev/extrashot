@@ -180,6 +180,22 @@ terlihat di atas tab.
 Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
 untuk perangkat berikutnya.
 
+**Multi-WAN (router).** Router bisa tersambung ke lebih dari satu Sumber WAN/ISP. WAN utama tetap lewat Uplink biasa.
+WAN tambahan diatur di tab **Koneksi** router, di bagian *WAN / sumber internet*:
+- **Tambah WAN** memilih Sumber WAN/ISP lain, atau pakai alat *Hubungkan* dari router ke ISP kedua. Router yang sudah
+  punya uplink otomatis mendapat WAN tambahan, bukan mengganti uplink.
+- **Port** setiap WAN bisa diisi (mis. ether2).
+- **Mode**: *Failover* (WAN berikutnya cadangan) atau *Load balance* (bandwidth digabung).
+
+Dampaknya pada analisis:
+- Status internet dianggap tersambung selama salah satu WAN masih baik. Perangkat di bawah router tetap hijau walau
+  ISP utama bermasalah.
+- Bandwidth maks. = WAN terbesar (failover) atau jumlah semua WAN (load balance).
+- Di denah, WAN tambahan tampil sebagai garis toska putus-putus berlabel WAN2, WAN3. Kabelnya ikut estimasi kabel.
+- Pohon topologi dan ringkasan Sumber WAN menyebut pemakaian WAN tambahan.
+- Data disimpan di atribut router (`wan_lain`, `wan_mode`), jadi tidak perlu migrasi database. Ikut tersalin saat
+  duplikat event, impor JSON, dan buka backup (id dipetakan ulang).
+
 **Kunci posisi.** Titik yang posisinya sudah pasti bisa dikunci agar tidak tergeser saat menata denah. Caranya lewat
 tombol 🔓 *Kunci* di panel perangkat, tombol `K`, atau sekaligus di Daftar perangkat (centang lalu *🔒 Kunci posisi* /
 *🔓 Buka kunci*). Bisa juga lewat Cari (Ctrl+K) dengan perintah *Kunci posisi semua perangkat*. Titik terkunci

@@ -1111,11 +1111,38 @@
     }
   }
 
+  /** Kunci / buka kunci posisi titik (satu atau banyak). Bisa dibatalkan dengan Ctrl+Z. */
+  async function kunciPerangkat(ids, kunci, tanpaRiwayat) {
+    const ubah = ids.filter(id => {
+      const d = S.model.byId.get(id);
+      return d && NP.terkunci(d) !== kunci;
+    });
+    if (!ubah.length) return toast(kunci ? 'Posisi sudah terkunci' : 'Posisi memang tidak terkunci');
+    try {
+      await enqueue(() => api(API, { action: 'perangkat_kunci', ids: ubah, kunci }));
+      ubah.forEach(id => {
+        const d = S.model.byId.get(id);
+        const a = Object.assign({}, d.atribut);
+        if (kunci) a.kunci = '1';
+        else delete a.kunci;
+        d.atribut = a;
+      });
+      refreshModel();
+      const label = `${kunci ? 'kunci' : 'buka kunci'} posisi ${ubah.length > 1 ? ubah.length + ' perangkat' : S.model.byId.get(ubah[0]).nama}`;
+      if (!tanpaRiwayat) catat({ label, undo: () => kunciPerangkat(ubah, !kunci, true), redo: () => kunciPerangkat(ubah, kunci, true) });
+      toast(label.charAt(0).toUpperCase() + label.slice(1));
+    } catch (e) {
+      setSaveState('error');
+      toast(e.message, true);
+    }
+  }
+
   function duplicateDev(id) {
     const d = S.model.byId.get(id);
     const base = {};
     ['model', 'vlan', 'media', 'bandwidth_mbps', 'pic', 'catatan', 'uplink_id', 'katalog_id'].forEach(k => { base[k] = d[k]; });
     base.atribut = Object.assign({}, d.atribut);
+    delete base.atribut.kunci; // salinan baru perlu ditempatkan, jadi tidak ikut terkunci
     if (S.lihat) return;
     const off = 40 / Math.max(peta.size().W / 2000, 0.5);
     addDev(d.jenis, d.x + off, d.y + off, base);
@@ -1251,6 +1278,7 @@
       if (p) selectDev(p.id, true);
       else toast('Perangkat ini belum punya uplink');
     } else if (k === 'p' && !mqSheet.matches) togglePanel();
+    else if (k === 'k' && S.sel != null && S.canEdit) kunciPerangkat([S.sel], !NP.terkunci(S.model.byId.get(S.sel)));
     else if (k === 'v') setTool('pilih');
     else if (k === 'l' && S.canEdit) setTool('hubung');
     else if (k === 'm') setTool('ukur');
@@ -1271,6 +1299,7 @@
   function geserKeyboard(id, arah, jauh) {
     const d = S.model.byId.get(id);
     if (!d) return;
+    if (NP.terkunci(d)) return toast(`Posisi ${d.nama} terkunci — tekan K atau tombol 🔒 untuk membuka`);
     if (geser.id !== id) {
       if (geser.id != null) simpanGeser();
       Object.assign(geser, { id, x0: d.x, y0: d.y });
@@ -1376,6 +1405,8 @@
     ];
     if (S.canEdit) {
       c.push({ t: 'Batalkan perubahan terakhir', k: 'undo batalkan', fn: () => jalankanRiwayat('undo') });
+      c.push({ t: 'Kunci posisi semua perangkat', k: 'kunci lock posisi semua', fn: () => kunciPerangkat(S.list.map(d => d.id), true) });
+      c.push({ t: 'Buka kunci posisi semua perangkat', k: 'buka kunci unlock posisi semua', fn: () => kunciPerangkat(S.list.map(d => d.id), false) });
       TYPE_ORDER.forEach((j, i) => c.push({
         t: 'Tambah ' + TYPES[j].label, k: 'tambah taruh baru ' + j + ' ' + TYPES[j].label, kbd: i < 9 ? String(i + 1) : '',
         fn: () => { go('denah'); setTimeout(() => setTool('tambah:' + j), 80); },
@@ -1815,7 +1846,8 @@
       </div>
       <div class="pn-actions">
         <button type="button" class="small" data-act="center">Pusatkan</button>
-        ${S.canEdit ? `<button type="button" class="small" data-act="dup">Duplikat</button>
+        ${S.canEdit ? `<button type="button" class="small${NP.terkunci(d) ? ' kunci-on' : ''}" data-act="kunci" title="${NP.terkunci(d) ? 'Posisi terkunci — klik untuk membuka (K)' : 'Kunci posisi agar titik tidak tergeser (K)'}">${NP.terkunci(d) ? '🔒 Terkunci' : '🔓 Kunci'}</button>
+        <button type="button" class="small" data-act="dup">Duplikat</button>
         <button type="button" class="small danger" data-act="del">Hapus</button>` : ''}
       </div>
       <nav class="pn-tabs" role="tablist" aria-label="Bagian isian perangkat">
@@ -2159,6 +2191,7 @@
       case 'close': return selectDev(null);
       case 'center': peta.centerOn(id); peta.flash(id); return;
       case 'dup': return duplicateDev(id);
+      case 'kunci': return kunciPerangkat([id], !NP.terkunci(S.model.byId.get(id)));
       case 'del': return deleteDev(id);
       case 'pick': return setTool('hubung');
       case 'unlink': return putusKoneksi(id);
@@ -2335,7 +2368,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const td = (label, html, cls) => `<td data-label="${label}" class="${cls || ''}${html ? '' : ' empty'}">${html}</td>`;
       return `<tr data-id="${d.id}"${S.pilih.has(d.id) ? ' class="dipilih"' : ''}>
         <td class="c-cek pilih-only"><input type="checkbox" data-cek="${d.id}"${S.pilih.has(d.id) ? ' checked' : ''} aria-label="Pilih ${esc(d.nama)}"></td>
-        ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b></span>`, 'c-nama')}
+        ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b>${NP.terkunci(d) ? '<span class="lock-i" title="Posisi terkunci">🔒</span>' : ''}</span>`, 'c-nama')}
         ${td('Jenis', esc(jenisLabel(d)), 'c-jenis')}
         ${td('Nama alat', esc(d.model))}
         ${td('IP', esc(d.ip), 'mono')}
@@ -2549,6 +2582,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     if (!confirm(`Ubah status ${ids.length} perangkat menjadi "${STATUS[status].label}"?`)) return;
     statusMassal(ids, status, false, ids.dilewati || 0);
   });
+
+  $('#bulk-kunci').addEventListener('click', () => kunciPerangkat([...S.pilih], true));
+  $('#bulk-buka').addEventListener('click', () => kunciPerangkat([...S.pilih], false));
 
   $('#bulk-unlink').addEventListener('click', async () => {
     const ds = [...S.pilih].map(id => S.model.byId.get(id)).filter(d => d && d.uplink_id != null);

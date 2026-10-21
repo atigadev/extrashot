@@ -180,6 +180,13 @@ terlihat di atas tab.
 Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
 untuk perangkat berikutnya.
 
+**Kunci posisi.** Titik yang posisinya sudah pasti bisa dikunci agar tidak tergeser saat menata denah. Caranya lewat
+tombol 🔓 *Kunci* di panel perangkat, tombol `K`, atau sekaligus di Daftar perangkat (centang lalu *🔒 Kunci posisi* /
+*🔓 Buka kunci*). Bisa juga lewat Cari (Ctrl+K) dengan perintah *Kunci posisi semua perangkat*. Titik terkunci
+bergembok kecil di denah dan bertanda 🔒 di Daftar. Titik itu tetap bisa dipilih, disambungkan, dan diubah isiannya,
+hanya tidak bisa digeser (mouse maupun panah). Kunci tersimpan di atribut perangkat (ikut backup), jadi tidak perlu
+migrasi database. Kunci bisa dibatalkan dengan Ctrl+Z.
+
 **Label bertumpuk.** Label yang saling menimpa disembunyikan otomatis. Label perangkat jaringan diutamakan di atas
 label endpoint, lalu label muncul lagi saat di-zoom atau saat kursor diarahkan.
 
@@ -199,6 +206,7 @@ Pintasan di Denah:
 | `Del` | Hapus |
 | `F` | Seluruh denah |
 | `P` | Sembunyikan / tampilkan panel kanan (desktop) |
+| `K` | Kunci / buka kunci posisi perangkat terpilih |
 | `Esc` | Batal |
 | `Alt+1`–`4` | Pindah tab |
 | `?` | Daftar semua pintasan (juga di menu akun) |

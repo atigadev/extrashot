@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=27">
+<link rel="stylesheet" href="assets/np.css?v=28">
 </head>
 <body>
 
@@ -171,6 +171,8 @@
         <span class="spacer"></span>
         <button type="button" class="small" id="bulk-all">Pilih semua yang tampil</button>
         <select id="bulk-status" class="small-select" aria-label="Ubah status perangkat terpilih"><option value="">Ubah status…</option></select>
+        <button type="button" class="small edit-only" id="bulk-kunci" title="Kunci posisi titik terpilih agar tidak tergeser di denah">🔒 Kunci posisi</button>
+        <button type="button" class="small edit-only" id="bulk-buka" title="Buka kunci posisi titik terpilih">🔓 Buka kunci</button>
         <button type="button" class="small edit-only" id="bulk-unlink" title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
         <button type="button" class="small danger edit-only" id="bulk-del">Hapus terpilih</button>
         <button type="button" class="small" id="bulk-clear">Batal pilih</button>
@@ -394,6 +396,7 @@
       <p><kbd>Del</kbd><span>Hapus perangkat terpilih</span></p>
       <p><kbd>F</kbd> · <kbd>+</kbd> · <kbd>−</kbd><span>Seluruh denah · perbesar · perkecil</span></p>
       <p><kbd>P</kbd><span>Sembunyikan / tampilkan panel kanan</span></p>
+      <p><kbd>K</kbd><span>Kunci / buka kunci posisi perangkat terpilih</span></p>
       <p><kbd>Esc</kbd><span>Selesai alat / batal pilih</span></p>
     </section>
   </div>
@@ -402,12 +405,12 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=27"></script>
-<script src="assets/common.js?v=27"></script>
-<script src="assets/analisis.js?v=27"></script>
-<script src="assets/peta.js?v=27"></script>
-<script src="assets/katalog.js?v=27"></script>
-<script src="assets/backup.js?v=27"></script>
-<script src="assets/app.js?v=27"></script>
+<script src="vendor/qrcode.min.js?v=28"></script>
+<script src="assets/common.js?v=28"></script>
+<script src="assets/analisis.js?v=28"></script>
+<script src="assets/peta.js?v=28"></script>
+<script src="assets/katalog.js?v=28"></script>
+<script src="assets/backup.js?v=28"></script>
+<script src="assets/app.js?v=28"></script>
 </body>
 </html>

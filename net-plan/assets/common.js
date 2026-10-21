@@ -288,6 +288,9 @@
     return { color: t.color, short: t.short, label: t.label, prefix: t.prefix };
   }
 
+  /** Posisi titik dikunci (tidak bisa digeser di denah). */
+  const terkunci = d => !!d && !!d.atribut && d.atribut.kunci === '1';
+
   /** Kelas PoE: 0 = tidak ada, 1 af, 2 at, 3 bt, 'p24'/'p48' passive, null = tidak diketahui. */
   function poeKelas(v) {
     if (!v) return null;
@@ -422,5 +425,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

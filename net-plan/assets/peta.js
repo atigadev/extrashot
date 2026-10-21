@@ -125,6 +125,7 @@
           <circle class="dot" r="${R}" fill="${t.color}"/>
           <text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>`}
           <g class="net" transform="translate(${b},${-b})"><circle r="${BADGE}" fill="${k.color}"/><text dy="0.36em">${k.icon}</text></g>
+          ${NP.terkunci(d) ? `<g class="lock" transform="translate(${-b},${-b})"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3" /></g>` : ''}
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
           <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
         gNodes.appendChild(g);
@@ -516,7 +517,8 @@
         gesture = { type: 'route', id: rd.id, pts, idx, orig, start: p, moved: false, inserted: handle.classList.contains('mid') };
         return;
       }
-      if (!middle && hit && hit.kind === 'node' && st.tool === 'pilih' && st.canEdit) {
+      // Titik yang posisinya dikunci tidak bisa digeser: tarikan menjadi geser peta, klik tetap memilih.
+      if (!middle && hit && hit.kind === 'node' && st.tool === 'pilih' && st.canEdit && !NP.terkunci(st.model.byId.get(hit.id))) {
         const d = st.model.byId.get(hit.id);
         gesture = { type: 'drag', id: hit.id, start: p, ox: d.x, oy: d.y, moved: false, hit };
       } else {

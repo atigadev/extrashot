@@ -19,6 +19,7 @@
  * POST {"action":"perangkat_save", id? | proyek_id, ...isian}  -> isian yang dikirim saja yang diubah
  * POST {"action":"perangkat_delete","ids":[N,...]}
  * POST {"action":"perangkat_rename","items":[{"id":N,"nama":"..."},...]}  -> ganti nama massal (penamaan group)
+ * POST {"action":"perangkat_kunci","ids":[N,...],"kunci":true} -> kunci / buka kunci posisi titik
  * POST {"action":"perangkat_status_massal","ids":[N,...],"status":"terpasang","catatan":"..."} -> ubah status massal + riwayat
  * GET  ?action=katalog_list[&proyek_id=N]  -> katalog perangkat + jumlah pemakaian (semua event / event N)
  * POST {"action":"katalog_save", id?, jenis, merek, model, stok, spesifikasi:{}, konfigurasi:{}, bandwidth_mbps, catatan_konfig, keterangan}
@@ -356,6 +357,41 @@ switch ($method . ' ' . $action) {
         $pdo->commit();
         json_out(['ok' => true, 'jumlah' => $n]);
 
+    case 'POST perangkat_kunci':
+        // Kunci / buka kunci posisi banyak perangkat sekaligus (atribut "kunci" = "1"): titik tidak bisa digeser.
+        $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
+        if (!$ids || count($ids) > 2000) {
+            json_error('Tidak ada perangkat yang dipilih');
+        }
+        $kunci = !empty($req['kunci']);
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare("SELECT id, proyek_id, atribut FROM np_perangkat WHERE id IN ($in)");
+        $st->execute($ids);
+        $pdo->beginTransaction();
+        $upd = $pdo->prepare('UPDATE np_perangkat SET atribut = ? WHERE id = ?');
+        $n = 0;
+        $proyekIds = [];
+        foreach ($st->fetchAll() as $d) {
+            $atr = json_decode((string) $d['atribut'], true);
+            $atr = is_array($atr) ? $atr : [];
+            if ($kunci === (isset($atr['kunci']) && $atr['kunci'] === '1')) {
+                continue;
+            }
+            if ($kunci) {
+                $atr['kunci'] = '1';
+            } else {
+                unset($atr['kunci']);
+            }
+            $upd->execute([atribut_json($atr), $d['id']]);
+            $proyekIds[(int) $d['proyek_id']] = true;
+            $n++;
+        }
+        foreach (array_keys($proyekIds) as $pid) {
+            $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$pid]);
+        }
+        $pdo->commit();
+        json_out(['ok' => true, 'jumlah' => $n]);
+
     case 'GET akses_list':
         $p = find_proyek($id);
         $st = $pdo->prepare('SELECT * FROM np_akses WHERE proyek_id = ? ORDER BY id');
@@ -604,6 +640,7 @@ function izin_admin_event($aksi, $req, $id)
             return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
         case 'POST perangkat_delete':
         case 'POST perangkat_status_massal':
+        case 'POST perangkat_kunci':
             return $proyekPerangkat(isset($req['ids']) && is_array($req['ids']) ? $req['ids'] : []);
         case 'POST perangkat_rename':
             $items = isset($req['items']) && is_array($req['items']) ? $req['items'] : [];

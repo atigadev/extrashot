@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=18">
+<link rel="stylesheet" href="assets/np.css?v=20">
 </head>
 <body>
 
@@ -14,7 +14,7 @@
   <form class="card" id="login-form">
     <h2>Net Plan — Masuk</h2>
     <label class="field">
-      <span>Password admin</span>
+      <span>Password admin utama, atau password admin event</span>
       <input type="password" id="login-pass" autocomplete="current-password" required>
     </label>
     <button class="primary" type="submit" style="width:100%">Masuk</button>
@@ -31,6 +31,7 @@
   <span class="spacer"></span>
   <span class="save-state" id="save-state"></span>
   <button type="button" id="btn-print" class="hide-phone" hidden>Cetak</button>
+  <button type="button" id="btn-akun" class="hide-phone" hidden title="Ganti password login">Ganti password</button>
   <button type="button" id="btn-logout" hidden>Keluar</button>
 </header>
 
@@ -46,7 +47,7 @@
       <button type="button" id="btn-backup-semua" title="Simpan semua event + katalog ke satu file">Backup semua</button>
       <button type="button" id="btn-pulihkan" title="Buka file backup sebagai event baru">Buka backup…</button>
       <input type="file" id="file-pulihkan" accept=".json,.netplan,application/json" hidden>
-      <button type="button" class="primary" id="btn-new">+ Event baru</button>
+      <button type="button" class="primary super-only" id="btn-new">+ Event baru</button>
     </div>
   </div>
   <div class="proj-grid" id="proj-grid"></div>
@@ -60,9 +61,9 @@
       <p class="muted">Daftar alat standar per kategori: spesifikasi (port, PoE, daya), stok, dan konfigurasi standar. Dipilih saat menaruh perangkat di denah.</p>
     </div>
     <div class="btn-row">
-      <button type="button" id="kat-ep">Tipe endpoint</button>
+      <button type="button" id="kat-ep" class="super-only">Tipe endpoint</button>
       <button type="button" id="kat-csv">Unduh CSV</button>
-      <button type="button" class="primary" id="kat-new">+ Tambah alat</button>
+      <button type="button" class="primary super-only" id="kat-new">+ Tambah alat</button>
     </div>
   </div>
   <div class="kat-tools">
@@ -178,6 +179,14 @@
       <label class="field"><span>Tanggal mulai</span><input type="date" name="tanggal_mulai"></label>
       <label class="field"><span>Tanggal selesai</span><input type="date" name="tanggal_selesai"></label>
     </div>
+    <label class="field new-only"><span>Password admin event — untuk login admin khusus event ini (min. 8 karakter, boleh dikosongkan)</span>
+      <div class="inline">
+        <input type="password" name="password" minlength="8" maxlength="72" autocomplete="new-password" class="mono">
+        <button type="button" class="small" data-pw="lihat" title="Tampilkan / sembunyikan">👁</button>
+        <button type="button" class="small" data-pw="acak" title="Buat password acak">Acak</button>
+        <button type="button" class="small" data-pw="salin" title="Salin password">Salin</button>
+      </div>
+      <small class="muted">Admin event hanya bisa mengelola event ini (tidak bisa membuat/menghapus event lain). Catat &amp; berikan ke PIC event.</small></label>
     <label class="field new-only"><span>Denah venue (PNG/JPG/WEBP) — bisa menyusul</span>
       <input type="file" name="denah" accept="image/png,image/jpeg,image/webp,image/gif"></label>
     <div class="btn-row end">
@@ -208,6 +217,28 @@
     <div class="btn-row end">
       <button type="button" data-close>Batal</button>
       <button type="submit" class="primary">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Dialog ganti password login -->
+<dialog id="dlg-akun" class="dlg">
+  <form method="dialog" id="form-akun" autocomplete="off">
+    <h2>Ganti password</h2>
+    <p class="muted small" id="akun-info"></p>
+    <label class="field"><span>Password lama</span>
+      <input type="password" name="lama" required autocomplete="current-password"></label>
+    <label class="field"><span>Password baru (8–72 karakter)</span>
+      <div class="inline"><input type="password" name="baru" minlength="8" maxlength="72" required autocomplete="new-password" class="mono">
+        <button type="button" class="small" data-pw="lihat" title="Tampilkan">👁</button>
+        <button type="button" class="small" data-pw="acak">Acak</button>
+        <button type="button" class="small" data-pw="salin">Salin</button></div></label>
+    <label class="field"><span>Ulangi password baru</span>
+      <input type="password" name="ulang" minlength="8" maxlength="72" required autocomplete="new-password" class="mono"></label>
+    <p class="err-text" id="akun-err" hidden></p>
+    <div class="btn-row end">
+      <button type="button" data-close>Batal</button>
+      <button type="submit" class="primary">Simpan password</button>
     </div>
   </form>
 </dialog>
@@ -289,12 +320,12 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=18"></script>
-<script src="assets/common.js?v=18"></script>
-<script src="assets/analisis.js?v=18"></script>
-<script src="assets/peta.js?v=18"></script>
-<script src="assets/katalog.js?v=18"></script>
-<script src="assets/backup.js?v=18"></script>
-<script src="assets/app.js?v=18"></script>
+<script src="vendor/qrcode.min.js?v=20"></script>
+<script src="assets/common.js?v=20"></script>
+<script src="assets/analisis.js?v=20"></script>
+<script src="assets/peta.js?v=20"></script>
+<script src="assets/katalog.js?v=20"></script>
+<script src="assets/backup.js?v=20"></script>
+<script src="assets/app.js?v=20"></script>
 </body>
 </html>

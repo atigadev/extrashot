@@ -54,6 +54,27 @@ Tombol **Cetak** menyediakan dua jenis laporan:
 
 Panjang kabel dihitung mengikuti jalur ini. Link wireless selalu digambar lurus.
 
+**Password admin event.** Saat membuat event baru, dialog langsung menyiapkan **password admin event** acak (bisa
+diganti atau dikosongkan). Password ditampilkan sekali untuk disalin dan disimpan sebagai hash bcrypt. Login dengan
+password itu menjadi **admin event**:
+- Bisa mengelola penuh **event itu saja**: denah, perangkat, status, akses tim, backup event, hapus perangkat, dan
+  mengganti password eventnya sendiri.
+- Tidak bisa melihat event lain, membuat/menghapus/menduplikat event, mengubah katalog & tipe endpoint (hanya
+  memakai), atau menghapus password.
+
+Semua batasan dicek di server dengan pola *default tolak* (`izin_admin_event()` di `api/admin.php`). Password bisa
+diatur atau diganti di tab Proyek → kartu *Admin event*. Begitu password diganti atau dihapus, sesi yang memakai
+password lama otomatis berakhir. Admin utama tetap memakai `NP_ADMIN_PASS` dan bisa mengakses semua event.
+
+**Ganti password login.** Tombol **Ganti password** di header (wajib mengisi password lama):
+- Admin utama mengganti **password admin utama**. Password baru disimpan sebagai hash di database (`np_meta`) dan
+  berlaku menggantikan `NP_ADMIN_PASS` di config maupun password bawaan `admin`.
+- Admin event mengganti **password admin event**-nya.
+
+Setelah diganti, login lain yang memakai password lama otomatis keluar, sedangkan sesi yang sedang dipakai tetap login.
+Lupa password admin utama? Jalankan `php net-plan/api/reset-admin.php` lewat SSH: login kembali memakai
+`NP_ADMIN_PASS` (atau `admin` dari localhost), lalu segera ganti lagi. Skrip ini tidak bisa dibuka dari browser.
+
 **Akses tim** (tab Proyek → *Akses tim*) memberi project manager link khusus per tim/anggota, tanpa membagikan password
 admin.
 - **Lihat saja**: membaca denah, daftar, topologi, sheet AP, dan riwayat.

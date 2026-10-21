@@ -9,6 +9,8 @@
  * GET  ?action=get&id=N                    -> {proyek, perangkat:[...]}
  * POST {"action":"proyek_save", id?, nama, venue, tanggal_mulai, tanggal_selesai, catatan, slack_kabel}
  * POST {"action":"proyek_skala","id":N,"skala":meter_per_piksel|null}
+ * POST {"action":"proyek_password","id":N,"password":"...","lama":"..."} -> password admin event ("" = hapus, admin utama saja; admin event wajib "lama")
+ * POST {"action":"admin_password","lama":"...","baru":"..."} -> ganti password admin utama (disimpan di np_meta)
  * POST {"action":"proyek_delete","id":N}
  * POST {"action":"proyek_duplicate","id":N}
  * POST {"action":"kode_baru","id":N}       -> buat ulang kode link lihat-saja (link lama tidak berlaku)
@@ -58,7 +60,7 @@ if ($method === 'POST') {
 }
 
 if ($action === 'me') {
-    json_out(['ok' => true, 'login' => $loggedIn]);
+    json_out(['ok' => true, 'login' => $loggedIn, 'peran' => $GLOBALS['NP_PERAN'], 'proyek' => $GLOBALS['NP_PROYEK']]);
 }
 
 if ($action === 'login' && $method === 'POST') {
@@ -79,6 +81,9 @@ session_write_close();
 
 $pdo = db();
 $id = isset($req['id']) && !is_array($req['id']) ? (int) $req['id'] : 0;
+if (!is_super()) {
+    izin_admin_event($method . ' ' . $action, $req, $id);
+}
 
 switch ($method . ' ' . $action) {
     case 'GET list':
@@ -86,6 +91,9 @@ switch ($method . ' ' . $action) {
             FROM np_proyek p ORDER BY p.updated_at DESC, p.id DESC')->fetchAll();
         $out = [];
         foreach ($rows as $r) {
+            if (!boleh_proyek($r['id'])) {
+                continue; // admin event hanya melihat event miliknya
+            }
             $jumlah = (int) $r['jumlah'];
             unset($r['jumlah'], $r['catatan']);
             $out[] = proyek_row($r) + ['jumlah' => $jumlah];
@@ -110,10 +118,50 @@ switch ($method . ' ' . $action) {
                 catatan = ?, slack_kabel = ? WHERE id = ?');
             $st->execute(array_merge(array_values($data), [$id]));
         } else {
-            $st = $pdo->prepare('INSERT INTO np_proyek (nama, venue, tanggal_mulai, tanggal_selesai, catatan, slack_kabel, kode_lihat)
-                VALUES (?, ?, ?, ?, ?, ?, ?)');
+            // Event baru langsung dibuatkan password admin event (opsional; bisa diatur nanti di tab Proyek).
+            $data['admin_hash'] = hash_password_event(isset($req['password']) ? $req['password'] : '');
+            $st = $pdo->prepare('INSERT INTO np_proyek (nama, venue, tanggal_mulai, tanggal_selesai, catatan, slack_kabel, admin_hash, kode_lihat)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
             $st->execute(array_merge(array_values($data), [rand_hex(12)]));
             $id = (int) $pdo->lastInsertId();
+        }
+        json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($id))]);
+
+    case 'POST admin_password':
+        // Ganti password admin utama (hanya admin utama; aksi ini tidak ada di daftar izin admin event).
+        if (!cek_password_super(isset($req['lama']) ? (string) $req['lama'] : '')) {
+            usleep(800000);
+            json_error('Password lama salah', 403);
+        }
+        $baru = isset($req['baru']) ? (string) $req['baru'] : '';
+        if (strlen($baru) < 8 || strlen($baru) > 72) {
+            json_error('Password baru 8–72 karakter');
+        }
+        if (cek_password_super($baru)) {
+            json_error('Password baru sama dengan password lama');
+        }
+        meta_set('admin_hash', password_hash($baru, PASSWORD_DEFAULT));
+        $versi = rand_hex(8);
+        meta_set('admin_versi', $versi); // sesi admin utama lain dengan password lama gugur
+        session_start();
+        $_SESSION['np_admin_v'] = $versi; // sesi ini tetap login
+        session_write_close();
+        json_out(['ok' => true]);
+
+    case 'POST proyek_password':
+        // Atur / ganti password admin event; kosong = hapus (hanya admin utama, dicek di izin_admin_event).
+        $pr = find_proyek($id);
+        if (!is_super() && !password_verify(isset($req['lama']) ? (string) $req['lama'] : '', (string) $pr['admin_hash'])) {
+            usleep(800000);
+            json_error('Password lama salah', 403); // admin event wajib membuktikan password lamanya
+        }
+        $hashBaru = hash_password_event(isset($req['password']) ? $req['password'] : '');
+        $pdo->prepare('UPDATE np_proyek SET admin_hash = ? WHERE id = ?')->execute([$hashBaru, $id]);
+        if (!is_super() && $hashBaru) {
+            // Admin event mengganti password sendiri: tetap login (sesi lain dengan password lama otomatis gugur).
+            session_start();
+            $_SESSION['np_proyek'][$id] = sidik_password($hashBaru);
+            session_write_close();
         }
         json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($id))]);
 
@@ -411,29 +459,145 @@ json_error('Aksi tidak dikenal', 404);
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Login: password admin utama (NP_ADMIN_PASS, atau "admin" dari localhost bila belum diatur) -> semua event;
+ * password admin event -> hanya event yang passwordnya cocok.
+ */
 function login($password)
 {
-    if (defined('NP_ADMIN_PASS') && NP_ADMIN_PASS !== '') {
-        $hash = NP_ADMIN_PASS;
-        $ok = strpos($hash, '$2y$') === 0 || strpos($hash, '$argon2') === 0
-            ? password_verify($password, $hash)
-            : hash_equals($hash, $password);
-    } else {
-        // Belum dikonfigurasi: hanya izinkan password bawaan dari komputer sendiri (XAMPP).
-        $local = in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1'], true);
-        if (!$local) {
-            json_error('Password admin belum diatur. Isi NP_ADMIN_PASS di api/config.local.php.', 403);
-        }
-        $ok = hash_equals('admin', $password);
-    }
-    if (!$ok) {
-        usleep(800000); // perlambat tebak-tebakan password
-        json_error('Password salah', 401);
-    }
+    $local = in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1'], true);
     db(); // struktur tabel dibuat/diperbarui otomatis di db() (lihat np_migrasi_otomatis)
+    $superDiatur = meta_get('admin_hash') !== '' || (defined('NP_ADMIN_PASS') && NP_ADMIN_PASS !== '');
+    $super = cek_password_super($password);
     session_regenerate_id(true);
-    $_SESSION['np_admin'] = 1;
-    json_out(['ok' => true, 'login' => true]);
+    $_SESSION = [];
+    if ($super) {
+        $_SESSION['np_admin'] = 1;
+        $_SESSION['np_admin_v'] = meta_get('admin_versi', '0');
+        json_out(['ok' => true, 'login' => true, 'peran' => 'super']);
+    }
+    // Password admin event (bisa cocok dengan lebih dari satu event).
+    $cocok = [];
+    if ($password !== '') {
+        foreach (db()->query('SELECT id, admin_hash FROM np_proyek WHERE admin_hash IS NOT NULL')->fetchAll() as $r) {
+            if (password_verify($password, $r['admin_hash'])) {
+                $cocok[(int) $r['id']] = sidik_password($r['admin_hash']);
+            }
+        }
+    }
+    if ($cocok) {
+        $_SESSION['np_proyek'] = $cocok;
+        json_out(['ok' => true, 'login' => true, 'peran' => 'event', 'proyek' => array_keys($cocok)]);
+    }
+    usleep(800000); // perlambat tebak-tebakan password
+    if (!$superDiatur && !$local) {
+        json_error('Password salah. (Password admin utama belum diatur: isi NP_ADMIN_PASS di api/config.local.php.)', 401);
+    }
+    json_error('Password salah', 401);
+}
+
+/** Validasi & simpan password admin event; '' = hapus. Hasil: hash atau null. */
+function hash_password_event($password)
+{
+    $password = (string) $password;
+    if ($password === '') {
+        return null;
+    }
+    if (strlen($password) < 8) {
+        json_error('Password admin event minimal 8 karakter');
+    }
+    if (strlen($password) > 72) {
+        json_error('Password admin event maksimal 72 karakter');
+    }
+    return password_hash($password, PASSWORD_DEFAULT);
+}
+
+/**
+ * Batas akses admin event (bukan admin utama): DEFAULT TOLAK. Hanya aksi di daftar ini yang boleh, dan setiap aksi
+ * dipastikan hanya menyentuh event miliknya. Aksi yang tidak terdaftar (buat/hapus/duplikat event, ubah katalog &
+ * tipe endpoint bersama) ditolak.
+ */
+function izin_admin_event($aksi, $req, $id)
+{
+    $pdo = db();
+    $tolak = function ($pesan = null) {
+        json_error($pesan ?: 'Akses ditolak: aksi ini hanya untuk admin utama', 403);
+    };
+    $cekProyek = function ($pid) use ($tolak) {
+        if (!$pid || !boleh_proyek($pid)) {
+            $tolak('Akses ditolak: event ini bukan milik login Anda');
+        }
+    };
+    $proyekPerangkat = function ($ids) use ($pdo, $cekProyek, $tolak) {
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) $ids))));
+        if (!$ids) {
+            $tolak('Tidak ada perangkat yang dipilih');
+        }
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare("SELECT DISTINCT proyek_id FROM np_perangkat WHERE id IN ($in)");
+        $st->execute($ids);
+        $pids = $st->fetchAll(PDO::FETCH_COLUMN);
+        if (!$pids) {
+            json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+        }
+        foreach ($pids as $pid) {
+            $cekProyek((int) $pid);
+        }
+    };
+    $proyekAkses = function ($aksesId) use ($pdo, $cekProyek) {
+        $st = $pdo->prepare('SELECT proyek_id FROM np_akses WHERE id = ?');
+        $st->execute([(int) $aksesId]);
+        $cekProyek((int) $st->fetchColumn());
+    };
+
+    switch ($aksi) {
+        case 'GET list':
+        case 'GET katalog_list':
+        case 'GET endpoint_tipe_list':
+            return; // daftar event difilter di aksinya; katalog & tipe endpoint hanya dibaca
+        case 'GET get':
+        case 'GET akses_list':
+        case 'GET log_list':
+        case 'POST proyek_skala':
+        case 'POST kode_baru':
+        case 'POST denah_upload':
+        case 'POST denah_hapus':
+        case 'POST perangkat_hapus_semua':
+            return $cekProyek($id);
+        case 'POST proyek_save':
+            if (!$id) {
+                $tolak('Akses ditolak: membuat event baru hanya untuk admin utama');
+            }
+            return $cekProyek($id);
+        case 'POST proyek_password':
+            $cekProyek($id);
+            if ((string) (isset($req['password']) ? $req['password'] : '') === '') {
+                $tolak('Akses ditolak: menghapus password admin event hanya untuk admin utama');
+            }
+            return;
+        case 'POST perangkat_save':
+            if ($id) {
+                return $proyekPerangkat([$id]);
+            }
+            return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
+        case 'POST perangkat_import':
+            return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
+        case 'POST perangkat_delete':
+        case 'POST perangkat_status_massal':
+            return $proyekPerangkat(isset($req['ids']) && is_array($req['ids']) ? $req['ids'] : []);
+        case 'POST perangkat_rename':
+            $items = isset($req['items']) && is_array($req['items']) ? $req['items'] : [];
+            return $proyekPerangkat(array_map(function ($it) { return is_array($it) && isset($it['id']) ? $it['id'] : 0; }, $items));
+        case 'POST akses_save':
+            if ($id) {
+                return $proyekAkses($id);
+            }
+            return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
+        case 'POST akses_token_baru':
+        case 'POST akses_delete':
+            return $proyekAkses($id);
+    }
+    $tolak();
 }
 
 function find_proyek($id)

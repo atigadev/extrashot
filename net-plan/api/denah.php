@@ -2,7 +2,7 @@
 /**
  * Gambar denah proyek. Folder uploads/ tertutup dari browser, jadi gambar hanya bisa diambil lewat sini.
  *
- * GET ?id=N        -> wajib login admin
+ * GET ?id=N        -> wajib login admin (admin event: hanya event miliknya)
  * GET ?k=KODE      -> link lihat-saja
  * GET ?t=TOKEN     -> link akses tim
  */
@@ -29,8 +29,12 @@ if (isset($_GET['t'])) {
         json_error('Silakan login terlebih dahulu', 401);
     }
     session_write_close();
+    $pid = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+    if (!boleh_proyek($pid)) {
+        json_error('Akses ditolak', 403); // admin event hanya boleh denah event miliknya
+    }
     $st = $pdo->prepare('SELECT denah_file FROM np_proyek WHERE id = ?');
-    $st->execute([isset($_GET['id']) ? (int) $_GET['id'] : 0]);
+    $st->execute([$pid]);
 }
 $file = $st->fetchColumn();
 $path = $file ? NP_UPLOAD_DIR . '/' . $file : '';

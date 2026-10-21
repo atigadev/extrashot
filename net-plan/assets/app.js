@@ -193,12 +193,66 @@
     try {
       const me = await api(API + '?action=me');
       if (!me.login) return showLogin();
+      setPeran(me.peran, me.proyek);
     } catch (e) {
       toast(e.message, true);
       return;
     }
     route();
   }
+
+  /** Peran login: 'super' (admin utama) atau 'event' (admin event, hanya event tertentu). */
+  function setPeran(peran, proyek) {
+    S.peran = peran || 'super';
+    S.proyekBoleh = proyek || [];
+    $('#btn-akun').hidden = false;
+    // Tombol khusus admin utama (buat/hapus/duplikat event, ubah katalog & tipe endpoint) disembunyikan;
+    // server tetap menolak aksi tersebut untuk admin event.
+    document.body.classList.toggle('peran-event', S.peran === 'event');
+  }
+
+  // Ganti password login: admin utama -> password admin utama; admin event -> password admin event-nya.
+  $('#btn-akun').addEventListener('click', () => {
+    const f = $('#form-akun');
+    f.reset();
+    $('#akun-err').hidden = true;
+    $('#akun-info').innerHTML = S.peran === 'event'
+      ? 'Password <b>admin event</b> yang Anda pakai login. Login lain dengan password lama langsung keluar.'
+      : 'Password <b>admin utama</b> (berlaku untuk semua event). Login admin utama lain dengan password lama langsung keluar. Lupa? Jalankan <span class="mono">php net-plan/api/reset-admin.php</span> lewat SSH.';
+    $('#dlg-akun').showModal();
+    f.elements.lama.focus();
+  });
+  $('#form-akun [data-close]').addEventListener('click', () => $('#dlg-akun').close());
+  $('#form-akun').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target;
+    const err = $('#akun-err');
+    err.hidden = true;
+    if (f.elements.baru.value !== f.elements.ulang.value) {
+      err.textContent = 'Ulangan password baru tidak sama';
+      err.hidden = false;
+      return;
+    }
+    const btn = f.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      if (S.peran === 'event') {
+        // Admin event: password semua event yang terbuka dengan login ini (biasanya satu event).
+        for (const id of S.proyekBoleh) {
+          await api(API, { action: 'proyek_password', id, password: f.elements.baru.value, lama: f.elements.lama.value });
+        }
+      } else {
+        await api(API, { action: 'admin_password', lama: f.elements.lama.value, baru: f.elements.baru.value });
+      }
+      $('#dlg-akun').close();
+      toast('Password diganti. Login berikutnya memakai password baru.');
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   function showLogin() {
     $('#login').hidden = false;
@@ -211,10 +265,13 @@
     btn.disabled = true;
     $('#login-err').hidden = true;
     try {
-      await api(API, { action: 'login', password: $('#login-pass').value });
+      const res = await api(API, { action: 'login', password: $('#login-pass').value });
       $('#login').hidden = true;
       $('#login-pass').value = '';
-      route();
+      setPeran(res.peran, res.proyek);
+      // Admin satu event: langsung buka eventnya.
+      if (res.peran === 'event' && res.proyek.length === 1 && !location.hash.startsWith('#/p/')) location.hash = `#/p/${res.proyek[0]}/denah`;
+      else route();
     } catch (err) {
       $('#login-err').textContent = err.message;
       $('#login-err').hidden = false;
@@ -364,6 +421,31 @@
   });
 
   let editingProyek = false;
+  /** Password acak mudah dibaca, mis. "kq7m-x3pt-9hwa" (tanpa huruf/angka yang mirip). */
+  function buatPassword() {
+    const huruf = 'abcdefghjkmnpqrstuvwxyz23456789';
+    const acak = crypto.getRandomValues(new Uint32Array(12));
+    return [0, 4, 8].map(i => Array.from(acak.slice(i, i + 4), n => huruf[n % huruf.length]).join('')).join('-');
+  }
+
+  // Tombol di isian password: lihat / acak / salin (dialog event baru & kartu password admin event).
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-pw]');
+    if (!b) return;
+    const inp = b.closest('.inline').querySelector('input');
+    if (b.dataset.pw === 'lihat') inp.type = inp.type === 'password' ? 'text' : 'password';
+    else if (b.dataset.pw === 'acak') {
+      inp.value = buatPassword();
+      inp.type = 'text';
+      // Dialog ganti password: isian "ulangi" ikut diisi agar langsung cocok.
+      const ulang = inp.form && inp.form.elements.ulang;
+      if (ulang) {
+        ulang.value = inp.value;
+        ulang.type = 'text';
+      }
+    } else if (b.dataset.pw === 'salin' && inp.value) copy(inp.value);
+  });
+
   function openProyekDialog(p) {
     editingProyek = !!p;
     const dlg = $('#dlg-proyek');
@@ -372,6 +454,11 @@
     $('#dlg-proyek-title').textContent = p ? 'Ubah event' : 'Event baru';
     $$('.new-only', f).forEach(e => { e.hidden = !!p; });
     if (p) ['nama', 'venue', 'tanggal_mulai', 'tanggal_selesai'].forEach(k => { f.elements[k].value = p[k] || ''; });
+    if (!p) {
+      // Event baru: langsung disiapkan password admin event acak (boleh diganti / dikosongkan).
+      f.elements.password.value = buatPassword();
+      f.elements.password.type = 'password';
+    }
     dlg.showModal();
     f.elements.nama.focus();
   }
@@ -386,6 +473,8 @@
     const editing = editingProyek;
     if (editing) {
       Object.assign(body, { id: S.proyek.id, catatan: S.proyek.catatan, slack_kabel: S.proyek.slack_kabel });
+    } else if (f.elements.password.value) {
+      body.password = f.elements.password.value;
     }
     btn.disabled = true;
     try {
@@ -393,6 +482,10 @@
       const file = !editing && f.elements.denah.files[0];
       if (file) await uploadDenah(res.proyek.id, file, false);
       $('#dlg-proyek').close();
+      if (!editing && body.password) {
+        // Password hanya disimpan sebagai hash: tampilkan sekali lagi agar bisa dicatat.
+        prompt(`Event "${res.proyek.nama}" dibuat.\n\nPassword admin event (salin & simpan — tidak bisa dilihat lagi; bisa diganti di tab Proyek):`, body.password);
+      }
       if (editing) {
         S.proyek = res.proyek;
         renderCrumb();
@@ -645,7 +738,7 @@
     if (S.epTipe == null && NP.ET[0]) S.epTipe = NP.ET[0].id;
     el.innerHTML = `<span class="muted small">Tipe:</span>` + NP.ET.map(t =>
       `<button type="button" class="ep-chip${t.id === S.epTipe ? ' on' : ''}" data-ep="${t.id}"><i style="background:${esc(t.warna)}">${NP.ikonSvg(t.ikon, 14)}</i>${esc(t.nama)}</button>`).join('') +
-      `<button type="button" class="ep-chip kelola" data-ep-kelola>+ Kelola tipe</button>`;
+      `<button type="button" class="ep-chip kelola super-only" data-ep-kelola>+ Kelola tipe</button>`;
   }
   $('#ep-picker').addEventListener('click', e => {
     if (e.target.closest('[data-ep-kelola]')) return bukaKelolaEp();
@@ -1243,7 +1336,7 @@
       // Tipe endpoint: pilihan dari daftar tipe (bisa ditambah lewat "Kelola tipe").
       input = `<div class="inline"><select id="${id}" data-f="${f.k}" data-attr="1"${dis}><option value="">—</option>${NP.ET.map(t =>
         `<option value="${t.id}"${String(t.id) === String(v) ? ' selected' : ''}>${esc(t.nama)}</option>`).join('')}</select>
-        ${S.canEdit ? '<button type="button" class="small" data-act="ep-kelola" title="Tambah / ubah tipe endpoint">Kelola</button>' : ''}</div>`;
+        ${S.canEdit ? '<button type="button" class="small super-only" data-act="ep-kelola" title="Tambah / ubah tipe endpoint">Kelola</button>' : ''}</div>`;
     } else if (f.type === 'select') {
       const opts = f.options.includes(v) ? f.options : f.options.concat([v]);
       input = `<select id="${id}" data-f="${f.k}"${f.attr ? ' data-attr="1"' : ''}${dis}>${opts.map(o => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(o || '—')}</option>`).join('')}</select>`;
@@ -2172,13 +2265,28 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           </div>
         </div>
       </div>
+      <div class="card" id="card-admin-event">
+        <h2>Admin event</h2>
+        <p>${p.ada_password ? '<b class="ok-text">✓ Password admin event sudah diatur.</b>' : '<b>Belum ada password admin event</b> — hanya admin utama yang bisa mengelola event ini.'}</p>
+        <p class="muted small">Login di <span class="mono">${esc(location.href.replace(/[?#].*$/, ''))}</span> dengan password ini → hanya bisa mengelola event <b>${esc(p.nama)}</b> (tidak bisa membuat/menghapus event, mengubah katalog, atau melihat event lain). Password lama langsung tidak berlaku setelah diganti.</p>
+        <form id="form-pw-event" autocomplete="off">
+          ${S.peran === 'event' ? '<label class="field"><span>Password lama</span><input type="password" name="lama" required autocomplete="current-password"></label>' : ''}
+          <label class="field"><span>${p.ada_password ? 'Ganti password' : 'Buat password'} (min. 8 karakter)</span>
+            <div class="inline"><input type="password" name="password" minlength="8" maxlength="72" required autocomplete="new-password" class="mono">
+              <button type="button" class="small" data-pw="lihat" title="Tampilkan">👁</button>
+              <button type="button" class="small" data-pw="acak">Acak</button>
+              <button type="button" class="small" data-pw="salin">Salin</button></div></label>
+          <div class="btn-row"><button type="submit" class="primary small">Simpan password</button>
+            ${p.ada_password ? '<button type="button" class="small danger super-only" data-p="pw-hapus">Hapus password</button>' : ''}</div>
+        </form>
+      </div>
       <div class="card" id="card-akses"><h2>Akses tim</h2><p class="muted small">Memuat…</p></div>
       <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>
       <div class="card">
         <h2>Aksi</h2>
         <div class="btn-row">
           <button type="button" data-p="backup" title="Simpan event ini (denah, perangkat, katalog yang dipakai) ke satu file">Backup event ini</button>
-          <button type="button" data-p="dup">Duplikat event</button>
+          <button type="button" class="super-only" data-p="dup">Duplikat event</button>
         </div>
         <p class="muted small"><b>Backup</b> menyimpan event lengkap (denah, skala, perangkat, koneksi, katalog &amp; tipe endpoint yang dipakai) ke satu file <code>.netplan.json</code>; buka kembali lewat <b>Buka backup…</b> di halaman daftar event. <b>Duplikat</b> menyalin event di server ini — cocok untuk event berulang di venue yang sama.</p>
         <div class="danger-zone">
@@ -2189,7 +2297,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           </div>
           <div class="dz-row">
             <div><b>Hapus event</b><p class="muted small">Event, gambar denah, dan semua perangkatnya dihapus permanen.</p></div>
-            <button type="button" class="danger" data-p="del">Hapus event</button>
+            <button type="button" class="danger super-only" data-p="del">Hapus event</button>
           </div>
         </div>
       </div>`;
@@ -2368,6 +2476,22 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     return `<svg viewBox="-2 -2 ${n + 4} ${n + 4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n + 4}" height="${n + 4}" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
   }
 
+  // Password admin event: buat / ganti.
+  $('#proyek-pane').addEventListener('submit', async e => {
+    if (e.target.id !== 'form-pw-event') return;
+    e.preventDefault();
+    const pw = e.target.elements.password.value;
+    try {
+      const res = await enqueue(() => api(API, { action: 'proyek_password', id: S.proyek.id, password: pw, lama: e.target.elements.lama ? e.target.elements.lama.value : '' }));
+      S.proyek = res.proyek;
+      renderProyek();
+      prompt('Password admin event tersimpan. Salin  berikan ke PIC event (tidak bisa dilihat lagi):', pw);
+    } catch (err) {
+      setSaveState('error');
+      toast(err.message, true);
+    }
+  });
+
   $('#proyek-pane').addEventListener('submit', async e => {
     if (e.target.id !== 'form-catatan') return;
     e.preventDefault();
@@ -2445,6 +2569,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           location.hash = '#/';
         }
         return;
+      case 'pw-hapus':
+        if (!confirm(`Hapus password admin event "${p.nama}"? Admin event yang sedang login langsung keluar.`)) return;
+        await run({ action: 'proyek_password', id: p.id, password: '' }, 'Password admin event dihapus');
+        return renderProyek();
       case 'backup':
         return NP.Backup.buat([p.id], 'netplan-' + slug(p.nama), false).catch(err => toast(err.message, true));
       case 'del-all':

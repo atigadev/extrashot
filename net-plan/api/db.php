@@ -32,7 +32,7 @@ const NP_STATUS = ['rencana', 'terpasang', 'diuji', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 7;
+const NP_SCHEMA = 8;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -170,7 +170,108 @@ function start_admin_session()
         'samesite' => 'Strict',
     ]);
     session_start();
-    return !empty($_SESSION['np_admin']);
+    return sesi_valid();
+}
+
+/**
+ * Peran sesi admin:
+ * - admin utama  : $_SESSION['np_admin'] = 1 -> semua event.
+ * - admin event  : $_SESSION['np_proyek'] = [id => sidik hash password] -> hanya event tersebut. Sidik dicek tiap
+ *                  request, jadi bila password event diganti/dihapus, sesi lama otomatis tidak berlaku.
+ * Hasil disimpan di $GLOBALS['NP_PERAN'] ('super' | 'event' | '') dan $GLOBALS['NP_PROYEK'] (id event admin event).
+ */
+function sesi_valid()
+{
+    $GLOBALS['NP_PERAN'] = '';
+    $GLOBALS['NP_PROYEK'] = [];
+    if (!empty($_SESSION['np_admin'])) {
+        // Password admin utama diganti -> versi berubah -> sesi dengan password lama gugur.
+        $v = isset($_SESSION['np_admin_v']) ? (string) $_SESSION['np_admin_v'] : '0';
+        if (!hash_equals(meta_get('admin_versi', '0'), $v)) {
+            unset($_SESSION['np_admin'], $_SESSION['np_admin_v']);
+            return false;
+        }
+        $GLOBALS['NP_PERAN'] = 'super';
+        return true;
+    }
+    $sesi = isset($_SESSION['np_proyek']) && is_array($_SESSION['np_proyek']) ? $_SESSION['np_proyek'] : [];
+    if (!$sesi) {
+        return false;
+    }
+    $ids = array_map('intval', array_keys($sesi));
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $st = db()->prepare("SELECT id, admin_hash FROM np_proyek WHERE id IN ($in) AND admin_hash IS NOT NULL");
+    $st->execute($ids);
+    $valid = [];
+    foreach ($st->fetchAll() as $r) {
+        if (hash_equals((string) $sesi[(int) $r['id']], sidik_password($r['admin_hash']))) {
+            $valid[(int) $r['id']] = $sesi[(int) $r['id']];
+        }
+    }
+    if (count($valid) !== count($sesi)) {
+        $_SESSION['np_proyek'] = $valid; // buang event yang passwordnya sudah berubah / dihapus
+    }
+    if (!$valid) {
+        return false;
+    }
+    $GLOBALS['NP_PERAN'] = 'event';
+    $GLOBALS['NP_PROYEK'] = array_keys($valid);
+    return true;
+}
+
+/** Nilai np_meta (pengaturan aplikasi: versi skema, password admin utama, ...). */
+function meta_get($k, $bawaan = '')
+{
+    $st = db()->prepare('SELECT v FROM np_meta WHERE k = ?');
+    $st->execute([$k]);
+    $v = $st->fetchColumn();
+    return $v === false ? $bawaan : (string) $v;
+}
+
+function meta_set($k, $v)
+{
+    if ($v === null) {
+        db()->prepare('DELETE FROM np_meta WHERE k = ?')->execute([$k]);
+        return;
+    }
+    db()->prepare('INSERT INTO np_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')->execute([$k, (string) $v]);
+}
+
+/**
+ * Cocokkan password admin utama. Urutan: password yang diganti dari aplikasi (np_meta.admin_hash) ->
+ * NP_ADMIN_PASS di config.local.php -> "admin" hanya dari localhost bila belum ada keduanya.
+ */
+function cek_password_super($password)
+{
+    $dbHash = meta_get('admin_hash');
+    if ($dbHash !== '') {
+        return password_verify($password, $dbHash);
+    }
+    if (defined('NP_ADMIN_PASS') && NP_ADMIN_PASS !== '') {
+        $hash = NP_ADMIN_PASS;
+        return strpos($hash, '$2y$') === 0 || strpos($hash, '$argon2') === 0
+            ? password_verify($password, $hash)
+            : hash_equals($hash, $password);
+    }
+    $local = isset($_SERVER['REMOTE_ADDR']) && in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1'], true);
+    return $local && hash_equals('admin', $password);
+}
+
+/** Sidik pendek dari hash password (bukan password-nya) untuk mendeteksi password yang diganti. */
+function sidik_password($hash)
+{
+    return substr(hash('sha256', (string) $hash), 0, 32);
+}
+
+function is_super()
+{
+    return isset($GLOBALS['NP_PERAN']) && $GLOBALS['NP_PERAN'] === 'super';
+}
+
+/** Admin utama boleh semua event; admin event hanya event miliknya. */
+function boleh_proyek($proyekId)
+{
+    return is_super() || in_array((int) $proyekId, isset($GLOBALS['NP_PROYEK']) ? $GLOBALS['NP_PROYEK'] : [], true);
 }
 
 /**
@@ -193,6 +294,7 @@ function np_install_schema()
     }
     np_tambah_kolom('np_perangkat', 'jalur', 'TEXT NULL AFTER atribut');
     np_tambah_kolom('np_perangkat', 'katalog_id', 'INT UNSIGNED NULL AFTER jalur');
+    np_tambah_kolom('np_proyek', 'admin_hash', 'VARCHAR(255) NULL AFTER kode_lihat');
     np_tambah_index('np_perangkat', 'idx_np_perangkat_katalog', 'katalog_id');
     // Tipe endpoint bawaan: hanya saat tabelnya baru dibuat (tipe yang sengaja dihapus tidak muncul lagi).
     // INSERT IGNORE + UNIQUE(nama) -> tidak dobel walau dua request menjalankan migrasi bersamaan.
@@ -267,7 +369,9 @@ function proyek_row($r)
     $r['skala'] = $r['skala'] === null ? null : (float) $r['skala'];
     // Versi denah (berubah tiap upload) untuk URL gambar; nama file aslinya tidak dikirim ke browser.
     $r['denah_v'] = $r['denah_file'] ? substr(md5($r['denah_file']), 0, 10) : null;
-    unset($r['denah_file']);
+    // Password admin event: hanya status "sudah diatur", hash-nya tidak pernah dikirim ke browser.
+    $r['ada_password'] = !empty($r['admin_hash']);
+    unset($r['denah_file'], $r['admin_hash']);
     return $r;
 }
 

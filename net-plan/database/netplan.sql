@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS np_proyek (
   skala           DOUBLE NULL,                       -- meter per piksel denah (hasil kalibrasi)
   slack_kabel     SMALLINT UNSIGNED NOT NULL DEFAULT 20, -- tambahan panjang kabel (%) dari jarak lurus
   kode_lihat      VARCHAR(32)  NOT NULL,             -- kode link lihat-saja untuk teknisi lapangan
+  admin_hash      VARCHAR(255) NULL,                 -- password admin event (bcrypt); NULL = hanya admin utama
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),

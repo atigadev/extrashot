@@ -50,8 +50,8 @@
     if (!K.list.length) {
       $('#kat-list').innerHTML = `<div class="empty-big"><b>Katalog masih kosong.</b><br>
         Tambahkan alat yang Anda pakai (router, switch, AP, …) beserta spesifikasi & konfigurasi standarnya,<br>atau mulai dari template standar lalu sesuaikan merek/tipe & angkanya.
-        <div class="btn-row" style="justify-content:center;margin-top:14px"><button type="button" class="primary" data-act="new">+ Tambah alat</button>
-        <button type="button" data-act="template">Isi template standar</button></div></div>`;
+        <div class="btn-row" style="justify-content:center;margin-top:14px"><button type="button" class="primary super-only" data-act="new">+ Tambah alat</button>
+        <button type="button" class="super-only" data-act="template">Isi template standar</button></div></div>`;
       return;
     }
     const q = K.q.trim().toLowerCase();
@@ -76,9 +76,9 @@
             <div class="kat-foot">
               <span class="muted small">Dipakai ${k.dipakai} perangkat di semua event</span>
               <span class="spacer"></span>
-              <button type="button" class="small" data-act="edit">Ubah</button>
-              <button type="button" class="small" data-act="dup">Duplikat</button>
-              <button type="button" class="small danger" data-act="del">Hapus</button>
+              <button type="button" class="small super-only" data-act="edit">Ubah</button>
+              <button type="button" class="small super-only" data-act="dup">Duplikat</button>
+              <button type="button" class="small danger super-only" data-act="del">Hapus</button>
             </div>
           </article>`).join('')}</div>
       </section>`;

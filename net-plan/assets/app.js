@@ -769,6 +769,8 @@
     const g = grupNama(parentId, jenis);
     // Perangkat sejenis yang belum punya uplink tidak termasuk group mana pun -> beri tahu agar tidak membingungkan.
     const lepas = S.list.filter(d => d.jenis === jenis && d.uplink_id == null).length;
+    // Anggota yang namanya belum mengikuti group (mis. disambungkan sebelum fitur group / penamaan gagal).
+    const belum = g ? grupRencana(parentId, jenis).length : 0;
     const t = TYPES[jenis] || TYPES.lainnya;
     const contoh = n => (g ? grupLabel(g, 1) + (n > 1 ? ' … ' + grupLabel(g, n) : '') : '');
     if (!S.canEdit) {
@@ -780,6 +782,7 @@
         <button type="button" class="small" data-grup-apply>${g ? 'Ubah' : 'Terapkan'}</button></div>
       <p class="muted small grp-hint">${g ? `Anggota dinamai <b>${esc(contoh(anggota.length))}</b>, urut nomor port lalu nomor lama. Perangkat baru di sini otomatis lanjut nomornya.`
         : `Isi nama group agar ${anggota.length > 1 ? 'semua ' + anggota.length + ' ' : ''}${esc(t.label)} di ${esc(p.nama)} otomatis dinamai NAMA-01, NAMA-02, …`}</p>
+      ${belum ? `<p class="note grp-belum">${belum} anggota belum mengikuti nama <b>${esc(g)}</b>. <button type="button" class="small" data-grup-apply>Rapikan sekarang</button></p>` : ''}
       ${lepas ? `<p class="note grp-lepas">${lepas} ${esc(t.label)} lain belum tersambung ke uplink mana pun, jadi tidak ikut group ini. Sambungkan dulu ke ${esc(p.nama)} (alat <b>Hubungkan</b> atau pilihan Uplink) agar ikut dinamai.</p>` : ''}
     </div>`;
   }
@@ -1607,9 +1610,15 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function applyGrup(box) {
     const inp = box.querySelector('.grup-input');
     delete inp.dataset.dirty;
-    // Nama sama dengan yang tersimpan (mis. blur setelah Enter): tidak perlu disimpan ulang.
-    if (grupDasar(inp.value) === grupNama(+box.dataset.grupParent, box.dataset.grupJenis)) return;
-    setGrupNama(+box.dataset.grupParent, box.dataset.grupJenis, inp.value);
+    const parentId = +box.dataset.grupParent, jenis = box.dataset.grupJenis;
+    // Nama sama dengan yang tersimpan (mis. blur setelah Enter): tidak perlu disimpan ulang, tetapi anggota yang
+    // namanya belum mengikuti group (mis. baru disambungkan) tetap dirapikan.
+    if (grupDasar(inp.value) === grupNama(parentId, jenis)) {
+      const rencana = grupRencana(parentId, jenis);
+      if (rencana.length) terapkanNama(rencana, `${rencana.length} perangkat dirapikan mengikuti group ${grupNama(parentId, jenis)}`);
+      return;
+    }
+    setGrupNama(parentId, jenis, inp.value);
   }
   // Seperti isian lain: nama group juga diterapkan saat pindah isian (blur), bukan hanya dengan Enter / tombol.
   $('#panel').addEventListener('change', e => {
@@ -1624,7 +1633,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const n = +box.dataset.n;
     const g = grupDasar(inp.value);
     box.querySelector('.grp-hint').innerHTML = g
-      ? `Hasil: <b>${esc(grupLabel(g, 1))}${n > 1 ? ' … ' + esc(grupLabel(g, n)) : ''}</b> — tekan Enter atau Terapkan`
+      ? `Hasil: <b>${esc(grupLabel(g, 1))}${n > 1 ? ' … ' + esc(grupLabel(g, n)) : ''}</b> — diterapkan saat Enter, klik Ubah/Terapkan, atau pindah ke isian lain`
       : 'Kosongkan lalu Terapkan untuk menghapus nama group (nama perangkat tidak diubah).';
   });
   $('#panel').addEventListener('keydown', e => {

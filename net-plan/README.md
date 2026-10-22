@@ -190,7 +190,8 @@ Peralatan support tidak punya uplink jaringan dan hanya bisa dihubungkan ke titi
 **per unit**, dan bebannya dihitung × jumlah unit.
 
 Cara melihat per kelompok:
-- **Denah**: tombol *Semua / Jaringan / ⚡ Support* di kiri atas peta menyembunyikan kelompok lain. Tombol tambah di
+- **Denah**: tombol *Semua / Jaringan / AP / Switch / ⚡ Support* di kiri atas peta menampilkan kelompok atau jenis itu
+  saja (*AP* = access point saja, *Switch* = switch saja; juga lewat Cari/Ctrl+K). Tombol tambah di
   toolbar ikut menyesuaikan, dan pilihan ini tersimpan per browser.
 - **Daftar**: filter jenis punya pilihan *Semua perangkat jaringan* / *Semua support & listrik*.
 - **Tab *Support & listrik*** (`Alt+4`) berisi rekap khusus listrik:

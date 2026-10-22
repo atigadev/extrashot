@@ -1308,18 +1308,25 @@
   // Tampilan denah: semua / hanya jaringan / hanya support (titik listrik & peralatan support). Disimpan per browser.
   let viewGrup = 'semua';
   try { viewGrup = localStorage.getItem('np-view') || 'semua'; } catch (err) { /* abaikan */ }
+  /** Jenis yang termasuk tampilan: 'semua', kelompok ('jaringan' / 'support'), atau satu jenis ('jenis:ap'). */
+  function masukView(j) {
+    if (viewGrup === 'semua') return true;
+    if (viewGrup.startsWith('jenis:')) return j === viewGrup.slice(6);
+    return NP.grupJenis(j) === viewGrup;
+  }
   function syncHidden() {
+    if (!$(`#view-switch [data-view="${viewGrup}"]`)) viewGrup = 'semua'; // nilai tersimpan yang tidak dikenal
     const h = new Set(hiddenTypes);
-    if (viewGrup !== 'semua') TYPE_ORDER.forEach(j => { if (NP.grupJenis(j) !== viewGrup) h.add(j); });
+    TYPE_ORDER.forEach(j => { if (!masukView(j)) h.add(j); });
     peta.setHidden(h);
     $$('#view-switch [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === viewGrup));
     // Tombol tambah di toolbar mengikuti tampilan.
-    $$('#toolbar [data-tool^="tambah:"]').forEach(b => { b.hidden = viewGrup !== 'semua' && NP.grupJenis(b.dataset.tool.slice(7)) !== viewGrup; });
+    $$('#toolbar [data-tool^="tambah:"]').forEach(b => { b.hidden = !masukView(b.dataset.tool.slice(7)); });
   }
   function setView(v) {
     viewGrup = v;
     try { localStorage.setItem('np-view', v); } catch (err) { /* abaikan */ }
-    if (S.sel != null && viewGrup !== 'semua' && NP.grupJenis((S.model.byId.get(S.sel) || {}).jenis) !== viewGrup) selectDev(null);
+    if (S.sel != null && !masukView((S.model.byId.get(S.sel) || {}).jenis)) selectDev(null);
     syncHidden();
   }
   $('#view-switch').addEventListener('click', e => {
@@ -1476,6 +1483,9 @@
       { t: 'Buka tab Denah', k: 'denah peta', fn: () => go('denah') },
       { t: 'Buka Daftar perangkat', k: 'daftar tabel list', fn: () => go('daftar') },
       { t: 'Buka Topologi & cek', k: 'topologi pohon cek pemeriksaan bom kebutuhan kabel', fn: () => go('topologi') },
+      { t: 'Denah: tampilkan AP saja', k: 'ap access point saja filter tampilan wifi', fn: () => { go('denah'); setTimeout(() => setView('jenis:ap'), 80); } },
+      { t: 'Denah: tampilkan switch saja', k: 'switch saja filter tampilan', fn: () => { go('denah'); setTimeout(() => setView('jenis:switch'), 80); } },
+      { t: 'Denah: tampilkan semua perangkat', k: 'semua tampilan filter reset', fn: () => { go('denah'); setTimeout(() => setView('semua'), 80); } },
       { t: 'Buka Support & listrik (rekap listrik)', k: 'support listrik rekap daya mcb watt ups genset', fn: () => go('support') },
       { t: S.lihat ? 'Buka Info event' : 'Buka Proyek (info, denah, akses tim)', k: 'proyek info event akses tim link', fn: () => go('proyek') },
       { t: 'Cetak laporan / sheet AP', k: 'cetak print laporan sheet ap pdf', fn: () => $('#btn-print').click() },

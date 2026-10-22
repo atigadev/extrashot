@@ -893,6 +893,11 @@ function simpan_perangkat($req)
     }
     if ($has('uplink_id')) {
         $up = isset($req['uplink_id']) && $req['uplink_id'] !== '' && $req['uplink_id'] !== null ? (int) $req['uplink_id'] : null;
+        // Titik listrik bukan perangkat jaringan: tidak punya uplink.
+        $jenisNow = isset($set['jenis']) ? $set['jenis'] : ($cur ? $cur['jenis'] : '');
+        if (in_array($jenisNow, ['listrik', 'support'], true)) {
+            $up = null;
+        }
         if ($up !== null) {
             cek_uplink($proyekId, $id, $up);
         }
@@ -937,6 +942,11 @@ function cek_uplink($proyekId, $selfId, $uplinkId)
     }
     if (!array_key_exists($uplinkId, $parent)) {
         json_error('Perangkat uplink tidak ditemukan di proyek ini');
+    }
+    $st = db()->prepare('SELECT jenis FROM np_perangkat WHERE id = ?');
+    $st->execute([$uplinkId]);
+    if (in_array($st->fetchColumn(), ['listrik', 'support'], true)) {
+        json_error('Titik listrik & peralatan support bukan perangkat jaringan — tidak bisa menjadi uplink');
     }
     $cur = $uplinkId;
     $guard = 0;
@@ -1087,6 +1097,16 @@ function salin_perangkat($proyekId, $list, $idSemula = false)
                 $atr[$kunci] = json_encode(array_map(function ($w) { return array_merge($w, ['id' => (int) $w['id']]); }, $baru), JSON_UNESCAPED_UNICODE);
             } else {
                 unset($atr[$kunci], $atr[$mode]);
+            }
+        }
+        // Titik listrik pemasok (atribut listrik_id) juga menunjuk id perangkat lain.
+        if (!empty($atr['listrik_id'])) {
+            $lid = (int) $atr['listrik_id'];
+            $ubah = true;
+            if (isset($map[$lid])) {
+                $atr['listrik_id'] = (string) $map[$lid];
+            } elseif (!$idSemula) {
+                unset($atr['listrik_id']);
             }
         }
         if ($ubah) {

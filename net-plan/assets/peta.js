@@ -46,7 +46,7 @@
       model: null, W: DEFAULT_W, H: DEFAULT_H, img: null,
       z: 1, tx: 0, ty: 0, fitted: false,
       tool: 'pilih', sel: null, canEdit: true,
-      layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true, kabel: false },
+      layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true, kabel: false, listrik: false },
       hidden: new Set(), // jenis yang disembunyikan
       measure: [], linkSrc: null, cursor: null, flash: null,
       userView: false, // pengguna sudah zoom/pan sendiri
@@ -56,6 +56,7 @@
     const nodeEls = new Map();
     const linkEls = new Map();
     const wanEls = []; // garis WAN tambahan router multi-WAN: {g, d, isp}
+    const pwrEls = []; // garis daya: perangkat -> titik listrik pemasok {g, d, L}
 
     // ------------------------------------------------------------------ data & gambar
 
@@ -88,6 +89,7 @@
       nodeEls.clear();
       linkEls.clear();
       wanEls.length = 0;
+      pwrEls.length = 0;
       // Perangkat terpilih digambar paling akhir agar berada di atas.
       const ordered = m.list.slice().sort((a, b) => (a.id === st.sel) - (b.id === st.sel));
       for (const d of m.list) {
@@ -122,6 +124,16 @@
           wanEls.push({ g, d, isp: w.dev, kunci: w.kunci, geser: d.uplink_id === w.dev.id ? 7 : 0 });
         }
       }
+      // Garis daya (putus-putus kuning) dari perangkat ke titik listrik pemasoknya: tampil di lapisan "Listrik",
+      // atau saat perangkat / titik listriknya dipilih.
+      for (const d of m.list) {
+        const L = m.listrikOf(d);
+        if (!L) continue;
+        const g = el('g', { class: 'pwr', 'data-id': d.id });
+        g.innerHTML = '<line class="case"/><line class="ln"/>';
+        gLinks.appendChild(g);
+        pwrEls.push({ g, d, L });
+      }
       for (const d of ordered) {
         const t = NP.tampil(d);
         const s = STATUS[d.status] || STATUS.rencana;
@@ -145,8 +157,8 @@
         g.innerHTML = `<circle class="halo" r="${R + 8}"/>${arahHtml}
           ${ikon || `<circle class="ring" r="${R + 3}" stroke="${s.color}"/>
           <circle class="dot" r="${R}" fill="${t.color}"/>
-          <text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>`}
-          <g class="net" transform="translate(${b},${-b})"><circle r="${BADGE}" fill="${k.color}"/><text dy="0.36em">${k.icon}</text></g>
+          ${NP.isListrik(d) ? `<path class="bolt" d="M1.8 -8.5 L-5 1.2 H-0.6 L-1.8 8.5 L5 -1.2 H0.6 Z"/>` : `<text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>`}`}
+          ${NP.nonJaringan(d) ? "" : `<g class="net" transform="translate(${b},${-b})"><circle r="${BADGE}" fill="${k.color}"/><text dy="0.36em">${k.icon}</text></g>`}
           ${NP.terkunci(d) ? `<g class="lock" transform="translate(${-b},${-b})"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3" /></g>` : ''}
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
           <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
@@ -195,6 +207,10 @@
         g.classList.toggle('on-path', onPath.has(id) && p && onPath.has(p.id));
         g.style.display = !st.layers.garis || st.hidden.has(d.jenis) || (p && st.hidden.has(p.jenis)) ? 'none' : '';
       }
+      for (const w of pwrEls) {
+        w.g.classList.toggle('show', !!st.layers.listrik || w.d.id === st.sel || w.L.id === st.sel);
+        w.g.style.display = st.hidden.has(w.d.jenis) || st.hidden.has(w.L.jenis) ? 'none' : '';
+      }
       for (const w of wanEls) {
         w.g.classList.toggle('on-path', w.d.id === st.sel || w.isp.id === st.sel);
         w.g.style.display = !st.layers.garis || st.hidden.has(w.d.jenis) || st.hidden.has(w.isp.jenis) ? 'none' : '';
@@ -237,6 +253,12 @@
         t.setAttribute('y', mid.y - 4);
         const mk = g.querySelector('.kb-mark');
         if (mk) mk.setAttribute('transform', `translate(${mid.x.toFixed(1)},${mid.y.toFixed(1)})`);
+      }
+      for (const w of pwrEls) {
+        for (const ln of w.g.querySelectorAll('line')) {
+          ln.setAttribute('x1', sx(w.d.x).toFixed(1)); ln.setAttribute('y1', sy(w.d.y).toFixed(1));
+          ln.setAttribute('x2', sx(w.L.x).toFixed(1)); ln.setAttribute('y2', sy(w.L.y).toFixed(1));
+        }
       }
       for (const w of wanEls) {
         // Ikuti bentuk jalur yang tersimpan di entri sambungan (dibaca ulang tiap layout agar ikut saat ditarik).

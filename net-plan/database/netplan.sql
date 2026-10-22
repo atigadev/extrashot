@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS np_proyek (
 CREATE TABLE IF NOT EXISTS np_perangkat (
   id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   proyek_id       INT UNSIGNED NOT NULL,
-  jenis           VARCHAR(20)  NOT NULL,             -- isp, router, switch, ap, bridge, lan, server, cctv, lainnya
+  jenis           VARCHAR(20)  NOT NULL,             -- isp, router, switch, ap, bridge, lan, server, cctv, endpoint, lainnya, listrik
   nama            VARCHAR(100) NOT NULL,             -- label di denah, mis. AP-01
   model           VARCHAR(150) NOT NULL DEFAULT '',  -- merek/tipe alat
   ip              VARCHAR(64)  NOT NULL DEFAULT '',

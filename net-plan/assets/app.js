@@ -394,7 +394,7 @@
       return;
     }
     const id = +m[1];
-    const tab = ['denah', 'daftar', 'topologi', 'proyek'].includes(m[2]) ? m[2] : 'denah';
+    const tab = ['denah', 'daftar', 'topologi', 'support', 'proyek'].includes(m[2]) ? m[2] : 'denah';
     try {
       if (!S.proyek || S.proyek.id !== id) await loadProyek(id);
       else if (S.katalogBasi) await muatKatalog();
@@ -643,6 +643,7 @@
   function renderTab() {
     if (S.tab === 'daftar') renderDaftar();
     else if (S.tab === 'topologi') renderTopologi();
+    else if (S.tab === 'support') renderSupport();
     else if (S.tab === 'proyek') renderProyek();
   }
 
@@ -1009,7 +1010,7 @@
     // Endpoint langsung tersambung ke titik LAN (yang dipilih / terdekat); perangkat lain ke induk yang dipilih.
     const lanEp = jenis === 'endpoint' && !(base && base.uplink_id !== undefined) ? lanUntukEndpoint(x, y) : null;
     const uplinkId = base && base.uplink_id !== undefined ? base.uplink_id
-      : lanEp ? lanEp.lan.id : (jenis !== 'isp' && parent ? parent.id : null);
+      : lanEp ? lanEp.lan.id : (jenis !== 'isp' && NP.grupJenis(jenis) !== 'support' && parent && !NP.nonJaringan(parent) ? parent.id : null);
     const g = uplinkId != null ? grupNama(uplinkId, jenis) : '';
     // Endpoint: tipe dari perangkat yang diduplikat, atau tipe yang dipilih di pemilih tipe.
     const ep = jenis === 'endpoint'
@@ -1021,10 +1022,10 @@
       jenis,
       nama: g ? grupNext(g) : nextName(jenis, ep ? ep.prefix : null),
       uplink_id: uplinkId,
-      media: jenis === 'isp' ? '' : 'utp',
+      media: jenis === 'isp' || NP.grupJenis(jenis) === 'support' ? '' : 'utp',
       status: 'rencana',
       // Endpoint baru memakai tipe yang dipilih di pemilih tipe (Laptop, Printer, ...).
-      atribut: ep ? { tipe_endpoint: String(ep.id) } : {},
+      atribut: ep ? { tipe_endpoint: String(ep.id) } : TYPES[jenis].listrik ? { fase: '1 fase' } : {},
       port_uplink: jenis === 'endpoint' && uplinkId != null ? portKosong(uplinkId) : '',
     }, base || {}, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
     try {
@@ -1033,6 +1034,15 @@
       S.sel = res.perangkat.id;
       refreshModel();
       peta.flash(res.perangkat.id);
+      // Titik listrik baru: langsung buka isian MCB (daya yang bisa dipakai dihitung dari situ).
+      if (TYPES[jenis].listrik && !base) {
+        const simpan = pnTab;
+        pnTab = 'jenis';
+        terapkanPnTab();
+        pnTab = simpan;
+        const mcb = $('#panel [data-f="arus_a"]');
+        if (mcb) setTimeout(() => mcb.focus(), 50);
+      }
       const row = salin(res.perangkat);
       catat({
         label: 'tambah ' + row.nama,
@@ -1050,6 +1060,17 @@
     const c = S.model.byId.get(childId);
     const p = S.model.byId.get(parentId);
     if (!c || !p) return;
+    // Titik listrik & peralatan support bukan jaringan: perangkat (jaringan / support) → titik listrik = pilih sumber
+    // listrik; selain itu ditolak.
+    if (NP.isListrik(c)) return toast(`${c.nama} adalah titik listrik — hubungkan perangkat ke titik listrik ini, bukan sebaliknya`, true);
+    if (NP.nonJaringan(p) && !NP.isListrik(p)) return toast(`${p.nama} adalah peralatan support — tidak bisa menjadi uplink / sumber listrik`, true);
+    if (NP.nonJaringan(c) && !NP.isListrik(p)) return toast(`${c.nama} adalah peralatan support — hanya bisa dihubungkan ke titik listrik`, true);
+    if (NP.isListrik(p)) {
+      const atr = Object.assign({}, c.atribut, { listrik_id: String(p.id) });
+      if (!atr.listrik || atr.listrik === 'poe' || atr.listrik === 'baterai') atr.listrik = 'ada';
+      saveDev(childId, { atribut: atr }).then(() => toast(`${c.nama} ⚡ mendapat listrik dari ${p.nama}`)).catch(() => {});
+      return;
+    }
     // Router yang sudah punya uplink dihubungkan ke Sumber WAN lain = tambah WAN (multi-WAN), bukan ganti uplink.
     if (c.jenis === 'router' && p.jenis === 'isp' && c.uplink_id != null && c.uplink_id !== parentId) {
       if (S.model.wanLain(c).some(w => w.dev.id === parentId)) return toast(`${p.nama} sudah menjadi WAN ${c.nama}`);
@@ -1194,10 +1215,11 @@
     h += TYPE_ORDER.map((j, i) => {
       const t = TYPES[j];
       return `<button type="button" class="tool add edit-only" data-tool="tambah:${j}" title="Tambah ${t.label} (${i + 1})">
-        <i style="background:${t.color}"${j === 'endpoint' ? ' class="sq"' : ''}>${j === 'endpoint' ? NP.ikonSvg('pc', 15) : esc(t.short)}</i><span>${esc(t.label.split(/[ /(]/)[0])}</span></button>`;
+        <i style="background:${t.color}"${j === 'endpoint' ? ' class="sq"' : ''}>${j === 'endpoint' ? NP.ikonSvg('pc', 15) : esc(t.short)}</i><span>${esc(t.tb || t.label.split(/[ /(]/)[0])}</span></button>`;
     }).join('');
     $('#toolbar').innerHTML = h;
     setTool('pilih');
+    syncHidden();
   }
 
   function setTool(tool) {
@@ -1282,6 +1304,28 @@
   try { setOpacity(+(localStorage.getItem('np-opacity') || 100), false); } catch (err) { /* abaikan */ }
 
   const hiddenTypes = new Set();
+
+  // Tampilan denah: semua / hanya jaringan / hanya support (titik listrik & peralatan support). Disimpan per browser.
+  let viewGrup = 'semua';
+  try { viewGrup = localStorage.getItem('np-view') || 'semua'; } catch (err) { /* abaikan */ }
+  function syncHidden() {
+    const h = new Set(hiddenTypes);
+    if (viewGrup !== 'semua') TYPE_ORDER.forEach(j => { if (NP.grupJenis(j) !== viewGrup) h.add(j); });
+    peta.setHidden(h);
+    $$('#view-switch [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === viewGrup));
+    // Tombol tambah di toolbar mengikuti tampilan.
+    $$('#toolbar [data-tool^="tambah:"]').forEach(b => { b.hidden = viewGrup !== 'semua' && NP.grupJenis(b.dataset.tool.slice(7)) !== viewGrup; });
+  }
+  function setView(v) {
+    viewGrup = v;
+    try { localStorage.setItem('np-view', v); } catch (err) { /* abaikan */ }
+    if (S.sel != null && viewGrup !== 'semua' && NP.grupJenis((S.model.byId.get(S.sel) || {}).jenis) !== viewGrup) selectDev(null);
+    syncHidden();
+  }
+  $('#view-switch').addEventListener('click', e => {
+    const b = e.target.closest('[data-view]');
+    if (b) setView(b.dataset.view);
+  });
 
   document.addEventListener('keydown', e => {
     if (S.tab !== 'denah' || $('#editor').hidden || document.querySelector('dialog[open]')) return;
@@ -1400,9 +1444,9 @@
       return jalankanRiwayat(k === 'y' || e.shiftKey ? 'redo' : 'undo');
     }
     if (ketik) return;
-    if (e.altKey && !mod && /^[1-4]$/.test(e.key)) {
+    if (e.altKey && !mod && /^[1-5]$/.test(e.key)) {
       e.preventDefault();
-      return go(['denah', 'daftar', 'topologi', 'proyek'][+e.key - 1]);
+      return go(['denah', 'daftar', 'topologi', 'support', 'proyek'][+e.key - 1]);
     }
     if (mod || e.altKey) return;
     if (e.key === '/') {
@@ -1432,6 +1476,7 @@
       { t: 'Buka tab Denah', k: 'denah peta', fn: () => go('denah') },
       { t: 'Buka Daftar perangkat', k: 'daftar tabel list', fn: () => go('daftar') },
       { t: 'Buka Topologi & cek', k: 'topologi pohon cek pemeriksaan bom kebutuhan kabel', fn: () => go('topologi') },
+      { t: 'Buka Support & listrik (rekap listrik)', k: 'support listrik rekap daya mcb watt ups genset', fn: () => go('support') },
       { t: S.lihat ? 'Buka Info event' : 'Buka Proyek (info, denah, akses tim)', k: 'proyek info event akses tim link', fn: () => go('proyek') },
       { t: 'Cetak laporan / sheet AP', k: 'cetak print laporan sheet ap pdf', fn: () => $('#btn-print').click() },
       { t: 'Seluruh denah (zoom pas)', k: 'fit zoom seluruh denah', fn: () => { go('denah'); setTimeout(() => peta.fit(), 80); } },
@@ -1513,7 +1558,7 @@
       return;
     }
     hiddenTypes.delete(it.dev.jenis);
-    peta.setHidden(new Set(hiddenTypes));
+    syncHidden();
     if (S.tab !== 'denah') {
       S.sel = id;
       go('denah');
@@ -1933,7 +1978,7 @@
     const st = {};
     m.list.forEach(d => { st[d.status] = (st[d.status] || 0) + 1; });
     const kon = { online: [], gangguan: [], offline: [] };
-    m.list.forEach(d => kon[m.koneksi(d)].push(d));
+    m.list.forEach(d => { if (!NP.nonJaringan(d)) kon[m.koneksi(d)].push(d); });
     return `
       <div class="pn-sec">
         <h3>${esc(p.nama)}</h3>
@@ -2037,7 +2082,9 @@
       input = `<div class="inline"><input type="password" id="${id}" data-f="${f.k}" data-attr="1" value="${esc(v)}" autocomplete="new-password"${dis}>
         <button type="button" class="small" data-reveal="${id}" title="Tampilkan">👁</button></div>`;
     } else {
-      input = `<input type="${f.type === 'number' ? 'number' : 'text'}" ${f.type === 'number' ? 'step="any" min="0"' : ''} id="${id}" data-f="${f.k}"${f.attr ? ' data-attr="1"' : ''} value="${esc(v)}" placeholder="${esc(f.ph || '')}"${dis}>`;
+      // f.list = nilai umum untuk dipilih (datalist), tetap bisa diketik bebas (mis. ukuran MCB standar).
+      input = `<input type="${f.type === 'number' ? 'number' : 'text'}" ${f.type === 'number' ? 'step="any" min="0"' : ''} id="${id}" data-f="${f.k}"${f.attr ? ' data-attr="1"' : ''} value="${esc(v)}" placeholder="${esc(f.ph || '')}"${f.list ? ` list="dl-${f.k}"` : ''}${dis}>` +
+        (f.list ? `<datalist id="dl-${f.k}">${f.list.map(o => `<option value="${esc(o)}">`).join('')}</datalist>` : '');
     }
     return `<label class="field${f.wide ? ' wide' : ''}"><span>${esc(f.label)}</span>${input}</label>`;
   }
@@ -2072,7 +2119,7 @@
   function uplinkOptions(d) {
     const excl = S.model.descendants(d.id);
     excl.add(d.id);
-    const cands = NP.Model.sortDev(S.list.filter(x => !excl.has(x.id)));
+    const cands = NP.Model.sortDev(S.list.filter(x => !excl.has(x.id) && !NP.nonJaringan(x)));
     return `<option value="">— tidak ada —</option>` + TYPE_ORDER.map(j => {
       const g = cands.filter(x => x.jenis === j);
       return g.length ? `<optgroup label="${esc(TYPES[j].label)}">${g.map(x => `<option value="${x.id}"${x.id === d.uplink_id ? ' selected' : ''}>${esc(x.nama)}${x.model ? ' · ' + esc(x.model) : ''}</option>`).join('')}</optgroup>` : '';
@@ -2099,9 +2146,10 @@
       <nav class="pn-tabs" role="tablist" aria-label="Bagian isian perangkat">
         <button type="button" role="tab" data-pt="info">Info<i class="pt-dot" hidden></i></button>
         <button type="button" role="tab" data-pt="identitas">Identitas</button>
-        <button type="button" role="tab" data-pt="koneksi">Koneksi</button>
+        ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="koneksi">Koneksi</button>`}
         <button type="button" role="tab" data-pt="jenis">${esc(tabJenis(d))}</button>
-        <button type="button" role="tab" data-pt="grup">Group<span class="pt-n" hidden></span></button>
+        ${NP.isListrik(d) ? "" : `<button type="button" role="tab" data-pt="listrik">⚡ Listrik</button>`}
+        ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="grup">Group<span class="pt-n" hidden></span></button>`}
       </nav>
       </div>
       <div data-pp="info">
@@ -2141,6 +2189,7 @@
         <div data-pp="jenis">
           ${t.fields.length ? `<div class="pn-sec">
             <h4>Pengaturan ${esc(t.label)}</h4>
+            ${NP.isListrik(d) ? `<div id="mcb-live">${mcbInfoHtml(d, a)}</div>` : ''}
             <div class="fgrid">${t.fields.map(f => fieldHtml(Object.assign({ attr: true }, f), a[f.k], dis)).join('')}</div>
           </div>` : ''}
           <div class="pn-sec">
@@ -2149,6 +2198,7 @@
           </div>
         </div>
       </form>
+      ${NP.isListrik(d) ? "" : `<div data-pp="listrik">${dayaSection(d, dis)}</div>`}
       <div data-pp="grup">
         <div class="pn-sec" id="pn-grup-sec"><h4>Group perangkat ini</h4><div id="pn-grup"></div></div>
         <div class="pn-sec" id="pn-grup-anak-sec"><h4>Group perangkat yang terhubung ke sini</h4><div id="pn-grup-anak-box"></div></div>
@@ -2308,6 +2358,191 @@
     simpanWan(d, wanList(d).filter(w => w.id !== +del.dataset.wanDel), S.model.wanMode(d));
   });
 
+  // ------------------------------------------------------------------------ daya listrik
+
+  const LISTRIK = NP.LISTRIK;
+  const listrikBadge = k => {
+    const x = LISTRIK[k] || LISTRIK[''];
+    return `<span class="kb${k ? '' : ' kb-belum'}"${k ? ` style="background:${x.color}"` : ''}>${esc(x.short)}</span>`;
+  };
+  // Watt persis (mis. 3.520 W) agar mudah dicocokkan dengan perhitungan MCB di lapangan.
+  const fmtW = w => Math.round(w).toLocaleString('id-ID') + ' W';
+
+  /** Bagian "Daya listrik" perangkat jaringan: sumber di lokasi, titik listrik pemasok, konsumsi daya. */
+  function dayaSection(d, dis) {
+    const m = S.model;
+    const a = d.atribut || {};
+    const titik = m.list.filter(NP.isListrik)
+      .map(L => ({ L, jarak: m.distPx(d, L) * (S.proyek.skala || 0) }))
+      .sort((x, y) => m.distPx(d, x.L) - m.distPx(d, y.L));
+    const katW = parseFloat(m.spec(d).daya_w) > 0 ? parseFloat(m.spec(d).daya_w) : null;
+    const L = m.listrikOf(d);
+    // Ringkasan titik listrik terpilih: kapasitas MCB, terpakai (termasuk perangkat ini) & sisa.
+    let ringkas = '';
+    if (L) {
+      const b = m.bebanListrik().find(x => x.L.id === L.id);
+      const mcb = NP.dayaMcb(L.atribut || {});
+      const sisa = b && b.kap ? b.kap - b.watt : null;
+      ringkas = `<div class="lst-src">
+        <div class="lst-src-h"><button type="button" class="chip" data-sel="${L.id}"><i style="background:${TYPES.listrik.color}"></i>⚡ ${esc(L.nama)}</button>
+          <span class="muted small">${mcb ? `MCB ${mcb.a} A · ${mcb.v} V${mcb.tiga ? ' · 3 fase' : ''}` : 'MCB belum diisi'}</span>
+          ${S.canEdit ? '<button type="button" class="small" data-listrik-lepas>Lepas</button>' : ''}</div>
+        ${b && b.kap ? `<div class="kb-bar"><i style="width:${Math.min(100, b.pct)}%;background:${warnaBeban(b.pct)}"></i></div>
+          <div class="mcb-rows"><span>Kapasitas</span><b>${fmtW(b.kap)}</b><span>Terpakai (${b.devs.length} perangkat)</span><b>${fmtW(b.watt)} (${b.pct}%)</b>
+            <span>Sisa</span><b class="${sisa < 0 ? 'bad' : b.pct >= 80 ? 'warn-t' : 'ok-t'}">${fmtSisa(sisa)}</b></div>` : ''}
+      </div>`;
+    }
+    return `<div class="pn-sec">
+      <h4>Listrik <span class="small">opsional — kosongkan bila tidak perlu dicatat</span></h4>
+      ${titik.length ? `<label class="field"><span>Sumber listrik (titik listrik yang sudah dibuat)</span>
+        <select data-listrik-src${dis}><option value="">— tidak memakai titik listrik —</option>${titik.map(x => `<option value="${x.L.id}"${L && L.id === x.L.id ? ' selected' : ''}>${esc(x.L.nama)}${x.jarak ? ' · ≈ ' + esc(fmtM(x.jarak)) : ''}${(() => { const mc = NP.dayaMcb(x.L.atribut || {}); return mc ? ' · MCB ' + mc.a + ' A' : ''; })()}</option>`).join('')}</select></label>`
+        : `<p class="note">Belum ada titik listrik di event ini.${S.canEdit ? ' <button type="button" class="small" data-listrik-buat>⚡ Buat titik listrik</button>' : ''}</p>`}
+      ${ringkas}
+      <div class="fgrid">
+        <label class="field"><span>Listrik di lokasi</span>
+          <select data-f="listrik" data-attr="1"${dis}>${Object.keys(LISTRIK).map(k => `<option value="${k}"${(a.listrik || '') === k ? ' selected' : ''}>${esc(LISTRIK[k].label)}</option>`).join('')}</select></label>
+        ${fieldHtml({ k: 'daya_w', label: NP.nonJaringan(d) ? 'Daya per unit (W) × jumlah' : 'Konsumsi daya (W)', type: 'number', ph: katW ? `dari katalog: ${katW} W` : 'mis. 15', attr: true }, a.daya_w, dis)}
+      </div>
+    </div>`;
+  }
+
+  // Sumber listrik dipilih / dilepas dari menu Listrik perangkat.
+  $('#panel').addEventListener('change', e => {
+    const sel = e.target.closest('[data-listrik-src]');
+    if (!sel || !S.canEdit || S.sel == null) return;
+    pasangListrik([S.sel], sel.value ? +sel.value : null);
+  });
+  $('#panel').addEventListener('click', e => {
+    if (e.target.closest('[data-listrik-lepas]') && S.canEdit && S.sel != null) return pasangListrik([S.sel], null);
+    if (e.target.closest('[data-listrik-buat]')) setTool('tambah:listrik');
+  });
+
+  /**
+   * Pasang / lepas titik listrik pemasok untuk satu atau banyak perangkat (bisa di-Ctrl+Z sebagai satu langkah).
+   * Memasang mengisi "Listrik di lokasi" = stop kontak tersedia bila belum diisi / PoE / baterai.
+   */
+  async function pasangListrik(ids, lid) {
+    const L = lid != null ? S.model.byId.get(lid) : null;
+    const ds = ids.map(id => S.model.byId.get(id)).filter(d => d && !NP.isListrik(d));
+    if (!ds.length) return toast('Tidak ada perangkat yang bisa diberi sumber listrik', true);
+    await kelompok(L ? `sumber listrik ${ds.length > 1 ? ds.length + ' perangkat' : ds[0].nama} → ${L.nama}` : `lepas sumber listrik ${ds.length > 1 ? ds.length + ' perangkat' : ds[0].nama}`, async () => {
+      for (const d of ds) {
+        const atr = Object.assign({}, d.atribut);
+        if (L) {
+          atr.listrik_id = String(L.id);
+          if (!atr.listrik || atr.listrik === 'poe' || atr.listrik === 'baterai') atr.listrik = 'ada';
+        } else {
+          delete atr.listrik_id;
+        }
+        await saveDev(d.id, { atribut: atr }, { keepPanel: ds.length > 1 }).catch(() => {});
+      }
+    });
+    toast(L ? `${ds.length > 1 ? ds.length + ' perangkat' : ds[0].nama} ⚡ memakai listrik dari ${L.nama}` : `Sumber listrik ${ds.length > 1 ? ds.length + ' perangkat' : ds[0].nama} dilepas`);
+  }
+
+  /** Sel daftar untuk titik listrik: beban / kapasitas. */
+  function listrikTitikCell(L) {
+    const b = S.model.bebanListrik().find(x => x.L.id === L.id);
+    if (!b) return '';
+    const bad = b.pct != null && b.pct > 100;
+    return `<span${bad ? ' class="bad"' : ''}>⚡ ${fmtW(b.watt)}${b.kap ? ' / ' + fmtW(b.kap) + ` (${b.pct}%)` : ''}</span> <span class="muted">${b.devs.length} perangkat</span>`;
+  }
+
+  /** Kartu "Kebutuhan listrik" di tab Topologi. */
+  function listrikSumHtml() {
+    const m = S.model;
+    const rk = m.ringkasListrik();
+    const beban = m.bebanListrik();
+    const chipL = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
+    let h = `<p style="margin:0 0 8px">Total konsumsi perangkat: <b>${fmtW(rk.total)}</b></p>`;
+    h += `<div class="legend">${['perlu', 'ada', 'poe', 'baterai', ''].map(k => `<span class="lg-item"><i class="kb-dot" style="background:${LISTRIK[k].color}"></i>${esc(LISTRIK[k].label)}<b>${rk.per[k].length}</b></span>`).join('')}</div>`;
+    if (rk.per.perlu.length) {
+      h += `<p class="small" style="margin:8px 0 4px"><b>Perlu tarik listrik:</b></p><div class="path wrap">${NP.Model.sortDev(rk.per.perlu).map(d => `<span>${chipL(d)}</span>`).join(' ')}</div>`;
+    }
+    h += beban.length
+      ? `<table class="mini" style="margin-top:10px"><tr><th>Titik listrik</th><th class="num">Beban</th><th class="num">Kapasitas</th><th class="num">Soket</th></tr>${beban.map(b => {
+        const warna = b.pct == null ? '#94a3b8' : b.pct > 100 ? '#dc2626' : b.pct >= 80 ? '#d97706' : '#16a34a';
+        return `<tr><td>${chipL(b.L)}<div class="kb-bar" style="margin:4px 0 0;height:6px"><i style="width:${Math.min(100, b.pct || 0)}%;background:${warna}"></i></div></td>
+          <td class="num">${fmtW(b.watt)}${b.pct != null ? ` <span class="muted">(${b.pct}%)</span>` : ''}</td><td class="num">${b.kap ? fmtW(b.kap) : '—'}</td>
+          <td class="num">${b.soket ? `${b.devs.length}/${b.soket}` : b.devs.length}</td></tr>`;
+      }).join('')}</table>`
+      : '<p class="muted small" style="margin-top:8px">Belum ada titik listrik. Tambahkan dari toolbar denah (⚡ Titik listrik) untuk menghitung beban daya.</p>';
+    return h;
+  }
+
+  /**
+   * Ringkasan daya dari MCB untuk titik listrik: daya maksimal, batas aman 80%, terpakai & sisa.
+   * atr = isian (bisa nilai yang sedang diketik, untuk pratinjau langsung).
+   */
+  function mcbInfoHtml(L, atr) {
+    const mcb = NP.dayaMcb(atr);
+    const manual = parseFloat(atr.kapasitas_w) > 0 ? parseFloat(atr.kapasitas_w) : null;
+    const kap = manual || (mcb && mcb.w);
+    if (!kap) return '<div class="mcb-info kosong">Isi <b>MCB (A)</b> untuk menghitung daya yang bisa dipakai di titik listrik ini.</div>';
+    const b = S.model.bebanListrik().find(x => x.L.id === L.id);
+    const pakai = b ? b.watt : 0;
+    const aman = kap * 0.8;
+    const sisa = kap - pakai;
+    return `<div class="mcb-info">
+      <div class="mcb-big">${fmtW(kap)}</div>
+      <div class="muted small">${manual ? 'kapasitas manual' : `MCB ${mcb.a} A × ${mcb.v} V${mcb.tiga ? ' × √3 (3 fase)' : ''}`}</div>
+      <div class="mcb-rows">
+        <span>Aman dipakai (80%)</span><b>${fmtW(aman)}</b>
+        <span>Terpakai</span><b>${fmtW(pakai)}${b && b.devs.length ? ` <span class="muted">(${b.devs.length} perangkat)</span>` : ''}</b>
+        <span>Sisa</span><b class="${sisa < 0 ? 'bad' : pakai > aman ? 'warn-t' : 'ok-t'}">${sisa < 0 ? 'kurang ' + fmtW(-sisa) : fmtW(sisa)}</b>
+      </div>
+    </div>`;
+  }
+
+  // Pratinjau langsung saat MCB / tegangan / fase / kapasitas diketik (sebelum tersimpan).
+  $('#panel').addEventListener('input', e => {
+    const box = $('#mcb-live');
+    const inp = e.target.closest('[data-f]');
+    if (!box || !inp || !['arus_a', 'tegangan_v', 'fase', 'kapasitas_w'].includes(inp.dataset.f) || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    const atr = Object.assign({}, d.atribut);
+    ['arus_a', 'tegangan_v', 'fase', 'kapasitas_w'].forEach(k => {
+      const el = $(`#panel [data-f="${k}"]`);
+      if (el) atr[k] = el.value;
+    });
+    box.innerHTML = mcbInfoHtml(d, atr);
+  });
+
+  /** Info peralatan support: kategori, jumlah, daya & titik listrik pemasoknya. */
+  function infoSupport(d, chip) {
+    const m = S.model;
+    const a = d.atribut || {};
+    const Lp = m.listrikOf(d);
+    const w = m.dayaW(d);
+    let h = '<div class="pn-sec info">';
+    h += `<div class="kv"><span>Kategori</span><b>${esc(a.kategori_support || '—')}${a.jumlah && +a.jumlah > 1 ? ' · ' + esc(a.jumlah) + ' unit' : ''}</b></div>`;
+    if (a.kapasitas_support) h += `<div class="kv"><span>Kapasitas / ukuran</span><b>${esc(a.kapasitas_support)}</b></div>`;
+    h += `<div class="kv"><span>Listrik</span><b>${listrikBadge(a.listrik || '')}${Lp ? ` ⚡ ${chip(Lp)}` : ''}${w ? ` <span class="muted">${fmtW(w)}</span>` : ''}</b></div>`;
+    const issues = m.checks().filter(c => c.ids.includes(d.id));
+    if (issues.length) h += `<ul class="issues">${issues.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>`;
+    return h + '</div>';
+  }
+
+  /** Info titik listrik: kapasitas, beban perangkat yang ditenagai, stop kontak. */
+  function infoListrik(L, chip) {
+    const m = S.model;
+    const b = m.bebanListrik().find(x => x.L.id === L.id) || { devs: [], watt: 0, kap: m.kapasitasW(L), pct: null, tanpaDaya: 0, soket: null };
+    const warna = b.pct == null ? '#94a3b8' : b.pct > 100 ? '#dc2626' : b.pct >= 80 ? '#d97706' : '#16a34a';
+    const a = L.atribut || {};
+    let h = '<div class="pn-sec info">';
+    h += mcbInfoHtml(L, a);
+    h += `<div class="kv"><span>Sumber</span><b>${esc(a.sumber_listrik || '—')}${a.lokasi_panel ? ' · ' + esc(a.lokasi_panel) : ''}</b></div>`;
+    h += `<div class="kv col"><span>Beban ${b.devs.length} perangkat: <b>${fmtW(b.watt)}</b>${b.kap ? ` dari ${fmtW(b.kap)} (${b.pct}%)` : ''}${b.tanpaDaya ? ` · <span class="muted">${b.tanpaDaya} belum diisi watt-nya</span>` : ''}</span>
+      ${b.kap ? `<div class="kb-bar"><i style="width:${Math.min(100, b.pct)}%;background:${warna}"></i></div>` : ''}</div>`;
+    if (b.soket) h += `<div class="kv"><span>Stop kontak</span><b${b.devs.length > b.soket ? ' class="bad"' : ''}>${b.devs.length} / ${b.soket} terpakai</b></div>`;
+    h += b.devs.length
+      ? `<div class="path wrap">${NP.Model.sortDev(b.devs).map(d => `<span class="wan-chip">${chip(d)} <span class="muted small">${m.dayaW(d) ? fmtW(m.dayaW(d)) : '? W'}</span></span>`).join('')}</div>`
+      : '<p class="muted small">Belum ada perangkat yang memakai titik listrik ini. Pilih di tab pengaturan perangkat (Daya listrik), atau pakai alat <b>Hubungkan</b>: perangkat → titik listrik ini.</p>';
+    const issues = m.checks().filter(c => c.ids.includes(L.id));
+    if (issues.length) h += `<ul class="issues">${issues.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>`;
+    return h + '</div>';
+  }
+
   /** Label tab pengaturan khusus jenis: "Switch", "Access Point", "Sumber WAN", "Laptop", … */
   function tabJenis(d) {
     if (d.jenis === 'endpoint') return NP.tampil(d).label || 'Endpoint';
@@ -2322,12 +2557,13 @@
   function terapkanPnTab() {
     const body = $('#panel-body');
     if (!body.querySelector('.pn-tabs')) return;
+    const aktif = body.querySelector(`.pn-tabs [data-pt="${pnTab}"]`) ? pnTab : 'info';
     $$('.pn-tabs [data-pt]', body).forEach(b => {
-      const on = b.dataset.pt === pnTab;
+      const on = b.dataset.pt === aktif;
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', String(on));
     });
-    $$('[data-pp]', body).forEach(p => { p.hidden = p.dataset.pp !== pnTab; });
+    $$('[data-pp]', body).forEach(p => { p.hidden = p.dataset.pp !== aktif; });
   }
 
   $('#panel').addEventListener('click', e => {
@@ -2363,6 +2599,12 @@
     const issues = m.checks().filter(c => c.ids.includes(d.id));
     const chip = x => `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${NP.tampil(x).color}"></i>${esc(x.nama)}</button>`;
 
+    if (NP.nonJaringan(d)) {
+      box.innerHTML = NP.isListrik(d) ? infoListrik(d, chip) : infoSupport(d, chip);
+      renderTimBox(d);
+      renderRiwayat(d);
+      return;
+    }
     const kon = m.koneksi(d);
     let h = `<div class="pn-sec info"><div class="kv"><span>Internet</span><b>${konBadge(kon)}${kon === 'gangguan'
       ? ` <span class="muted">(${esc(path.filter(n => n.status === 'bermasalah').map(n => n.nama).join(', '))} bermasalah)</span>` : ''}</b></div>`;
@@ -2385,6 +2627,11 @@
       h += `<div class="kv col"><span>Uplink (${up2.length + (p1 ? 1 : 0)}) · ${m.uplinkMode(d) === 'lacp' ? 'LACP — bandwidth digabung' : 'redundan — STP/RSTP'}</span>
         <div class="path wrap">${p1 ? `<span class="wan-chip up">UP1 ${chip(p1)} ${konBadge(m.koneksi(p1))}</span>` : ''}${up2.map((w, i) => `<span class="wan-chip up">UP${i + 2} ${chip(w.dev)} ${konBadge(m.koneksi(w.dev))}
           ${kabelLainBtn(d, { dev: w.dev, kabel: w.kabel, kunci: 'uplink_lain' }, bolehKabel(d))}</span>`).join('')}</div></div>`;
+    }
+    if (d.jenis !== 'isp' || (d.atribut && d.atribut.listrik)) {
+      const Lp = m.listrikOf(d);
+      const w = m.dayaW(d);
+      h += `<div class="kv"><span>Listrik</span><b>${listrikBadge((d.atribut || {}).listrik || '')}${Lp ? ` ⚡ ${chip(Lp)}` : ''}${w ? ` <span class="muted">${fmtW(w)}</span>` : ''}</b></div>`;
     }
     if (bw.mbps != null) {
       h += `<div class="kv"><span>Bandwidth maks.</span><b>${fmtBw(bw.mbps)}${bw.gabung ? ` <span class="muted">(gabungan ${bw.gabung} ${bw.at && bw.at.jenis === 'switch' ? 'uplink' : 'WAN'})</span>` : bw.at && bw.at.id !== d.id ? ` <span class="muted">(dibatasi ${esc(bw.at.nama)})</span>` : ''}</b></div>`;
@@ -2573,7 +2820,7 @@
       const j = hide.dataset.hide;
       if (hiddenTypes.has(j)) hiddenTypes.delete(j);
       else hiddenTypes.add(j);
-      peta.setHidden(new Set(hiddenTypes));
+      syncHidden();
       hide.classList.toggle('off', hiddenTypes.has(j));
       return;
     }
@@ -2716,7 +2963,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   // ------------------------------------------------------------------------ daftar perangkat
 
   function buildFilters() {
-    $('#list-jenis').innerHTML += TYPE_ORDER.map(j => `<option value="${j}">${esc(TYPES[j].label)}</option>`).join('');
+    // Kelompok (jaringan / support) lalu jenis per kelompok.
+    $('#list-jenis').innerHTML += `<optgroup label="Kelompok"><option value="grup:jaringan">Semua ${esc(NP.GRUP.jaringan.toLowerCase())}</option><option value="grup:support">Semua support &amp; listrik</option></optgroup>` +
+      ['jaringan', 'support'].map(g => `<optgroup label="${esc(NP.GRUP[g])}">${TYPE_ORDER.filter(j => NP.grupJenis(j) === g).map(j => `<option value="${j}">${esc(TYPES[j].label)}</option>`).join('')}</optgroup>`).join('');
     $('#list-status').innerHTML += Object.keys(STATUS).map(k => `<option value="${k}">${STATUS[k].label}</option>`).join('');
     $('#list-koneksi').innerHTML += Object.keys(KONEKSI).map(k => `<option value="${k}">${KONEKSI[k].short}</option>`).join('');
     $('#list-kabel').innerHTML += Object.keys(NP.KABEL).map(k => `<option value="${k}">Kabel: ${NP.KABEL[k].short}</option>`).join('') + '<option value="perlu">Kabel: semua link kabel</option>';
@@ -2753,6 +3002,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     { k: 'kabelst', label: 'Status kabel', v: d => (NP.perluKabel(d) ? ['bermasalah', 'belum', 'ditarik', 'terminasi', 'dites'].indexOf(NP.kabelSt(d)) : 9) },
     { k: 'status', label: 'Status', v: d => Object.keys(STATUS).indexOf(d.status) },
     { k: 'pic', label: 'PIC', v: d => d.pic },
+    { k: 'listrik', label: 'Listrik', v: d => (NP.isListrik(d) ? 'zz' + d.nama : ['perlu', '', 'ada', 'poe', 'baterai'].indexOf((d.atribut || {}).listrik || '')) },
   ];
 
   function kabelShow(d) {
@@ -2767,7 +3017,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const kn = $('#list-koneksi').value;
     const kb = $('#list-kabel').value;
     const cocokKabel = d => !kb || (NP.perluKabel(d) && (kb === 'perlu' || NP.kabelSt(d) === kb));
-    return S.list.filter(d => (!j || d.jenis === j) && (!s || d.status === s) && (!kn || S.model.koneksi(d) === kn) && cocokKabel(d) &&
+    return S.list.filter(d => (!j || (j.startsWith('grup:') ? NP.grupJenis(d.jenis) === j.slice(5) : d.jenis === j)) && (!s || d.status === s) && (!kn || S.model.koneksi(d) === kn) && cocokKabel(d) &&
       (!q || [d.nama, d.model, d.ip, d.vlan, d.pic, d.catatan, d.port_uplink, d.port_lokal, ...Object.values(d.atribut || {})].join(' ').toLowerCase().includes(q)));
   }
 
@@ -2800,15 +3050,16 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         ${td('Nama alat', esc(d.model))}
         ${td('IP', esc(d.ip), 'mono')}
         ${td('VLAN', esc(d.vlan))}
-        ${td('Uplink', p ? esc(p.nama) + (d.port_uplink ? ` <span class="muted">(${esc(d.port_uplink)})</span>` : '') : '<span class="muted">—</span>')}
+        ${td('Uplink', NP.nonJaringan(d) ? '' : p ? esc(p.nama) + (d.port_uplink ? ` <span class="muted">(${esc(d.port_uplink)})</span>` : '') : '<span class="muted">—</span>')}
         ${td('Group', d.uplink_id != null ? esc(grupNama(d.uplink_id, d.jenis)) : '')}
-        ${td('Internet', konBadge(S.model.koneksi(d)))}
+        ${td('Internet', NP.nonJaringan(d) ? '' : konBadge(S.model.koneksi(d)))}
         ${td('Media', esc(d.media ? (MEDIA[d.media].short || d.media) : ''))}
         ${td('Bandwidth', esc(fmtBw(d.bandwidth_mbps)), 'num')}
         ${td('Kabel', esc(kabelShow(d)), 'num')}
         ${td('Status kabel', NP.perluKabel(d) ? (bolehKabel(d) ? kabelBadgeBtn(d) : kabelBadge(d)) : '')}
         ${td('Status', `<span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>`, 'c-status')}
         ${td('PIC', esc(d.pic))}
+        ${td('Listrik', NP.isListrik(d) ? listrikTitikCell(d) : d.jenis === 'isp' && !(d.atribut || {}).listrik ? '' : listrikBadge((d.atribut || {}).listrik || '') + (S.model.listrikOf(d) ? ' <span class="muted">⚡ ' + esc(S.model.listrikOf(d).nama) + '</span>' : ''))}
         <td data-label="Konfigurasi" class="cfg${extra ? '' : ' empty'}" title="${esc(extra)}">${esc(extra)}</td>
       </tr>`;
     }).join('');
@@ -2946,7 +3197,25 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const boleh = S.canEdit ? Object.keys(STATUS) : bolehStatus() ? S.akses.status_boleh : [];
     $('#bulk-status').innerHTML = '<option value="">Ubah status…</option>' +
       boleh.map(k => `<option value="${k}">→ ${esc(STATUS[k].label)}</option>`).join('');
+    // Sumber listrik massal: daftar titik listrik yang sudah dibuat (opsional).
+    const titik = S.model ? NP.Model.sortDev(S.model.list.filter(NP.isListrik)) : [];
+    $('#bulk-listrik').innerHTML = '<option value="">⚡ Titik listrik…</option>' +
+      titik.map(L => {
+        const mc = NP.dayaMcb(L.atribut || {});
+        return `<option value="${L.id}">→ ${esc(L.nama)}${mc ? ' · MCB ' + mc.a + ' A' : ''}</option>`;
+      }).join('') + (titik.length ? '<option value="lepas">— lepas titik listrik</option>' : '<option value="" disabled>(belum ada titik listrik)</option>');
   }
+
+  $('#bulk-listrik').addEventListener('change', e => {
+    const v = e.target.value;
+    e.target.value = '';
+    if (!v) return;
+    const ids = [...S.pilih].filter(id => !NP.isListrik(S.model.byId.get(id)));
+    if (!ids.length) return toast('Pilih perangkat (bukan titik listrik) terlebih dahulu', true);
+    const L = v === 'lepas' ? null : S.model.byId.get(+v);
+    if (!confirm(L ? `Pasang ${ids.length} perangkat ke titik listrik ${L.nama}?` : `Lepas titik listrik dari ${ids.length} perangkat?`)) return;
+    pasangListrik(ids, L ? L.id : null);
+  });
 
   /** Ubah status perangkat terpilih sekaligus. Admin bisa membatalkan (status lama tiap perangkat dikembalikan). */
   async function statusMassal(ids, status, tanpaUndo, dilewati) {
@@ -3195,6 +3464,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const stokCell = b => b.stok == null ? '<span class="muted">—</span>'
       : b.jumlah > b.stok ? `<b class="bad">${b.stok} (kurang ${b.jumlah - b.stok})</b>` : String(b.stok);
     $('#kabel-progres').innerHTML = progresKabelHtml(false);
+    $('#listrik-sum').innerHTML = listrikSumHtml();
     $('#bom').innerHTML = bom.length ? `<table class="mini"><tr><th>Jenis</th><th>Nama alat</th><th class="num">Jumlah</th><th class="num">Stok</th></tr>${bom.map(b =>
       `<tr><td>${esc((TYPES[b.jenis] || TYPES.lainnya).label)}</td><td>${b.model ? esc(b.model) : '<span class="muted">(belum diisi)</span>'}${b.katalog ? ' <span class="tag-kat" title="Dari katalog">katalog</span>' : ''}</td><td class="num"><b>${b.jumlah}</b></td><td class="num">${stokCell(b)}</td></tr>`).join('')}</table>` : '<p class="muted">—</p>';
 
@@ -3237,6 +3507,203 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       else treeTutup = new Set(induk.filter(d => m.kids(d.id).every(c => c.jenis === 'endpoint')).map(d => d.id));
       simpanTreeTutup();
       return renderTopologi();
+    }
+    const a = e.target.closest('[data-sel]');
+    if (!a) return;
+    e.preventDefault();
+    const id = +a.dataset.sel;
+    S.sel = id;
+    go('denah');
+    setTimeout(() => selectDev(id, true), 60);
+  });
+
+  // ------------------------------------------------------------------------ support & listrik (rekap listrik)
+
+  /** Data rekap listrik: titik listrik + beban, perangkat tanpa titik pemasok, perlu tarik listrik, total. */
+  function dataRekapListrik() {
+    const m = S.model;
+    const titik = m.bebanListrik().map(b => Object.assign(b, { mcb: NP.dayaMcb(b.L.atribut || {}) }));
+    const konsumen = m.list.filter(d => !NP.isListrik(d) && !(d.jenis === 'isp' && !(d.atribut || {}).listrik));
+    const st = d => (d.atribut || {}).listrik || '';
+    const tanpa = konsumen.filter(d => !['poe', 'baterai'].includes(st(d)) && !m.listrikOf(d));
+    const kap = titik.reduce((s, b) => s + (b.kap || 0), 0);
+    const pakai = titik.reduce((s, b) => s + b.watt, 0);
+    return {
+      titik, tanpa, kap, pakai,
+      total: konsumen.reduce((s, d) => s + (m.dayaW(d) || 0), 0),
+      perlu: konsumen.filter(d => st(d) === 'perlu'),
+      belum: konsumen.filter(d => st(d) === ''),
+    };
+  }
+
+  const warnaBeban = pct => (pct == null ? '#94a3b8' : pct > 100 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a');
+  const fmtSisa = w => (w < 0 ? '−' + fmtW(-w) : fmtW(w));
+
+  function renderSupport() {
+    const m = S.model;
+    const r = dataRekapListrik();
+    const chipL = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${NP.isListrik(d) ? '⚡' : esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
+    const grupLbl = d => (NP.nonJaringan(d) ? 'Support' : 'Jaringan');
+    const tile = (n, l, cls) => `<div class="sp-tile${cls ? ' ' + cls : ''}"><b>${n}</b><span>${l}</span></div>`;
+    const sisa = r.kap - r.pakai;
+    let h = `<div class="sp-head">
+        <div><h1>Support &amp; listrik</h1><p class="muted">Rekap daya per titik listrik (MCB) dan daftar peralatan support event ini.</p></div>
+        <div class="btn-row">
+          <button type="button" data-sp="denah">⚡ Lihat support di denah</button>
+          <button type="button" data-sp="csv">Unduh CSV rekap listrik</button>
+          <button type="button" data-sp="cetak">Cetak rekap listrik</button>
+          <button type="button" class="primary" data-sp="cetak-support">Cetak laporan support (denah)</button>
+        </div>
+      </div>
+      <div class="sp-tiles">
+        ${tile(r.titik.length, 'titik listrik')}
+        ${tile(fmtW(r.kap), 'total kapasitas (MCB)')}
+        ${tile(fmtW(r.pakai), 'terpakai di titik listrik', r.kap && r.pakai > r.kap * 0.8 ? 'warn' : '')}
+        ${tile(r.kap ? fmtSisa(sisa) : '—', 'sisa daya', sisa < 0 ? 'bad' : '')}
+        ${tile(fmtW(r.total), 'total konsumsi semua perangkat')}
+        ${tile(r.perlu.length, 'perlu tarik listrik', r.perlu.length ? 'bad' : '')}
+        ${tile(r.tanpa.length, 'belum punya titik pemasok', r.tanpa.length ? 'warn' : '')}
+      </div>`;
+
+    // Per titik listrik
+    h += '<div class="card"><h2>Rekap per titik listrik</h2>';
+    h += r.titik.length ? r.titik.map(b => {
+      const a = b.L.atribut || {};
+      const sisaL = b.kap ? b.kap - b.watt : null;
+      return `<div class="sp-titik">
+        <div class="sp-titik-h">
+          <div>${chipL(b.L)} <span class="muted small">${esc([a.sumber_listrik, a.lokasi_panel].filter(Boolean).join(' · '))}</span></div>
+          <div class="sp-angka">
+            <span>MCB <b>${b.mcb ? b.mcb.a + ' A' : '—'}</b>${b.mcb ? ` <span class="muted">${b.mcb.v} V${b.mcb.tiga ? ' · 3 fase' : ''}</span>` : ''}</span>
+            <span>Kapasitas <b>${b.kap ? fmtW(b.kap) : '—'}</b></span>
+            <span>Aman 80% <b>${b.kap ? fmtW(b.kap * 0.8) : '—'}</b></span>
+            <span>Terpakai <b>${fmtW(b.watt)}</b>${b.pct != null ? ` <span class="muted">(${b.pct}%)</span>` : ''}</span>
+            <span>Sisa <b class="${sisaL != null && sisaL < 0 ? 'bad' : ''}">${sisaL == null ? '—' : fmtSisa(sisaL)}</b></span>
+            ${b.soket ? `<span>Soket <b${b.devs.length > b.soket ? ' class="bad"' : ''}>${b.devs.length}/${b.soket}</b></span>` : ''}
+          </div>
+        </div>
+        ${b.kap ? `<div class="kb-bar"><i style="width:${Math.min(100, b.pct)}%;background:${warnaBeban(b.pct)}"></i></div>` : '<p class="muted small">Isi MCB titik listrik ini agar kapasitasnya terhitung.</p>'}
+        ${b.devs.length ? `<table class="mini"><tr><th>Perangkat</th><th>Kelompok</th><th>Jenis</th><th class="num">Daya</th></tr>${NP.Model.sortDev(b.devs).map(d =>
+          `<tr><td>${chipL(d)}</td><td>${grupLbl(d)}</td><td>${esc(jenisLabel(d))}</td><td class="num">${m.dayaW(d) ? fmtW(m.dayaW(d)) : '<span class="bad">belum diisi</span>'}</td></tr>`).join('')}</table>`
+          : '<p class="muted small">Belum ada perangkat yang memakai titik listrik ini.</p>'}
+      </div>`;
+    }).join('') : '<p class="muted">Belum ada titik listrik. Tambahkan dari toolbar denah (⚡ Listrik), lalu isi MCB-nya.</p>';
+    h += '</div>';
+
+    // Perangkat yang belum jelas sumber listriknya
+    if (r.tanpa.length) {
+      h += `<div class="card"><h2>Belum punya titik listrik pemasok <span class="muted small">${r.tanpa.length} perangkat · ${fmtW(r.tanpa.reduce((s, d) => s + (m.dayaW(d) || 0), 0))}</span></h2>
+        <table class="mini"><tr><th>Perangkat</th><th>Kelompok</th><th>Listrik di lokasi</th><th class="num">Daya</th></tr>${NP.Model.sortDev(r.tanpa).map(d =>
+        `<tr><td>${chipL(d)}</td><td>${grupLbl(d)}</td><td>${listrikBadge((d.atribut || {}).listrik || '')}</td><td class="num">${m.dayaW(d) ? fmtW(m.dayaW(d)) : '—'}</td></tr>`).join('')}</table></div>`;
+    }
+
+    // Peralatan support
+    const sup = NP.Model.sortDev(m.list.filter(d => NP.nonJaringan(d) && !NP.isListrik(d)));
+    h += `<div class="card"><h2>Peralatan support <span class="muted small">${sup.length} item</span></h2>${sup.length
+      ? `<table class="mini"><tr><th>Nama</th><th>Kategori</th><th class="num">Jumlah</th><th>Kapasitas / ukuran</th><th class="num">Daya</th><th>Titik listrik</th><th>Status</th><th>PIC</th></tr>${sup.map(d => {
+        const a = d.atribut || {};
+        const L = m.listrikOf(d);
+        return `<tr><td>${chipL(d)}</td><td>${esc(a.kategori_support || '—')}</td><td class="num">${esc(a.jumlah || '1')}</td><td>${esc(a.kapasitas_support || '')}</td>
+          <td class="num">${m.dayaW(d) ? fmtW(m.dayaW(d)) : '—'}</td><td>${L ? chipL(L) : listrikBadge(a.listrik || '')}</td>
+          <td><span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span></td><td>${esc(d.pic)}</td></tr>`;
+      }).join('')}</table>`
+      : '<p class="muted">Belum ada peralatan support. Tambahkan dari toolbar denah (Support): UPS, genset, terminal, rak, monitor, sound, lampu, ...</p>'}</div>`;
+    $('#support-pane').innerHTML = h;
+  }
+
+  function csvRekapListrik() {
+    const m = S.model;
+    const r = dataRekapListrik();
+    const rows = [['Titik listrik', 'MCB (A)', 'Tegangan (V)', 'Fase', 'Kapasitas (W)', 'Aman 80% (W)', 'Terpakai (W)', 'Sisa (W)', 'Perangkat', 'Kelompok', 'Jenis', 'Listrik di lokasi', 'Daya (W)']];
+    const baris = (b, d) => {
+      const mc = b && b.mcb;
+      return [b ? b.L.nama : '(belum ada titik pemasok)', mc ? mc.a : '', mc ? mc.v : '', mc ? (mc.tiga ? '3 fase' : '1 fase') : '',
+        b && b.kap ? Math.round(b.kap) : '', b && b.kap ? Math.round(b.kap * 0.8) : '', b ? Math.round(b.watt) : '', b && b.kap ? Math.round(b.kap - b.watt) : '',
+        d ? d.nama : '', d ? (NP.nonJaringan(d) ? 'Support' : 'Jaringan') : '', d ? jenisLabel(d) : '',
+        d ? NP.LISTRIK[(d.atribut || {}).listrik || ''].label : '', d && m.dayaW(d) ? Math.round(m.dayaW(d)) : ''];
+    };
+    r.titik.forEach(b => {
+      if (!b.devs.length) rows.push(baris(b, null));
+      NP.Model.sortDev(b.devs).forEach(d => rows.push(baris(b, d)));
+    });
+    NP.Model.sortDev(r.tanpa).forEach(d => rows.push(baris(null, d)));
+    downloadCsv(rows, `rekap-listrik-${slug(S.proyek.nama)}.csv`);
+  }
+
+  /** Kepala laporan cetak. */
+  function prHead(judul) {
+    const p = S.proyek;
+    return `<div class="pr-head"><h1>${esc(judul)} — ${esc(p.nama)}</h1><p>${esc(p.venue || '')} · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>`;
+  }
+
+  /** Rekap listrik saja (tabel), A4 tegak. */
+  function cetakRekapListrik() {
+    $('#print').className = 'print';
+    $('#print').innerHTML = prHead('Rekap listrik') + htmlRekapListrik();
+    printWith('A4 portrait');
+  }
+
+  /**
+   * Laporan support & listrik: denah berisi titik listrik & peralatan support (perangkat jaringan yang memakai /
+   * butuh listrik digambar samar sebagai konteks) + garis listrik, lalu rekap listrik & daftar peralatan support.
+   */
+  function cetakLaporanSupport() {
+    const m = S.model;
+    const butuh = d => !NP.nonJaringan(d) && (!!m.listrikOf(d) || (d.atribut || {}).listrik === 'perlu');
+    const denahSvg = staticMap({ filter: NP.nonJaringan, redup: butuh, pwr: true, tanpaInternet: true });
+    const lg = (warna, isi, teks) => `<span><i style="background:${warna}">${isi}</i>${esc(teks)}</span>`;
+    $('#print').className = 'print';
+    $('#print').innerHTML = prHead('Laporan support & listrik') +
+      `<div class="pr-legend">${lg(TYPES.listrik.color, '⚡', 'Titik listrik')}${lg(TYPES.support.color, 'SUP', 'Peralatan support')}
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="#ca8a04" stroke-width="2.5" stroke-dasharray="2 4" stroke-linecap="round"/></svg>Jalur listrik ke titik pemasok</span>
+        <span style="opacity:.45"><i style="background:#64748b"></i>Perangkat jaringan yang memakai / butuh listrik (samar)</span></div>
+      <div class="pr-map">${denahSvg}</div>` +
+      htmlRekapListrik();
+    printWith('A4 landscape');
+  }
+
+  /** Isi rekap listrik untuk dicetak: ringkasan, per titik listrik, tanpa pemasok, peralatan support. */
+  function htmlRekapListrik() {
+    const m = S.model;
+    const r = dataRekapListrik();
+    const tr = (cells, th) => `<tr>${cells.map(c => `<${th ? 'th' : 'td'}>${c}</${th ? 'th' : 'td'}>`).join('')}</tr>`;
+    let h = `
+      <p>Titik listrik: <b>${r.titik.length}</b> · Total kapasitas: <b>${fmtW(r.kap)}</b> · Terpakai: <b>${fmtW(r.pakai)}</b> · Sisa: <b>${fmtSisa(r.kap - r.pakai)}</b> ·
+        Total konsumsi semua perangkat: <b>${fmtW(r.total)}</b> · Perlu tarik listrik: <b>${r.perlu.length}</b> · Belum ada titik pemasok: <b>${r.tanpa.length}</b></p>
+      <h2>Per titik listrik</h2>
+      <table class="pr-table">${tr(['Titik listrik', 'Sumber / panel', 'MCB', 'Kapasitas', 'Aman 80%', 'Terpakai', 'Sisa', 'Soket', 'Perangkat (daya)'], true)}${r.titik.map(b => {
+        const a = b.L.atribut || {};
+        return tr([`<b>${esc(b.L.nama)}</b>`, esc([a.sumber_listrik, a.lokasi_panel].filter(Boolean).join(' · ')),
+          b.mcb ? `${b.mcb.a} A · ${b.mcb.v} V${b.mcb.tiga ? ' · 3 fase' : ''}` : '—', b.kap ? fmtW(b.kap) : '—', b.kap ? fmtW(b.kap * 0.8) : '—',
+          `${fmtW(b.watt)}${b.pct != null ? ` (${b.pct}%)` : ''}`, b.kap ? fmtSisa(b.kap - b.watt) : '—', b.soket ? `${b.devs.length}/${b.soket}` : String(b.devs.length),
+          NP.Model.sortDev(b.devs).map(d => `${esc(d.nama)} (${m.dayaW(d) ? fmtW(m.dayaW(d)) : '? W'})`).join(', ')]);
+      }).join('')}</table>`;
+    if (r.tanpa.length) {
+      h += `<h2>Belum punya titik listrik pemasok</h2><table class="pr-table">${tr(['Perangkat', 'Kelompok', 'Jenis', 'Listrik di lokasi', 'Daya'], true)}${NP.Model.sortDev(r.tanpa).map(d =>
+        tr([esc(d.nama), NP.nonJaringan(d) ? 'Support' : 'Jaringan', esc(jenisLabel(d)), esc(NP.LISTRIK[(d.atribut || {}).listrik || ''].label), m.dayaW(d) ? fmtW(m.dayaW(d)) : '—'])).join('')}</table>`;
+    }
+    const sup = NP.Model.sortDev(m.list.filter(d => NP.nonJaringan(d) && !NP.isListrik(d)));
+    if (sup.length) {
+      h += `<h2>Peralatan support</h2><table class="pr-table">${tr(['Nama', 'Kategori', 'Jumlah', 'Kapasitas / ukuran', 'Daya', 'Titik listrik', 'Status', 'PIC'], true)}${sup.map(d => {
+        const a = d.atribut || {};
+        const L = m.listrikOf(d);
+        return tr([esc(d.nama), esc(a.kategori_support || ''), esc(a.jumlah || '1'), esc(a.kapasitas_support || ''), m.dayaW(d) ? fmtW(m.dayaW(d)) : '—',
+          L ? esc(L.nama) : esc(NP.LISTRIK[a.listrik || ''].label), esc((STATUS[d.status] || STATUS.rencana).label), esc(d.pic)]);
+      }).join('')}</table>`;
+    }
+    return h;
+  }
+
+  $('[data-pane="support"]').addEventListener('click', e => {
+    const b = e.target.closest('[data-sp]');
+    if (b) {
+      if (b.dataset.sp === 'csv') return csvRekapListrik();
+      if (b.dataset.sp === 'cetak') return cetakRekapListrik();
+      if (b.dataset.sp === 'cetak-support') return cetakLaporanSupport();
+      if (b.dataset.sp === 'denah') {
+        setView('support');
+        return go('denah');
+      }
     }
     const a = e.target.closest('[data-sel]');
     if (!a) return;
@@ -3685,7 +4152,20 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     let h = `<svg viewBox="${vb.join(' ')}" xmlns="http://www.w3.org/2000/svg" class="${opts.cls || 'print-map'}" preserveAspectRatio="xMidYMid ${opts.vb ? 'slice' : 'meet'}">`;
     if (opts.vb) h += `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="#fff"/>`;
     h += img ? `<rect width="${W}" height="${H}" fill="#fff"/><image href="${esc(img)}" width="${W}" height="${H}" opacity="${peta.opacity}"/>` : `<rect width="${W}" height="${H}" fill="#fff" stroke="#ccc"/>`;
+    // opts.filter(d): hanya perangkat ini yang digambar; opts.redup(d): digambar samar (konteks). opts.pwr: garis listrik.
+    const utama = d => !opts.filter || opts.filter(d);
+    const samar = d => !utama(d) && !!opts.redup && opts.redup(d);
+    const tampil = d => utama(d) || samar(d);
+    if (opts.pwr) {
+      for (const d of m.list) {
+        const L = m.listrikOf(d);
+        if (!L || !tampil(d) || !tampil(L)) continue;
+        h += `<line x1="${d.x}" y1="${d.y}" x2="${L.x}" y2="${L.y}" stroke="#fff" stroke-width="${5 * u}" opacity=".85"/>
+          <line x1="${d.x}" y1="${d.y}" x2="${L.x}" y2="${L.y}" stroke="#ca8a04" stroke-width="${2.6 * u}" stroke-dasharray="${2 * u} ${5 * u}" stroke-linecap="round"/>`;
+      }
+    }
     for (const d of m.list) {
+      if (!utama(d)) continue;
       const rr = d.jenis === 'ap' && m.apRadiusPx(d);
       const sk = d.jenis === 'ap' && NP.sektor(d);
       const covAttr = `fill="${TYPES.ap.color}" fill-opacity="${sk ? '.14' : '.08'}" stroke="${TYPES.ap.color}" stroke-opacity=".45" stroke-width="${u}"`;
@@ -3693,7 +4173,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     }
     for (const d of m.list) {
       const p = m.parentOf(d);
-      if (!p) continue;
+      if (!p || !utama(d) || !utama(p)) continue;
       const md = MEDIA[d.media] || MEDIA.utp;
       const kl = m.koneksiLink(d);
       const color = kl === 'online' ? md.color || '#0369a1' : KONEKSI[kl].color;
@@ -3703,19 +4183,21 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         <polyline points="${pts}" fill="none" stroke-linejoin="round" stroke-linecap="round" stroke="${color}" stroke-width="${3.6 * u}" stroke-dasharray="${dash ? dash.split(' ').map(x => x * u).join(' ') : ''}"/>`;
     }
     for (const d of m.list) {
+      if (!tampil(d)) continue;
       const t = NP.tampil(d);
       const K = KONEKSI[m.koneksi(d)];
       const b = r * 0.8;
-      h += `<g transform="translate(${d.x},${d.y})">
+      const bolt = NP.isListrik(d) ? `<path d="M${1.8 * u} ${-8.5 * u} L${-5 * u} ${1.2 * u} H${-0.6 * u} L${-1.8 * u} ${8.5 * u} L${5 * u} ${-1.2 * u} H${0.6 * u} Z" fill="#fff"/>` : '';
+      h += `<g transform="translate(${d.x},${d.y})"${samar(d) ? ' opacity=".35"' : ''}>
         ${t.ikon ? `<rect x="${-(r + 2.5 * u)}" y="${-(r + 2.5 * u)}" width="${(r + 2.5 * u) * 2}" height="${(r + 2.5 * u) * 2}" rx="${5 * u}" fill="#fff" stroke="${(STATUS[d.status] || STATUS.rencana).color}" stroke-width="${2 * u}"/>
         <rect x="${-r}" y="${-r}" width="${r * 2}" height="${r * 2}" rx="${3.5 * u}" fill="${t.color}"/>
         <g transform="translate(${-r * 0.75},${-r * 0.75})">${NP.ikonSvg(t.ikon, r * 1.5)}</g>`
         : `<circle r="${r + 2.5 * u}" fill="#fff" stroke="${(STATUS[d.status] || STATUS.rencana).color}" stroke-width="${2 * u}"/>
         ${d.jenis === 'ap' && NP.sektor(d) ? (s => `<path d="${NP.wedgePath(0, 0, r * 2.2, s.arah, s.lebar)}" fill="${TYPES.ap.color}" fill-opacity=".35"/>`)(NP.sektor(d)) : ''}
         <circle r="${r}" fill="${t.color}"/>
-        <text text-anchor="middle" dy=".35em" font-size="${(t.short.length > 2 ? 6.5 : 8) * u}" font-weight="700" fill="#fff" font-family="Arial">${esc(t.short)}</text>`}
-        <circle cx="${b}" cy="${-b}" r="${4.5 * u}" fill="${K.color}" stroke="#fff" stroke-width="${1.2 * u}"/>
-        <text x="${b}" y="${-b}" dy=".36em" text-anchor="middle" font-size="${6.5 * u}" font-weight="800" fill="#fff" font-family="Arial">${K.icon}</text>
+        ${bolt || `<text text-anchor="middle" dy=".35em" font-size="${(t.short.length > 2 ? 6.5 : 8) * u}" font-weight="700" fill="#fff" font-family="Arial">${esc(t.short)}</text>`}`}
+        ${NP.nonJaringan(d) || opts.tanpaInternet ? '' : `<circle cx="${b}" cy="${-b}" r="${4.5 * u}" fill="${K.color}" stroke="#fff" stroke-width="${1.2 * u}"/>
+        <text x="${b}" y="${-b}" dy=".36em" text-anchor="middle" font-size="${6.5 * u}" font-weight="800" fill="#fff" font-family="Arial">${K.icon}</text>`}
         <text text-anchor="middle" y="${r + 11 * u}" font-size="${9 * u}" font-weight="700" fill="#111" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(d.nama)}</text>
       </g>`;
     }
@@ -3774,6 +4256,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       if (!apList(apOpts()).length) return toast('Belum ada access point di event ini', true);
       dlgPrint.close();
       printApSheet(apOpts());
+    } else if (jenis === 'support') {
+      if (!S.list.some(NP.nonJaringan)) return toast('Belum ada titik listrik / peralatan support di event ini', true);
+      dlgPrint.close();
+      cetakLaporanSupport();
     } else {
       dlgPrint.close();
       printReport();

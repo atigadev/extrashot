@@ -272,8 +272,62 @@
       return p ? koneksi(p) : 'offline';
     }
 
+    /** Akar pohon topologi jaringan (titik listrik tidak termasuk jaringan). */
     function roots() {
-      return sortDev(list.filter(d => !parentOf(d)));
+      return sortDev(list.filter(d => !parentOf(d) && !NP.nonJaringan(d)));
+    }
+
+    // ---- Daya listrik: perangkat memilih titik listrik pemasok (atribut listrik_id) dan konsumsi daya (atribut daya_w,
+    // atau spesifikasi katalog daya_w). Titik listrik: dari MCB (arus × tegangan), atau kapasitas manual.
+
+    /** Konsumsi daya perangkat (W) atau null bila belum diketahui. */
+    function dayaW(d) {
+      // Peralatan support: isian = daya per unit, dikalikan jumlah unit.
+      const n = NP.nonJaringan(d) && parseInt(d.atribut && d.atribut.jumlah, 10) > 1 ? parseInt(d.atribut.jumlah, 10) : 1;
+      const v = parseFloat(d.atribut && d.atribut.daya_w);
+      if (v > 0) return v * n;
+      const s = parseFloat(spec(d).daya_w);
+      return s > 0 ? s * n : null;
+    }
+
+    /** Kapasitas titik listrik (W): isian kapasitas manual, atau dari MCB (lihat NP.dayaMcb). */
+    function kapasitasW(L) {
+      const a = L.atribut || {};
+      const k = parseFloat(a.kapasitas_w);
+      if (k > 0) return k;
+      const mcb = NP.dayaMcb(a);
+      return mcb ? mcb.w : null;
+    }
+
+    /** Titik listrik pemasok perangkat (bila dipilih & masih ada). */
+    function listrikOf(d) {
+      const id = d.atribut && +d.atribut.listrik_id;
+      const L = id ? byId.get(id) : null;
+      return L && NP.isListrik(L) && !['poe', 'baterai'].includes(d.atribut.listrik) ? L : null;
+    }
+
+    /** Beban tiap titik listrik: {L, devs, watt, kap, pct, tanpaDaya, soket}. */
+    function bebanListrik() {
+      return sortDev(list.filter(NP.isListrik)).map(L => {
+        const devs = list.filter(d => listrikOf(d) === L);
+        const watt = devs.reduce((s, d) => s + (dayaW(d) || 0), 0);
+        const kap = kapasitasW(L);
+        return { L, devs, watt, kap, pct: kap ? Math.round(watt / kap * 100) : null,
+          tanpaDaya: devs.filter(d => dayaW(d) == null).length, soket: parseInt(L.atribut && L.atribut.soket, 10) || null };
+      });
+    }
+
+    /** Ringkasan kebutuhan listrik perangkat jaringan menurut sumbernya (atribut listrik). */
+    function ringkasListrik() {
+      const per = {};
+      Object.keys(NP.LISTRIK).forEach(k => { per[k] = []; });
+      for (const d of list) {
+        if (NP.isListrik(d) || d.jenis === 'isp') continue;
+        const k = NP.LISTRIK[(d.atribut || {}).listrik] ? d.atribut.listrik : '';
+        per[k].push(d);
+      }
+      const total = list.filter(d => !NP.isListrik(d)).reduce((s, d) => s + (dayaW(d) || 0), 0);
+      return { per, total };
     }
 
     /** Apakah pancaran A mengarah ke B: omni selalu; sektoral bila B ada dalam lebar sektor (+20° toleransi). */
@@ -311,7 +365,7 @@
         const t = TYPES[d.jenis] || TYPES.lainnya;
         const p = parentOf(d);
         const a = d.atribut || {};
-        if (!p && d.jenis !== 'isp') {
+        if (!p && d.jenis !== 'isp' && !NP.nonJaringan(d)) {
           add(list.length > 1 ? 'warn' : 'info', d, `${d.nama}: belum punya uplink (tidak tersambung ke sumber WAN)`);
         } else if (p && !wans(d).length) {
           add('warn', d, `${d.nama}: jalur uplink tidak berujung di Sumber WAN/ISP`);
@@ -416,6 +470,18 @@
         if (watt > budget) add('err', [p].concat(pakai), `${p.nama}: total daya PoE ${Math.round(watt)} W melebihi budget ${budget} W (${pct}%)`);
         else if (pct >= 80) add('info', p, `${p.nama}: daya PoE terpakai ${Math.round(watt)} dari ${budget} W (${pct}%) — sisakan cadangan`);
       }
+      // Listrik: beban titik listrik vs kapasitas & jumlah stop kontak; perangkat yang masih perlu ditarikkan listrik.
+      const w = x => Math.round(x).toLocaleString('id-ID') + ' W';
+      for (const b of bebanListrik()) {
+        if (b.kap && b.watt > b.kap) add('err', [b.L].concat(b.devs), `${b.L.nama}: beban ${w(b.watt)} melebihi kapasitas ${w(b.kap)} (${b.pct}%)`);
+        else if (b.kap && b.pct >= 80) add('warn', b.L, `${b.L.nama}: beban ${w(b.watt)} dari ${w(b.kap)} (${b.pct}%) — sisakan cadangan`);
+        if (b.soket && b.devs.length > b.soket) add('warn', [b.L].concat(b.devs), `${b.L.nama}: ${b.devs.length} perangkat, stop kontak hanya ${b.soket} — siapkan terminal/colokan tambahan`);
+        if (b.tanpaDaya) add('info', b.L, `${b.L.nama}: ${b.tanpaDaya} perangkat belum diisi konsumsi dayanya — beban belum lengkap`);
+      }
+      for (const d of list) {
+        if (d.atribut && d.atribut.listrik === 'perlu') add('info', d, `${d.nama}: belum ada stop kontak di lokasi — perlu tarik listrik${listrikOf(d) ? ' dari ' + listrikOf(d).nama : ''}`);
+      }
+
       // Stok katalog vs kebutuhan event ini.
       const perKat = new Map();
       for (const d of list) {
@@ -558,7 +624,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

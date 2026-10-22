@@ -335,9 +335,9 @@ button.kb:hover { filter: brightness(1.08); box-shadow: 0 0 0 2px rgba(0,0,0,.08
 /* Tab di panel perangkat: Info · Identitas · Koneksi · [jenis] · Group */
 .pn-top { position: sticky; top: 0; z-index: 3; background: #fff; }
 .pn-top .pn-head { position: static; }
-.pn-tabs { display: flex; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); background: #fff; overflow-x: auto; scrollbar-width: none; }
+.pn-tabs { display: flex; flex-wrap: wrap; gap: 0 1px; padding: 0 6px; border-bottom: 1px solid var(--line); background: #fff; }
 .pn-tabs::-webkit-scrollbar { display: none; }
-.pn-tabs button { all: unset; box-sizing: border-box; flex: none; cursor: pointer; padding: 9px 9px 8px; font-size: 13px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.pn-tabs button { all: unset; box-sizing: border-box; flex: none; cursor: pointer; padding: 8px 7px 7px; font-size: 13px; font-weight: 500; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
 .pn-tabs button:hover { color: var(--text); }
 .pn-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
 .pn-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
@@ -855,3 +855,50 @@ button.ghost:hover { background: var(--accent-soft); }
   .ap-check .cl { display: flex; flex-wrap: wrap; gap: .5mm 3.5mm; }
   .ap-check .sign { display: flex; justify-content: space-between; gap: 4mm; margin-top: 2mm; }
 }
+
+/* ---------- Daya listrik ---------- */
+/* Garis perangkat -> titik listrik pemasok: kuning putus-putus, hanya tampil di lapisan "Jalur listrik" / saat dipilih. */
+.map .pwr { display: none; pointer-events: none; }
+.map .pwr.show { display: block; }
+.map .pwr .case { stroke: #fff; stroke-width: 5; opacity: .85; }
+.map .pwr .ln { stroke: #ca8a04; stroke-width: 2.5; stroke-dasharray: 2 5; stroke-linecap: round; }
+.map .node .glyph { font-family: system-ui, "Segoe UI Emoji", sans-serif; }
+td .bad, b.bad { color: var(--danger); }
+.map .node .bolt { fill: #fff; pointer-events: none; }
+/* Ringkasan daya dari MCB (titik listrik) */
+.mcb-info { border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; }
+.mcb-info.kosong { color: #92400e; font-size: 13px; }
+.mcb-big { font-size: 24px; font-weight: 800; color: #a16207; line-height: 1.1; }
+.mcb-big::before { content: "⚡ "; font-size: 18px; }
+.mcb-rows { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin-top: 8px; font-size: 13px; }
+.mcb-rows b { text-align: right; }
+.ok-t { color: #15803d; }
+.warn-t { color: #b45309; }
+
+/* ---------- Support & listrik ---------- */
+.view-switch { position: absolute; left: 10px; top: 10px; z-index: 5; display: flex; background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow); padding: 2px; }
+.view-switch button { border: 0; background: none; padding: 5px 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); border-radius: 7px; }
+.view-switch button:hover { background: #f1f4f9; color: var(--text); }
+.view-switch button.on { background: var(--accent); color: #fff; }
+.sp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.sp-head h1 { margin: 0; font-size: 21px; }
+.sp-head p { margin: 2px 0 0; }
+.sp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.sp-tile { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; }
+.sp-tile b { font-size: 20px; line-height: 1.15; }
+.sp-tile span { font-size: 12px; color: var(--muted); }
+.sp-tile.warn { border-color: #fcd34d; background: #fffbeb; }
+.sp-tile.bad { border-color: #fca5a5; background: #fef2f2; }
+.sp-tile.bad b { color: var(--danger); }
+#support-pane .card { margin-bottom: 16px; }
+.sp-titik { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.sp-titik-h { display: flex; align-items: center; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; }
+.sp-angka { display: flex; gap: 4px 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.sp-angka b { color: var(--text); }
+@media (max-width: 640px) { .view-switch { top: 6px; left: 6px; } .view-switch button { padding: 5px 8px; } .map-hint { top: 44px !important; } }
+@media print { .view-switch { display: none !important; } }
+/* Menu Listrik perangkat: ringkasan titik listrik pemasok */
+.lst-src { border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 8px 10px; margin: 0 0 10px; }
+.lst-src-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lst-src-h .small[data-listrik-lepas] { margin-left: auto; }
+.lst-src .kb-bar { margin: 8px 0 4px; height: 8px; }

@@ -180,6 +180,70 @@ terlihat di atas tab.
 Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
 untuk perangkat berikutnya.
 
+**Perangkat jaringan vs support.** Perangkat dibagi dua kelompok:
+- **Jaringan**: WAN, router, switch, AP, LAN, server, CCTV, endpoint, dan lainnya.
+- **Support & listrik**: *Titik listrik* dan *Peralatan support*. Peralatan support berisi kategori UPS, genset,
+  terminal/stop kontak, kabel roll, rak/meja, monitor/TV, sound, lampu, AC/kipas, dan lainnya, dengan jumlah unit,
+  kapasitas/ukuran, dan pemilik/vendor.
+
+Peralatan support tidak punya uplink jaringan dan hanya bisa dihubungkan ke titik listrik. Daya yang diisi adalah
+**per unit**, dan bebannya dihitung × jumlah unit.
+
+Cara melihat per kelompok:
+- **Denah**: tombol *Semua / Jaringan / ⚡ Support* di kiri atas peta menyembunyikan kelompok lain. Tombol tambah di
+  toolbar ikut menyesuaikan, dan pilihan ini tersimpan per browser.
+- **Daftar**: filter jenis punya pilihan *Semua perangkat jaringan* / *Semua support & listrik*.
+- **Tab *Support & listrik*** (`Alt+4`) berisi rekap khusus listrik:
+  - ringkasan: jumlah titik listrik, total kapasitas MCB, terpakai, sisa, total konsumsi, perlu tarik listrik, dan
+    perangkat yang belum punya titik pemasok;
+  - rekap per titik listrik: MCB, kapasitas, aman 80%, terpakai, sisa, soket, dan daftar perangkat + daya;
+  - daftar perangkat yang belum punya titik listrik pemasok;
+  - daftar peralatan support;
+  - **Unduh CSV rekap listrik**, **Cetak rekap listrik** (tabel saja, A4 tegak), dan **Cetak laporan support (denah)**.
+
+**Cetak laporan support & listrik.** Tersedia di dialog *Cetak* (pilihan ketiga) atau dari tab Support & listrik.
+Isinya:
+- denah khusus titik listrik (⚡) dan peralatan support, dengan jalur listrik kuning ke titik pemasoknya;
+- perangkat jaringan yang memakai atau butuh listrik, digambar samar sebagai konteks lokasi;
+- rekap per titik listrik (MCB, kapasitas, aman 80%, terpakai, sisa, soket, perangkat + daya);
+- daftar perangkat tanpa titik pemasok dan daftar peralatan support.
+
+Ukurannya A4 mendatar, cocok dibawa tim listrik / vendor genset.
+
+**Daya listrik & titik listrik.** Ada dua bagian.
+
+*Jenis titik **Titik listrik*** (toolbar ⚡ *Listrik*) berdiri sendiri. Titik ini bukan perangkat jaringan: tanpa uplink,
+tanpa status internet, dan tidak masuk pohon topologi. Isiannya:
+- sumber (PLN venue / panel booth / genset / UPS)
+- **MCB (A)** sebagai isian utama (pilih ukuran standar 2–63 A atau ketik): daya yang bisa dipakai langsung tampil,
+  mis. MCB 16 A × 220 V = **3.520 W**, aman dipakai 80% = 2.816 W, beserta terpakai & sisa. 3 fase = √3 × 380 V × A.
+  Tegangan bisa diubah; *kapasitas manual (W)* hanya bila ingin menimpa hasil hitungan MCB. Titik listrik baru
+  langsung membuka isian MCB.
+- fase, jumlah stop kontak, panel/MCB asal
+
+*Menu **⚡ Listrik*** (opsional) ada di setiap perangkat jaringan dan peralatan support, sebagai tab sendiri di panel
+perangkat:
+- **Sumber listrik**: dipilih dari titik listrik yang sudah dibuat, diurutkan dari yang terdekat, beserta MCB-nya. Bisa
+  juga dengan alat *Hubungkan*: perangkat → titik listrik. Setelah dipilih, tampil ringkasan titik itu (kapasitas,
+  terpakai, sisa) dan tombol *Lepas*.
+- **Listrik di lokasi**: stop kontak tersedia / perlu tarik listrik / PoE dari uplink / baterai.
+- **Konsumsi daya (W)**: kosong = ambil dari spesifikasi katalog (`daya_w`).
+
+Semua isian boleh dikosongkan. Di **Daftar perangkat**, centang beberapa perangkat lalu pilih **⚡ Titik listrik…**
+untuk memasang (atau melepas) sumber listrik sekaligus; ini bisa di-Ctrl+Z sebagai satu langkah.
+
+Beban tiap titik listrik dihitung otomatis (watt & % kapasitas, stop kontak terpakai). Hasilnya tampil di panel titik
+listrik, kolom *Listrik* di Daftar, dan kartu **Kebutuhan listrik** di tab Topologi, termasuk daftar perangkat yang
+perlu ditarikkan listrik. Pemeriksaan desain memberi tanda bila:
+- beban melebihi kapasitas (≥ 80% = peringatan)
+- stop kontak kurang
+- watt perangkat belum diisi
+- ada perangkat yang perlu tarik listrik
+
+Lapisan denah *Jalur listrik* menampilkan garis kuning putus-putus dari perangkat ke titik listriknya (juga tampil saat
+salah satunya dipilih). Data disimpan di atribut (`listrik`, `listrik_id`, `daya_w`, dll.), jadi tidak perlu migrasi
+database. Datanya ikut dipetakan ulang saat duplikat event, impor, dan buka backup.
+
 **Monitoring penarikan kabel.** Selain status alat, setiap kabel ke uplink (perangkat ber-uplink, bukan wireless)
 punya status sendiri: *Belum ditarik → Sudah ditarik → Terminasi / konektor → Sudah dites OK*, atau *Kabel
 bermasalah*. Warnanya progresif dan sengaja tidak memakai warna jenis perangkat atau status internet:
@@ -280,7 +344,7 @@ Pintasan di Denah:
 | `P` | Sembunyikan / tampilkan panel kanan (desktop) |
 | `K` | Kunci / buka kunci posisi perangkat terpilih |
 | `Esc` | Batal |
-| `Alt+1`–`4` | Pindah tab |
+| `Alt+1`–`5` | Pindah tab (Denah · Daftar · Topologi · Support · Proyek) |
 | `?` | Daftar semua pintasan (juga di menu akun) |
 
 Scroll/pinch untuk zoom, geser latar untuk pan. Saat menghubungkan, Shift+klik menghubungkan beberapa perangkat

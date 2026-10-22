@@ -15,7 +15,7 @@ defined('DB_PASS') || define('DB_PASS', '');
 define('NP_UPLOAD_DIR', dirname(__DIR__) . '/uploads');
 
 /** Jenis perangkat yang dikenal (sama dengan NP.TYPES di assets/common.js). */
-const NP_JENIS = ['isp', 'router', 'switch', 'ap', 'bridge', 'lan', 'server', 'cctv', 'endpoint', 'lainnya'];
+const NP_JENIS = ['isp', 'router', 'switch', 'ap', 'bridge', 'lan', 'server', 'cctv', 'endpoint', 'lainnya', 'listrik', 'support'];
 /** Tipe endpoint bawaan: [nama, singkatan, warna, prefix nama, ikon]. Bisa diubah / ditambah di aplikasi. */
 const NP_ENDPOINT_BAWAAN = [
     ['Laptop', 'LPT', '#0d9488', 'LPT', 'laptop'],

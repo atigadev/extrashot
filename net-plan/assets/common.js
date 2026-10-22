@@ -137,8 +137,66 @@
         { k: 'fungsi', label: 'Fungsi', ph: 'mis. printer, mesin EDC, UPS' },
       ],
     },
+    // Titik listrik: berdiri sendiri (bukan perangkat jaringan, tanpa uplink). Perangkat jaringan bisa memilih titik
+    // listrik pemasoknya -> beban (watt) dihitung terhadap kapasitas.
+    listrik: {
+      label: 'Titik listrik', short: '⚡', prefix: 'PWR', color: '#ca8a04', listrik: true, grup: 'support', tb: 'Listrik',
+      bwLabel: '',
+      fields: [
+        // MCB = isian utama: daya yang bisa dipakai dihitung otomatis (tegangan × arus, 3 fase × √3).
+        { k: 'arus_a', label: 'MCB (A) *', type: 'number', ph: 'pilih / ketik, mis. 16', list: [2, 4, 6, 10, 16, 20, 25, 32, 40, 50, 63] },
+        { k: 'fase', label: 'Fase', type: 'select', options: ['1 fase', '3 fase'] },
+        { k: 'tegangan_v', label: 'Tegangan (V)', type: 'number', ph: '220 (1 fase) / 380 (3 fase)' },
+        { k: 'sumber_listrik', label: 'Sumber', type: 'select', options: ['', 'PLN venue', 'Panel booth', 'Genset', 'UPS', 'Lainnya'] },
+        { k: 'soket', label: 'Jumlah stop kontak', type: 'number', ph: 'mis. 4' },
+        { k: 'kapasitas_w', label: 'Kapasitas manual (W)', type: 'number', ph: 'kosong = dari MCB' },
+        { k: 'lokasi_panel', label: 'Panel / MCB asal', ph: 'mis. Panel Hall A, MCB 12', wide: true },
+      ],
+    },
+    // Peralatan support (bukan jaringan): UPS, genset, terminal, rak, monitor, sound, lampu, AC, ... Bisa memakai
+    // titik listrik (konsumsi daya ikut dihitung) tetapi tanpa uplink jaringan.
+    support: {
+      label: 'Peralatan support', short: 'SUP', prefix: 'SUP', color: '#7c2d12', grup: 'support', tb: 'Support',
+      bwLabel: '',
+      fields: [
+        { k: 'kategori_support', label: 'Kategori', type: 'select', options: ['', 'UPS', 'Genset', 'Terminal / stop kontak', 'Kabel roll', 'Rak / meja', 'Monitor / TV', 'Sound system', 'Lampu', 'AC / kipas', 'Printer label / kasir', 'Lainnya'] },
+        { k: 'jumlah', label: 'Jumlah unit', type: 'number', ph: '1' },
+        { k: 'kapasitas_support', label: 'Kapasitas / ukuran', ph: 'mis. UPS 1200 VA, genset 5 kVA, roll 25 m' },
+        { k: 'pemilik', label: 'Pemilik / vendor', ph: 'mis. inventaris kantor, sewa vendor X' },
+      ],
+    },
   };
-  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'endpoint', 'lainnya'];
+  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'endpoint', 'lainnya', 'listrik', 'support'];
+
+  /** Kelompok perangkat: 'jaringan' (default) atau 'support' (titik listrik & peralatan support). */
+  const grupJenis = j => ((TYPES[j] || {}).grup === 'support' ? 'support' : 'jaringan');
+  const GRUP = { jaringan: 'Perangkat jaringan', support: 'Support & listrik' };
+
+  /**
+   * Daya dari MCB (W): tegangan × arus; 3 fase = √3 × V × A (tegangan default 220 V / 380 V untuk 3 fase).
+   * Hasil {w, v, a, tiga} atau null bila MCB belum diisi.
+   */
+  function dayaMcb(atr) {
+    const a = parseFloat(atr && atr.arus_a);
+    if (!(a > 0)) return null;
+    const tiga = atr.fase === '3 fase';
+    const v = parseFloat(atr.tegangan_v) > 0 ? parseFloat(atr.tegangan_v) : tiga ? 380 : 220;
+    return { w: v * a * (tiga ? Math.sqrt(3) : 1), v, a, tiga };
+  }
+
+  /** Bukan perangkat jaringan (tanpa uplink, status internet & kabel jaringan): titik listrik. */
+  const nonJaringan = d => !!d && grupJenis(d.jenis) === 'support';
+  /** Titik listrik (sumber daya dengan MCB). */
+  const isListrik = d => !!d && !!(TYPES[d.jenis] || {}).listrik;
+
+  /** Sumber listrik perangkat jaringan di lokasi penempatannya (atribut "listrik"). */
+  const LISTRIK = {
+    '': { label: 'Belum dicek', short: '?', color: '#94a3b8' },
+    ada: { label: 'Stop kontak tersedia', short: 'Ada', color: '#16a34a' },
+    perlu: { label: 'Perlu tarik listrik', short: 'Perlu tarik', color: '#dc2626' },
+    poe: { label: 'PoE dari uplink', short: 'PoE', color: '#2563eb' },
+    baterai: { label: 'Baterai / tanpa listrik', short: 'Baterai', color: '#64748b' },
+  };
 
   const STATUS = {
     rencana: { label: 'Rencana', color: '#94a3b8' },
@@ -440,5 +498,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

@@ -180,6 +180,22 @@ terlihat di atas tab.
 Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
 untuk perangkat berikutnya.
 
+**Status pemasangan bertahap.** Di tab *Identitas* (dan kotak update status link tim), status alat memakai langkah
+yang sama dengan status kabel: *Rencana → Terpasang → Sudah diuji*, tombol satu klik *Tandai tahap berikutnya*, dan
+*Bermasalah* terpisah. Tim hanya bisa memilih status yang diizinkan PM. Perubahan admin bisa di-Ctrl+Z.
+
+**Port switch / router.** Di panel switch/router (tab *Info*, bagian *Terhubung ke sini*) tampil **peta port**.
+Jumlah port diambil dari isian *Jumlah port* atau katalog (Port Ethernet + SFP). Isinya:
+- Kotak port 1…N (+ SFP): terpakai berwarna perangkatnya, kosong abu-abu, port uplink bergaris tepi, port dobel
+  merah bergaris. Klik kotak port untuk membuka perangkatnya.
+- Setiap perangkat terhubung menampilkan label port-nya. Port yang tidak ada di switch ditandai merah.
+- **Belum ada port**: pilih dari port kosong, atau *Isi otomatis berurutan*. Gaya nama port ikut yang sudah dipakai,
+  mis. `ether7`, dan bisa di-Ctrl+Z.
+
+Di sisi perangkat anak, kolom *Port di uplink* (tab Koneksi) menyarankan port kosong. Nama port dibaca dari angka
+terakhirnya ("ether5" = "5" = "ge-0/0/5", "sfp2" = SFP 2). Pemeriksaan desain memberi tanda port dobel dan port di
+luar jumlah port.
+
 **Perangkat jaringan vs support.** Perangkat dibagi dua kelompok:
 - **Jaringan**: WAN, router, switch, AP, LAN, server, CCTV, endpoint, dan lainnya.
 - **Support & listrik**: *Titik listrik* dan *Peralatan support*. Peralatan support berisi kategori UPS, genset,

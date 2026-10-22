@@ -1790,6 +1790,114 @@
    * Pemilih status kabel bertahap: 4 langkah (Belum → Ditarik → Terminasi → Dites) + tombol "lanjut" ke tahap
    * berikutnya (aksi paling sering, satu klik) + Bermasalah terpisah. ids = perangkat yang diubah.
    */
+  // ------------------------------------------------------------------------ port switch / router
+
+  /** Label port kosong perangkat P, mengikuti gaya penamaan yang sudah dipakai (mis. "ether7", "sfp1"). */
+  function portKosong2(P) {
+    const pm = S.model.portMap(P);
+    return pm.ports.filter(p => !p.isi.length).map(p => (p.sfp ? 'sfp' + p.label.slice(3) : pm.prefix + p.label));
+  }
+
+  /** "Terhubung ke sini": peta port (terpakai / kosong) + perangkat beserta port-nya + pilih port untuk yang belum. */
+  function terhubungHtml(P, kids, sumKids, chip) {
+    const m = S.model;
+    const pm = m.portMap(P);
+    const nama = x => `${x.dev.nama}${x.peran === 'uplink' ? ' (uplink)' : x.peran === 'up2' ? ' (uplink kedua)' : ''}`;
+    let h = `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span>`;
+    if (pm.ports.length) {
+      h += `<div class="port-sum muted small">${pm.eth} port${pm.sfp ? ' + ' + pm.sfp + ' SFP' : ''} · <b>${pm.terpakai}</b> terpakai · <b>${pm.ports.length - pm.terpakai}</b> kosong</div>
+        <div class="port-grid">${pm.ports.map(pt => {
+          const x = pt.isi[0];
+          const warna = x ? NP.tampil(x.dev).color : '';
+          return `<button type="button" class="port${x ? ' isi' : ''}${pt.isi.length > 1 ? ' bentrok' : ''}${pt.sfp ? ' sfp' : ''}${x && x.peran !== 'anak' ? ' up' : ''}"${x ? ` data-sel="${x.dev.id}" style="--c:${warna}"` : ''}
+            title="Port ${esc(pt.label)}: ${x ? esc(pt.isi.map(nama).join(', ')) : 'kosong'}">${esc(pt.sfp ? 'S' + pt.label.slice(3) : pt.label)}</button>`;
+        }).join('')}</div>`;
+    } else {
+      h += `<p class="muted small" style="margin:2px 0 6px">Isi <b>Jumlah port</b> (tab ${esc(tabJenis(P))}) atau pilih alat dari katalog agar peta port tampil.</p>`;
+    }
+    // Perangkat terhubung beserta port-nya.
+    const portLbl = c => {
+      const k = m.kunciPort(c.port_uplink);
+      const ada = k && pm.ports.some(p => p.key === k);
+      return c.port_uplink ? `<span class="port-tag${pm.ports.length && !ada ? ' bad' : ''}" title="Port di ${esc(P.nama)}">${esc(c.port_uplink)}</span>` : '<span class="port-tag kosong">tanpa port</span>';
+    };
+    h += `<div class="path wrap">${kids.map(c => `<span class="chip-x">${chip(c)}${portLbl(c)}${S.canEdit ? `<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button>` : ''}</span>`).join('')}</div>`;
+    // Belum punya port: pilih langsung dari port yang masih kosong.
+    if (S.canEdit && pm.tanpa.length && pm.ports.length) {
+      const kosong = portKosong2(P);
+      h += `<div class="port-pilih"><span class="muted small">Belum ada port:</span>${pm.tanpa.map(c => `<label class="port-pilih-row"><b>${esc(c.nama)}</b>
+        <select data-port-anak="${c.id}"><option value="">pilih port…</option>${kosong.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select></label>`).join('')}
+        ${kosong.length >= pm.tanpa.length ? `<button type="button" class="small" data-port-otomatis>Isi otomatis berurutan</button>` : `<span class="small bad">Port kosong kurang ${pm.tanpa.length - kosong.length}</span>`}</div>`;
+    }
+    return h + '</div>';
+  }
+
+  $('#panel').addEventListener('change', e => {
+    const s = e.target.closest('[data-port-anak]');
+    if (!s || !s.value || !S.canEdit) return;
+    const c = S.model.byId.get(+s.dataset.portAnak);
+    if (c) saveDev(c.id, { port_uplink: s.value }).then(() => toast(`${c.nama} → port ${s.value}`)).catch(() => {});
+  });
+  // Isi otomatis: perangkat tanpa port mendapat port kosong berurutan (satu langkah Ctrl+Z).
+  $('#panel').addEventListener('click', async e => {
+    if (!e.target.closest('[data-port-otomatis]') || !S.canEdit || S.sel == null) return;
+    const P = S.model.byId.get(S.sel);
+    const tanpa = S.model.portMap(P).tanpa;
+    const kosong = portKosong2(P);
+    await kelompok(`isi port ${tanpa.length} perangkat di ${P.nama}`, async () => {
+      for (let i = 0; i < tanpa.length && i < kosong.length; i++) await saveDev(tanpa[i].id, { port_uplink: kosong[i] }, { keepPanel: true }).catch(() => {});
+    });
+    renderPanel();
+    toast(`${Math.min(tanpa.length, kosong.length)} perangkat diberi port di ${P.nama}`);
+  });
+
+  // Status pemasangan perangkat: tampilan bertahap sama dengan status kabel.
+  const LANGKAH_ST = ['rencana', 'terpasang', 'diuji'];
+  const ST_UI = {
+    rencana: { icon: '○', short: 'Rencana' },
+    terpasang: { icon: '◑', short: 'Terpasang', aksi: 'Tandai terpasang' },
+    diuji: { icon: '✓', short: 'Sudah diuji', aksi: 'Tandai sudah diuji' },
+    bermasalah: { icon: '⚠', short: 'Bermasalah' },
+  };
+
+  /**
+   * Pemilih status pemasangan bertahap: Rencana → Terpasang → Sudah diuji + "lanjut" satu klik, Bermasalah terpisah.
+   * mode 'admin' (simpan langsung, bisa Ctrl+Z), 'tim' (hanya status yang diizinkan PM, ikut catatan lapangan),
+   * '' = hanya lihat.
+   */
+  function statusPicker(d, mode) {
+    const st = STATUS[d.status] ? d.status : 'rencana';
+    const bad = st === 'bermasalah';
+    const step = bad ? -1 : LANGKAH_ST.indexOf(st);
+    const boleh = k => mode === 'admin' || (mode === 'tim' && S.akses && S.akses.status_boleh.includes(k));
+    const attr = k => (mode === 'tim' ? `data-tim-status="${k}"` : `data-st-set="${k}"`);
+    const next = !bad && step < 2 ? LANGKAH_ST[step + 1] : null;
+    const c = STATUS[st].color;
+    return `<div class="kb-box st-box${bad ? ' bad' : ''}" style="--c:${c}">
+      <div class="kb-step tiga" role="radiogroup" aria-label="Status pemasangan">
+        <span class="kb-fill" style="width:${Math.max(0, step) / 2 * 66.6}%"></span>
+        ${LANGKAH_ST.map((k, i) => `<button type="button" role="radio" aria-checked="${k === st}" ${attr(k)} class="${k === st ? 'on' : step > i ? 'lewat' : ''}" style="--c:${STATUS[k].color}" title="${esc(STATUS[k].label)}"${boleh(k) ? '' : ' disabled'}>
+          <i>${k === st || step > i ? ST_UI[k].icon : i + 1}</i>${esc(ST_UI[k].short)}</button>`).join('')}
+      </div>
+      ${mode ? `<div class="kb-actions">
+        ${next && boleh(next) ? `<button type="button" class="small kb-next" ${attr(next)} style="--c:${STATUS[next].color}">${ST_UI[next].icon} ${esc(ST_UI[next].aksi)}</button>`
+          : bad && boleh('terpasang') ? `<button type="button" class="small" ${attr('terpasang')}>Sudah diperbaiki → terpasang</button>`
+            : st === 'diuji' ? '<span class="small" style="color:#16a34a;font-weight:700">✓ Perangkat siap</span>' : ''}
+        <span class="spacer"></span>
+        ${boleh('bermasalah') ? `<button type="button" class="small kb-bad${bad ? ' on' : ''}" ${attr('bermasalah')}>⚠ Bermasalah</button>` : ''}
+      </div>` : ''}
+    </div>`;
+  }
+
+  $('#panel').addEventListener('click', e => {
+    const b = e.target.closest('[data-st-set]');
+    if (!b || b.disabled || !S.canEdit || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    if (d && d.status !== b.dataset.stSet) {
+      saveDev(d.id, { status: b.dataset.stSet }).then(() => toast(`${d.nama} → ${STATUS[b.dataset.stSet].label}`)).catch(() => {});
+    }
+  });
+
   function kabelPicker(ids, st, boleh, judul, lain) {
     const k = KABEL[st] || KABEL.belum;
     const bad = st === 'bermasalah';
@@ -2174,7 +2282,7 @@
             <label class="field"><span>Jenis</span><select data-f="jenis"${dis}>${TYPE_ORDER.map(j => `<option value="${j}"${j === d.jenis ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select></label>
             ${katalogField(d, dis)}
             ${fieldHtml({ k: 'model', label: d.katalog_id != null ? 'Nama alat (dari katalog, bisa disesuaikan)' : 'Nama alat (merek/tipe)', ph: 'mis. MikroTik hAP ax², TP-Link EAP650', wide: true }, d.model, dis)}
-            <label class="field"><span>Status</span><select data-f="status"${dis}>${Object.keys(STATUS).map(k => `<option value="${k}"${k === d.status ? ' selected' : ''}>${STATUS[k].label}</option>`).join('')}</select></label>
+            <div class="field wide"><span>Status pemasangan</span>${statusPicker(d, S.canEdit ? 'admin' : '')}</div>
             ${fieldHtml({ k: 'pic', label: 'PIC / teknisi' }, d.pic, dis)}
           </div>
         </div>
@@ -2184,7 +2292,7 @@
               <div class="inline"><select data-f="uplink_id"${dis}>${uplinkOptions(d)}</select>
               ${S.canEdit ? '<button type="button" class="small" data-act="pick" title="Pilih uplink dengan klik di denah">Pilih di denah</button>' : ''}
               ${S.canEdit && d.uplink_id != null ? '<button type="button" class="small danger" data-act="unlink" title="Hapus koneksi ke uplink">Putuskan</button>' : ''}</div></label>
-            ${fieldHtml({ k: 'port_uplink', label: 'Port di uplink', ph: 'mis. ether3 / port 5' }, d.port_uplink, dis)}
+            ${fieldHtml({ k: 'port_uplink', label: 'Port di uplink', ph: S.model.parentOf(d) && portKosong2(S.model.parentOf(d)).length ? 'pilih port kosong / ketik' : 'mis. ether3 / port 5', list: S.model.parentOf(d) ? portKosong2(S.model.parentOf(d)) : null }, d.port_uplink, dis)}
             ${fieldHtml({ k: 'port_lokal', label: 'Port di perangkat ini', ph: 'mis. ether1 / WAN' }, d.port_lokal, dis)}
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
             ${fieldHtml({ k: 'bandwidth_mbps', label: t.bwLabel, type: 'number' }, d.bandwidth_mbps, dis)}
@@ -2657,7 +2765,7 @@
       }
     }
     if (kids.length) {
-      h += `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span><div class="path wrap">${kids.map(c => S.canEdit ? `<span class="chip-x">${chip(c)}<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button></span>` : chip(c)).join('')}</div></div>`;
+      h += terhubungHtml(d, kids, sumKids, chip);
     }
     if (issues.length) {
       h += `<ul class="issues">${issues.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>`;
@@ -2710,7 +2818,7 @@
     }
     box.innerHTML = `<div class="pn-sec tim-box">
         <h4>Update status · ${esc(S.akses.nama)}</h4>
-        <div class="st-pilih">${S.akses.status_boleh.map(k => `<button type="button" class="st-btn st-${k}${d.status === k ? ' on' : ''}" data-tim-status="${k}">${esc(STATUS[k].label)}</button>`).join('')}</div>
+        ${statusPicker(d, 'tim')}
         ${NP.perluKabel(d) ? `<h4 style="margin-top:12px">Kabel ke ${esc((S.model.parentOf(d) || {}).nama || 'uplink')}${S.model.kabelM(d) ? ` <span class="muted small">≈ ${esc(fmtM(S.model.kabelM(d)))}</span>` : ''}</h4>
         ${kabelPicker([d.id], NP.kabelSt(d), true, '')}` : ''}
         <label class="field" style="margin-top:8px"><span>Catatan lapangan (opsional, ikut terkirim bersama status)</span>

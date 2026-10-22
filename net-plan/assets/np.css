@@ -902,3 +902,25 @@ td .bad, b.bad { color: var(--danger); }
 .lst-src-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lst-src-h .small[data-listrik-lepas] { margin-left: auto; }
 .lst-src .kb-bar { margin: 8px 0 4px; height: 8px; }
+/* Pemilih status pemasangan (3 langkah) */
+.kb-step.tiga { grid-template-columns: repeat(3, 1fr); }
+.kb-step.tiga::before, .kb-step.tiga .kb-fill { left: 16.67%; }
+.kb-step.tiga::before { right: 16.67%; }
+.st-box { margin-top: 4px; }
+/* Peta port switch / router */
+.port-sum { margin: 2px 0 6px; }
+.port-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); gap: 4px; margin-bottom: 8px; }
+.port-grid .port { all: unset; box-sizing: border-box; height: 26px; border-radius: 5px; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #94a3b8; font: 700 11px/23px system-ui, sans-serif; text-align: center; cursor: default; }
+.port-grid .port.sfp { border-style: dashed; }
+.port-grid .port.isi { background: var(--c); border-color: var(--c); color: #fff; cursor: pointer; }
+.port-grid .port.isi:hover { filter: brightness(1.1); box-shadow: 0 0 0 2px rgba(0,0,0,.12); }
+.port-grid .port.up { outline: 2px solid #1f2937; outline-offset: 1px; }
+.port-grid .port.bentrok { background: repeating-linear-gradient(45deg, var(--danger), var(--danger) 4px, #fca5a5 4px, #fca5a5 8px); border-color: var(--danger); }
+.port-tag { font: 700 10.5px/1 ui-monospace, Consolas, monospace; background: #e2e8f0; color: #334155; border-radius: 4px; padding: 3px 5px; margin-left: 3px; align-self: center; }
+.port-tag.kosong { background: #fef3c7; color: #92400e; font-family: system-ui, sans-serif; }
+.port-tag.bad { background: var(--danger-soft); color: var(--danger); }
+.port-pilih { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding: 8px; border: 1px dashed #fcd34d; border-radius: 8px; background: #fffbeb; }
+.port-pilih-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.port-pilih-row b { flex: 1; }
+.port-pilih-row select { width: auto; padding: 3px 6px; font-size: 13px; }
+.port-pilih button { align-self: flex-start; }

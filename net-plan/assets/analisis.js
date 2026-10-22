@@ -272,6 +272,52 @@
       return p ? koneksi(p) : 'offline';
     }
 
+    // ---- Port switch/router: jumlah port dari isian "Jumlah port" atau katalog (Port Ethernet + SFP). Nama port perangkat
+    // anak (port_uplink) dibaca angka terakhirnya: "ether5" / "5" / "ge-0/0/5" = port 5, "sfp2" = SFP 2.
+
+    /** Kunci port dari teks: 'e5' (ethernet 5), 's2' (SFP 2) atau null bila tidak terbaca. */
+    function kunciPort(teks) {
+      const t = String(teks || '').trim().toLowerCase();
+      if (!t) return null;
+      const sfp = t.match(/sfp\+?\s*-?(\d+)\s*$/);
+      if (sfp) return 's' + +sfp[1];
+      const n = t.match(/(\d+)\s*$/);
+      return n ? 'e' + +n[1] : null;
+    }
+
+    /**
+     * Peta port perangkat P: {eth, sfp, ports:[{key, label, sfp, isi:[{dev, peran}]}], lain:[{dev, peran, teks}],
+     * tanpa:[anak tanpa port], prefix}. peran: 'anak' | 'uplink' (port P ke uplinknya) | 'up2' (uplink kedua P).
+     */
+    function portMap(P) {
+      const a = P.atribut || {};
+      const sp = spec(P);
+      const eth = parseInt(a.jumlah_port, 10) || parseInt(sp.port_lan, 10) || 0;
+      const sfp = parseInt(sp.port_sfp, 10) || 0;
+      const ports = [];
+      for (let i = 1; i <= eth; i++) ports.push({ key: 'e' + i, label: String(i), sfp: false, isi: [] });
+      for (let i = 1; i <= sfp; i++) ports.push({ key: 's' + i, label: 'SFP' + i, sfp: true, isi: [] });
+      const byKey = new Map(ports.map(p => [p.key, p]));
+      const lain = [];
+      const tanpa = [];
+      const pasang = (teks, dev, peran) => {
+        const k = kunciPort(teks);
+        if (k && byKey.has(k)) byKey.get(k).isi.push({ dev, peran });
+        else lain.push({ dev, peran, teks: String(teks) });
+      };
+      for (const c of sortDev(kids(P.id))) {
+        if (c.port_uplink && c.port_uplink.trim()) pasang(c.port_uplink, c, 'anak');
+        else tanpa.push(c);
+      }
+      const up = parentOf(P);
+      if (up && P.port_lokal && P.port_lokal.trim()) pasang(P.port_lokal, up, 'uplink');
+      for (const w of uplinkLain(P)) if (w.port) pasang(w.port, w.dev, 'up2');
+      // Awalan nama port yang sudah dipakai (mis. "ether"), agar port baru ditulis dengan gaya yang sama.
+      const pre = kids(P.id).map(c => (String(c.port_uplink || '').trim().match(/^([a-z][a-z\-/ ]*?)\s*\d+$/i) || [])[1]).filter(Boolean);
+      const prefix = pre.length ? pre.sort((x, y) => pre.filter(v => v === y).length - pre.filter(v => v === x).length)[0] : '';
+      return { eth, sfp, ports, lain, tanpa, prefix, terpakai: ports.filter(p => p.isi.length).length };
+    }
+
     /** Akar pohon topologi jaringan (titik listrik tidak termasuk jaringan). */
     function roots() {
       return sortDev(list.filter(d => !parentOf(d) && !NP.nonJaringan(d)));
@@ -426,15 +472,22 @@
         if (d.jenis === 'lan' && nPort > 0 && ch.length > nPort) {
           add('warn', [d].concat(ch), `${d.nama}: ${ch.length} endpoint tersambung, titik LAN hanya ${nPort} port — tambah kabel/port atau switch kecil`);
         }
-        const portMap = new Map();
-        for (const c of ch) {
-          const port = (c.port_uplink || '').trim().toLowerCase();
-          if (!port) continue;
-          if (!portMap.has(port)) portMap.set(port, []);
-          portMap.get(port).push(c);
-        }
-        for (const [port, cs] of portMap) {
-          if (cs.length > 1) add('err', cs, `${d.nama} port ${port} dipakai ${cs.length} perangkat: ${cs.map(c => c.nama).join(', ')}`);
+        // Port: satu port dipakai lebih dari satu perangkat ("ether5" = "5"), atau nomor port di luar jumlah port.
+        if (ch.length || parentOf(d)) {
+          const pm = portMap(d);
+          for (const pt of pm.ports) {
+            if (pt.isi.length > 1) add('err', [d].concat(pt.isi.map(x => x.dev)), `${d.nama} port ${pt.label} dipakai ${pt.isi.length} perangkat: ${pt.isi.map(x => x.dev.nama).join(', ')}`);
+          }
+          const sama = new Map();
+          for (const x of pm.lain) {
+            const k = kunciPort(x.teks) || x.teks.trim().toLowerCase();
+            if (pm.ports.length && kunciPort(x.teks)) {
+              add('warn', [d, x.dev], `${d.nama}: port "${x.teks}" (${x.dev.nama}) tidak ada — ${d.nama} punya ${pm.eth} port${pm.sfp ? ' + ' + pm.sfp + ' SFP' : ''}`);
+            }
+            if (!sama.has(k)) sama.set(k, []);
+            sama.get(k).push(x.dev);
+          }
+          for (const [k, ds] of sama) if (ds.length > 1 && !pm.ports.length) add('err', ds, `${d.nama} port ${k} dipakai ${ds.length} perangkat: ${ds.map(x => x.nama).join(', ')}`);
         }
 
         if (d.jenis === 'ap' && !a.ssid) add('info', d, `${d.nama}: SSID belum diisi`);
@@ -624,7 +677,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, portMap, kunciPort, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

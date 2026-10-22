@@ -180,6 +180,41 @@ terlihat di atas tab.
 Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
 untuk perangkat berikutnya.
 
+**Monitoring penarikan kabel.** Selain status alat, setiap kabel ke uplink (perangkat ber-uplink, bukan wireless)
+punya status sendiri: *Belum ditarik → Sudah ditarik → Terminasi / konektor → Sudah dites OK*, atau *Kabel
+bermasalah*. Warnanya progresif dan sengaja tidak memakai warna jenis perangkat atau status internet:
+- ○ abu-abu = belum
+- ◑ kuning = ditarik
+- ◕ biru langit = terminasi
+- ✓ hijau = dites
+- ⚠ merah mawar = bermasalah
+
+Setiap status juga punya ikon dan pola garis sendiri, jadi tetap terbaca tanpa mengandalkan warna.
+
+Cara tercepat mengubah status: nyalakan lapisan **Progres kabel** di denah, lalu klik garis atau penanda bulat di
+tengah kabel. Muncul pemilih bertahap:
+- **Tandai tahap berikutnya** (satu klik, atau `Enter`)
+- `1`–`4` untuk memilih tahap, `5` = bermasalah, `Esc` untuk menutup
+
+Pemilih yang sama juga ada di:
+- **Panel perangkat** (tab *Info* & *Koneksi*)
+- **Daftar perangkat**: klik badge di kolom *Status kabel*. Ada juga filter status kabel, dan *Status kabel…* untuk
+  perangkat yang dicentang.
+- **Pohon topologi**: klik badge 🔌
+- **Link tim** (peran update status): hanya untuk kategori tugas tim
+
+Setiap perubahan masuk riwayat (siapa & kapan), dan perubahan admin bisa di-Ctrl+Z.
+
+Pantau progresnya di:
+- **Topologi → Progres penarikan kabel**: persen, jumlah link & meter per status, *lihat* untuk memfilter Daftar.
+  Pohon topologi juga menampilkan badge 🔌 per kabel.
+- **Panel ringkasan denah**: progres singkat.
+- **Lapisan denah *Progres kabel***: garis diwarnai & berpola per status, dengan penanda ikon di tengah tiap kabel
+  (klik untuk ubah). Selama lapisan ini aktif, pegangan bentuk jalur disembunyikan.
+
+Pemeriksaan desain memberi tanda bila kabel bermasalah, atau alat sudah diuji padahal kabelnya masih "belum ditarik".
+Data disimpan di atribut `kabel` (tanpa migrasi database). CSV ikut berisi kolom status kabel.
+
 **Multi-WAN (router).** Router bisa tersambung ke lebih dari satu Sumber WAN/ISP. WAN utama tetap lewat Uplink biasa.
 WAN tambahan diatur di tab **Koneksi** router, di bagian *WAN / sumber internet*:
 - **Tambah WAN** memilih Sumber WAN/ISP lain, atau pakai alat *Hubungkan* dari router ke ISP kedua. Router yang sudah
@@ -195,6 +230,27 @@ Dampaknya pada analisis:
 - Pohon topologi dan ringkasan Sumber WAN menyebut pemakaian WAN tambahan.
 - Data disimpan di atribut router (`wan_lain`, `wan_mode`), jadi tidak perlu migrasi database. Ikut tersalin saat
   duplikat event, impor JSON, dan buka backup (id dipetakan ulang).
+
+**Uplink kedua switch (redundan / LACP).** Switch bisa punya lebih dari satu uplink ke router/switch lain. Atur di tab
+**Koneksi** switch, bagian *Uplink switch*, atau pakai alat *Hubungkan* dari switch yang sudah ber-uplink ke
+router/switch lain: *OK* = tambah uplink kedua, *Batal* = ganti uplink utama. Setiap uplink kedua punya port, media
+(UTP/fiber), dan status kabel sendiri.
+
+Mode:
+- **Redundan (STP/RSTP)**: satu jalur aktif, lainnya cadangan. Internet tetap tersambung selama salah satu uplink baik.
+- **LACP (802.3ad)**: kabel digabung, bandwidth dijumlah. Memilih uplink yang sama dengan uplink utama otomatis
+  menjadi LACP (kabel kedua ke switch yang sama).
+
+Calon uplink kedua tidak menampilkan perangkat di bawah switch itu sendiri, agar tidak membentuk loop topologi.
+Pemeriksaan desain mengingatkan:
+- STP/RSTP untuk mode redundan
+- konfigurasi link aggregation (dan stacking/MLAG bila LACP ke switch berbeda)
+- port switch yang terpakai
+
+Di denah tampil garis ungu putus-putus berlabel *UP2 · RSTP* / *UP2 · LACP* (oranye bila fiber). Kabelnya ikut
+estimasi & progres kabel, dan statusnya bisa diklik di lapisan *Progres kabel*. Kabel WAN tambahan router juga kini
+punya status kabel sendiri. Data disimpan di atribut switch (`uplink_lain`, `uplink_mode`), jadi tidak perlu migrasi.
+Datanya ikut tersalin dan dipetakan ulang saat duplikat event, impor, dan buka backup.
 
 **Kunci posisi.** Titik yang posisinya sudah pasti bisa dikunci agar tidak tergeser saat menata denah. Caranya lewat
 tombol 🔓 *Kunci* di panel perangkat, tombol `K`, atau sekaligus di Daftar perangkat (centang lalu *🔒 Kunci posisi* /

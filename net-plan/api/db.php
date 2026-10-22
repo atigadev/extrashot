@@ -29,6 +29,8 @@ const NP_ENDPOINT_BAWAAN = [
 const NP_IKON = ['laptop', 'pc', 'server', 'printer', 'pinpad', 'scanner', 'tablet', 'telepon', 'tv', 'absensi', 'kamera', 'umum'];
 const NP_MEDIA = ['', 'utp', 'fiber', 'wireless', 'lainnya'];
 const NP_STATUS = ['rencana', 'terpasang', 'diuji', 'bermasalah'];
+/** Status penarikan kabel ke uplink (atribut "kabel"; kosong = belum). Sama dengan NP.KABEL di assets/common.js. */
+const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
@@ -408,6 +410,108 @@ function tulis_log($proyekId, $perangkat, $aksesId, $oleh, $lama, $baru, $catata
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         ->execute([$proyekId, $perangkat ? (int) $perangkat['id'] : null, $perangkat ? $perangkat['nama'] : '', $aksesId, $oleh,
             (string) $lama, (string) $baru, $catatan === '' ? null : $catatan]);
+}
+
+/**
+ * Ubah status penarikan kabel banyak perangkat (kabel ke uplinknya) + catat di riwayat ("kabel:lama" -> "kabel:baru").
+ * $filter(row) -> false untuk melewati perangkat (mis. di luar tugas tim). Hasil: [baris perangkat yang diproses, jumlah dilewati].
+ */
+function ubah_kabel_massal($proyekId, $ids, $baru, $aksesId, $oleh, $catatan, $filter = null)
+{
+    if (!in_array($baru, NP_KABEL, true)) {
+        json_error('Status kabel tidak dikenal');
+    }
+    $pdo = db();
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("SELECT * FROM np_perangkat WHERE proyek_id = ? AND id IN ($in)");
+    $st->execute(array_merge([$proyekId], $ids));
+    $pdo->beginTransaction();
+    $upd = $pdo->prepare('UPDATE np_perangkat SET atribut = ? WHERE id = ?');
+    $hasil = [];
+    $dilewati = 0;
+    foreach ($st->fetchAll() as $d) {
+        // Hanya perangkat yang punya kabel ke uplink (bukan wireless).
+        if ($d['uplink_id'] === null || $d['media'] === 'wireless' || ($filter && !$filter($d))) {
+            $dilewati++;
+            continue;
+        }
+        $atr = json_decode((string) $d['atribut'], true);
+        $atr = is_array($atr) ? $atr : [];
+        $lama = isset($atr['kabel']) && in_array($atr['kabel'], NP_KABEL, true) ? $atr['kabel'] : 'belum';
+        if ($lama !== $baru) {
+            if ($baru === 'belum') {
+                unset($atr['kabel']);
+            } else {
+                $atr['kabel'] = $baru;
+            }
+            $d['atribut'] = atribut_json_db($atr);
+            $upd->execute([$d['atribut'], $d['id']]);
+            tulis_log($proyekId, $d, $aksesId, $oleh, 'kabel:' . $lama, 'kabel:' . $baru, $catatan);
+        }
+        $hasil[] = $d;
+    }
+    $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyekId]);
+    $pdo->commit();
+    return [$hasil, $dilewati];
+}
+
+/**
+ * Status kabel sambungan tambahan satu perangkat (WAN tambahan router / uplink kedua switch): field "kabel" pada
+ * entri $ke di atribut $kunci (wan_lain | uplink_lain). Dicatat di riwayat dengan nama tujuannya.
+ */
+function ubah_kabel_lain($proyekId, $id, $kunci, $ke, $baru, $aksesId, $oleh, $catatan, $filter = null)
+{
+    if (!in_array($baru, NP_KABEL, true)) {
+        json_error('Status kabel tidak dikenal');
+    }
+    if (!in_array($kunci, ['wan_lain', 'uplink_lain'], true)) {
+        json_error('Sambungan tidak dikenal');
+    }
+    $pdo = db();
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ? AND proyek_id = ?');
+    $st->execute([(int) $id, $proyekId]);
+    $d = $st->fetch();
+    if (!$d) {
+        json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    if ($filter && !$filter($d)) {
+        return [[], 1];
+    }
+    $atr = json_decode((string) $d['atribut'], true);
+    $atr = is_array($atr) ? $atr : [];
+    $daftar = isset($atr[$kunci]) ? json_decode((string) $atr[$kunci], true) : null;
+    $lama = null;
+    foreach (is_array($daftar) ? $daftar : [] as $i => $w) {
+        if (is_array($w) && isset($w['id']) && (int) $w['id'] === (int) $ke) {
+            $lama = isset($w['kabel']) && in_array($w['kabel'], NP_KABEL, true) ? $w['kabel'] : 'belum';
+            if ($baru === 'belum') {
+                unset($daftar[$i]['kabel']);
+            } else {
+                $daftar[$i]['kabel'] = $baru;
+            }
+        }
+    }
+    if ($lama === null) {
+        json_error('Sambungan tidak ditemukan (mungkin sudah dilepas)', 404);
+    }
+    if ($lama !== $baru) {
+        $atr[$kunci] = json_encode(array_values($daftar), JSON_UNESCAPED_UNICODE);
+        $d['atribut'] = atribut_json_db($atr);
+        $pdo->prepare('UPDATE np_perangkat SET atribut = ? WHERE id = ?')->execute([$d['atribut'], $d['id']]);
+        $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyekId]);
+        $st = $pdo->prepare('SELECT nama FROM np_perangkat WHERE id = ?');
+        $st->execute([(int) $ke]);
+        $tujuan = (string) $st->fetchColumn();
+        $label = ($kunci === 'wan_lain' ? 'WAN tambahan' : 'Uplink kedua') . ($tujuan !== '' ? ' ke ' . $tujuan : '');
+        tulis_log($proyekId, $d, $aksesId, $oleh, 'kabel:' . $lama, 'kabel:' . $baru, trim($label . ($catatan !== '' ? ' — ' . $catatan : '')));
+    }
+    return [[$d], 0];
+}
+
+/** Atribut yang sudah tervalidasi (dari database) kembali ke JSON. */
+function atribut_json_db($atr)
+{
+    return json_encode((object) $atr, JSON_UNESCAPED_UNICODE);
 }
 
 /** Riwayat aktivitas event (terbaru dulu), opsional untuk satu perangkat. */

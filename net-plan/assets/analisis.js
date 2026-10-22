@@ -68,11 +68,18 @@
 
     /** Titik lekukan saja. Wireless selalu lurus (sinyal tidak mengikuti dinding). */
     function bends(d, p) {
-      const j = d.jalur;
-      if (!j || d.media === 'wireless') return [];
-      if (j.m === 'h') return [{ x: p.x, y: d.y }];
-      if (j.m === 'v') return [{ x: d.x, y: p.y }];
-      if (j.m === 'bebas' && Array.isArray(j.p)) return j.p.map(pt => ({ x: pt[0], y: pt[1] }));
+      if (d.media === 'wireless') return [];
+      return bendsJalur(d.jalur, d, p);
+    }
+
+    /** Lekukan dari data jalur {m: 'h'|'v'|'bebas', p: [[x,y], ...]} antara titik a dan b. */
+    function bendsJalur(j, a, b) {
+      if (!j) return [];
+      if (j.m === 'h') return [{ x: b.x, y: a.y }];
+      if (j.m === 'v') return [{ x: a.x, y: b.y }];
+      if (j.m === 'bebas' && Array.isArray(j.p)) {
+        return j.p.map(pt => ({ x: +pt[0], y: +pt[1] })).filter(q => isFinite(q.x) && isFinite(q.y));
+      }
       return [];
     }
 
@@ -117,6 +124,57 @@
     }
     const wanMode = d => (d && d.atribut && d.atribut.wan_mode === 'loadbalance' ? 'loadbalance' : 'failover');
 
+    // ---- Uplink tambahan switch (atribut uplink_lain = JSON [{id, port, media, kabel}], uplink_mode = redundan|lacp):
+    // kabel kedua ke router/switch lain (redundan, STP/RSTP) atau ke uplink yang sama (LACP, bandwidth digabung).
+    const JENIS_UPLINK2 = ['switch'];
+    const TARGET_UPLINK2 = ['router', 'switch'];
+    function uplinkLain(d) {
+      const raw = d && JENIS_UPLINK2.includes(d.jenis) && d.atribut && d.atribut.uplink_lain;
+      if (!raw) return [];
+      let arr;
+      try { arr = JSON.parse(raw); } catch (e) { return []; }
+      if (!Array.isArray(arr)) return [];
+      const bawah = descendants(d.id); // uplink ke perangkat di bawahnya = loop
+      const seen = new Set([d.id]);
+      const out = [];
+      for (const w of arr) {
+        const dev = w && byId.get(+w.id);
+        if (!dev || !TARGET_UPLINK2.includes(dev.jenis) || seen.has(dev.id) || bawah.has(dev.id)) continue;
+        seen.add(dev.id);
+        out.push({ dev, port: String(w.port || ''), media: w.media === 'fiber' ? 'fiber' : 'utp', kabel: NP.KABEL[w.kabel] ? w.kabel : 'belum', jalur: w.jalur || null });
+      }
+      return out;
+    }
+    const uplinkMode = d => (d && d.atribut && d.atribut.uplink_mode === 'lacp' ? 'lacp' : 'redundan');
+
+    /**
+     * Semua sambungan tambahan perangkat (WAN tambahan router + uplink tambahan switch), seragam untuk peta, kabel &
+     * progres: {dev, port, media, kabel, kunci: 'wan_lain'|'uplink_lain', no}. no = nomor tampilan (2, 3, ...).
+     */
+    function linkLain(d) {
+      const wan = parseLain(d, 'wan_lain');
+      return [
+        ...wanLain(d).map((w, i) => {
+          const r = wan.get(w.dev.id) || {};
+          return { dev: w.dev, port: w.port, media: 'utp', kabel: r.kabel || 'belum', jalur: r.jalur || null, kunci: 'wan_lain', no: i + 2 };
+        }),
+        ...uplinkLain(d).map((w, i) => ({ dev: w.dev, port: w.port, media: w.media, kabel: w.kabel, jalur: w.jalur, kunci: 'uplink_lain', no: i + 2 })),
+      ];
+    }
+    function parseLain(d, kunci) {
+      const m = new Map();
+      try {
+        const arr = JSON.parse((d.atribut && d.atribut[kunci]) || '[]');
+        if (Array.isArray(arr)) arr.forEach(w => { if (w && w.id) m.set(+w.id, { kabel: NP.KABEL[w.kabel] ? w.kabel : 'belum', jalur: w.jalur || null }); });
+      } catch (e) { /* abaikan */ }
+      return m;
+    }
+
+    /** Titik jalur kabel sambungan tambahan: [perangkat, ...lekukan, tujuan]. */
+    function routePtsLain(d, w) {
+      return [{ x: d.x, y: d.y }, ...bendsJalur(w.jalur, d, w.dev), { x: w.dev.x, y: w.dev.y }];
+    }
+
     /**
      * Bandwidth efektif = bottleneck di sepanjang jalur ke WAN. Di router multi-WAN, kapasitas dari atas = gabungan
      * semua WAN (load balance) atau WAN terbesar (failover).
@@ -130,14 +188,14 @@
       const p = parentOf(d);
       const cabang = [];
       if (p) cabang.push(bwEfektif(p, jejak));
-      const lain = wanLain(d);
+      const lain = [...wanLain(d), ...uplinkLain(d)];
       for (const w of lain) cabang.push(bwEfektif(w.dev, jejak));
       let up = { mbps: null, at: null };
       if (cabang.length === 1) up = cabang[0];
       else if (cabang.length > 1) {
         const ada = cabang.filter(b => b.mbps != null);
         if (ada.length) {
-          up = wanMode(d) === 'loadbalance'
+          up = wanMode(d) === 'loadbalance' || (uplinkLain(d).length && uplinkMode(d) === 'lacp')
             ? { mbps: ada.reduce((s, b) => s + b.mbps, 0), at: d, gabung: cabang.length }
             : ada.reduce((a, b) => (b.mbps > a.mbps ? b : a));
         }
@@ -191,7 +249,7 @@
       jejak.add(d.id);
       const p = parentOf(d);
       const opsi = [p ? koneksi(p, jejak) : d.jenis === 'isp' ? 'online' : 'offline'];
-      for (const w of wanLain(d)) opsi.push(koneksi(w.dev, jejak));
+      for (const w of [...wanLain(d), ...uplinkLain(d)]) opsi.push(koneksi(w.dev, jejak));
       let r = opsi.includes('online') ? 'online' : opsi.includes('gangguan') ? 'gangguan' : 'offline';
       if (r !== 'offline' && d.status === 'bermasalah') r = 'gangguan';
       jejak.delete(d.id);
@@ -202,7 +260,10 @@
     /** Panjang kabel ke WAN tambahan (garis lurus + tambahan) atau null bila skala belum dikalibrasi. */
     function kabelWanM(d, isp) {
       if (!proyek.skala) return null;
-      return distPx(d, isp) * proyek.skala * (1 + (proyek.slack_kabel || 0) / 100);
+      // Ikuti bentuk jalur sambungan tambahan bila sudah dibentuk; selain itu garis lurus.
+      const w = linkLain(d).find(x => x.dev.id === isp.id);
+      const px = w ? polyLen(routePtsLain(d, w)) : distPx(d, isp);
+      return px * proyek.skala * (1 + (proyek.slack_kabel || 0) / 100);
     }
 
     /** Status koneksi yang dibawa garis dari perangkat ke uplinknya = status uplink tersebut. */
@@ -259,10 +320,25 @@
         if (wanLain(d).length && p && !wanOf(d)) {
           add('info', d, `${d.nama}: WAN utama (uplink ${p.nama}) tidak berujung di Sumber WAN — hanya WAN tambahan yang aktif`);
         }
+        // Uplink kedua switch: redundan butuh STP/RSTP (tanpa itu = loop broadcast); LACP butuh konfigurasi di kedua sisi.
+        const up2 = uplinkLain(d);
+        if (up2.length) {
+          if (uplinkMode(d) === 'lacp') {
+            const beda = up2.filter(w => w.dev.id !== d.uplink_id);
+            add('info', d, `${d.nama}: LACP ${up2.length + (p ? 1 : 0)} kabel — aktifkan link aggregation (802.3ad) di ${d.nama} & ${[p, ...up2.map(w => w.dev)].filter(Boolean).map(x => x.nama).filter((v, i, a) => a.indexOf(v) === i).join(', ')}` +
+              (beda.length ? '. LACP ke switch berbeda butuh stacking/MLAG' : ''));
+          } else {
+            add('info', d, `${d.nama}: ${up2.length + (p ? 1 : 0)} uplink redundan — pastikan STP/RSTP aktif di semua switch terkait agar tidak terjadi loop`);
+          }
+          up2.filter(w => w.kabel === 'bermasalah').forEach(w => add('err', d, `${d.nama}: kabel uplink ke ${w.dev.nama} bermasalah`));
+        }
         if (!p && wanLain(d).length && d.jenis !== 'isp') {
           add('info', d, `${d.nama}: hanya punya WAN tambahan — jadikan salah satunya uplink (WAN utama) agar pohon topologi rapi`);
         }
         if (d.status === 'bermasalah') add('err', d, `${d.nama}: berstatus bermasalah`);
+        if (p && NP.perluKabel(d) && NP.kabelSt(d) === 'bermasalah') add('err', d, `${d.nama}: kabel ke ${p.nama} bermasalah`);
+        // Alat sudah diuji tetapi kabelnya belum ditarik: data lapangan tidak konsisten.
+        if (p && NP.perluKabel(d) && d.status === 'diuji' && NP.kabelSt(d) === 'belum') add('info', d, `${d.nama}: sudah diuji tetapi status kabel ke ${p.nama} masih "belum ditarik"`);
 
         // Kabel UTP terlalu panjang
         const k = kabelM(d);
@@ -287,8 +363,10 @@
 
         // Port switch
         const nPort = parseInt(a.jumlah_port, 10);
-        if (d.jenis === 'switch' && nPort > 0 && ch.length + (p ? 1 : 0) > nPort) {
-          add('err', d, `${d.nama}: ${ch.length + (p ? 1 : 0)} koneksi (termasuk uplink) melebihi ${nPort} port`);
+        // Port terpakai = anak + uplink + uplink tambahan sendiri + switch lain yang memakai switch ini sebagai uplink kedua.
+        const ekstra = d.jenis === 'switch' ? uplinkLain(d).length + list.filter(x => x !== d && uplinkLain(x).some(w => w.dev.id === d.id)).length : 0;
+        if (d.jenis === 'switch' && nPort > 0 && ch.length + (p ? 1 : 0) + ekstra > nPort) {
+          add('err', d, `${d.nama}: ${ch.length + (p ? 1 : 0) + ekstra} koneksi (termasuk uplink) melebihi ${nPort} port`);
         }
         // Titik LAN: jumlah port = jumlah perangkat (laptop, printer, ...) yang bisa dicolok langsung.
         if (d.jenis === 'lan' && nPort > 0 && ch.length > nPort) {
@@ -409,20 +487,60 @@
         tot[key].m += k;
         tot[key].n++;
       }
-      // Kabel ke WAN tambahan (dihitung UTP, garis lurus + tambahan).
+      // Kabel sambungan tambahan (WAN tambahan / uplink kedua): garis lurus + tambahan, media per sambungan.
       for (const d of list) {
-        for (const w of wanLain(d)) {
+        for (const w of linkLain(d)) {
           const k = kabelWanM(d, w.dev);
           if (k == null) {
             tanpaSkala++;
             continue;
           }
-          tot.utp = tot.utp || { m: 0, n: 0 };
-          tot.utp.m += k;
-          tot.utp.n++;
+          tot[w.media] = tot[w.media] || { m: 0, n: 0 };
+          tot[w.media].m += k;
+          tot[w.media].n++;
         }
       }
       return { tot, tanpaSkala };
+    }
+
+    /**
+     * Progres penarikan kabel (kabel ke uplink, tanpa wireless): jumlah link & meter per status, persen selesai.
+     * "Selesai" = sudah ditarik / terminasi / dites; meter dihitung bila skala sudah dikalibrasi.
+     */
+    function progresKabel() {
+      const per = {};
+      Object.keys(NP.KABEL).forEach(k => { per[k] = { n: 0, m: 0, ids: [] }; });
+      let total = 0, totalM = 0, selesai = 0, selesaiM = 0;
+      for (const d of list) {
+        if (!NP.perluKabel(d) || !parentOf(d)) continue;
+        const st = NP.kabelSt(d);
+        const k = kabelM(d) || 0;
+        per[st].n++;
+        per[st].m += k;
+        per[st].ids.push(d.id);
+        total++;
+        totalM += k;
+        if (st === 'ditarik' || st === 'terminasi' || st === 'dites') {
+          selesai++;
+          selesaiM += k;
+        }
+      }
+      // Sambungan tambahan (WAN tambahan router, uplink kedua switch) juga kabel yang harus ditarik.
+      for (const d of list) {
+        for (const w of linkLain(d)) {
+          const k = kabelWanM(d, w.dev) || 0;
+          per[w.kabel].n++;
+          per[w.kabel].m += k;
+          per[w.kabel].ids.push(d.id);
+          total++;
+          totalM += k;
+          if (w.kabel === 'ditarik' || w.kabel === 'terminasi' || w.kabel === 'dites') {
+            selesai++;
+            selesaiM += k;
+          }
+        }
+      }
+      return { per, total, totalM, selesai, selesaiM, pct: total ? Math.round(selesai / total * 100) : 0 };
     }
 
     /** Ringkasan SSID: SSID -> {keamanan, vlan, ap[]}. */
@@ -440,7 +558,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, ssids };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */
@@ -449,5 +567,24 @@
       a.nama.localeCompare(b.nama, 'id', { numeric: true }));
   }
 
-  NP.Model = { create, sortDev, UTP_MAX_M };
+  /**
+   * Salinan atribut dengan bentuk jalur sambungan tambahan (entri id=ke di atribut[kunci]) diganti. jalur null = lurus.
+   * Dipakai peta (pratinjau saat menarik lekukan) dan app (menyimpan).
+   */
+  function atributJalurLain(atr, kunci, ke, jalur) {
+    const out = Object.assign({}, atr);
+    let arr;
+    try { arr = JSON.parse(out[kunci] || '[]'); } catch (e) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    out[kunci] = JSON.stringify(arr.map(w => {
+      if (!w || +w.id !== +ke) return w;
+      const n = Object.assign({}, w);
+      if (jalur) n.jalur = jalur;
+      else delete n.jalur;
+      return n;
+    }));
+    return out;
+  }
+
+  NP.Model = { create, sortDev, atributJalurLain, UTP_MAX_M };
 })();

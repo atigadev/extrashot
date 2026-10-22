@@ -7,6 +7,7 @@
  * POST {"t":TOKEN,"action":"status","id":N,"status":"terpasang","catatan":"..."}  (peran "status")
  * POST {"t":TOKEN,"action":"catatan","id":N,"catatan":"..."}                     (peran "status")
  * POST {"t":TOKEN,"action":"status_massal","ids":[N,...],"status":"diuji","catatan":"..."} (peran "status")
+ * POST {"t":TOKEN,"action":"kabel","ids":[N,...],"kabel":"ditarik","catatan":"..."} (peran "status") -> status penarikan kabel
  *
  * Tim hanya boleh mengubah status yang diizinkan admin (status_boleh) pada kategori tugasnya (jenis_boleh; kosong = semua).
  * POST wajib header "X-NP: 1" (pengaman CSRF, sama seperti admin).
@@ -96,6 +97,33 @@ if ($method === 'POST' && $action === 'status_massal') {
     $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyek['id']]);
     $pdo->commit();
     json_out(['ok' => true, 'perangkat' => $hasil, 'dilewati' => $dilewati]);
+}
+
+if ($method === 'POST' && $action === 'kabel') {
+    // Status penarikan kabel (satu / banyak perangkat): tim update status, hanya kategori tugasnya.
+    if ($akses['peran'] !== 'status') {
+        json_error('Akses tim ini hanya untuk melihat', 403);
+    }
+    $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
+    if (!$ids || count($ids) > 2000) {
+        json_error('Tidak ada perangkat yang dipilih');
+    }
+    $jenisBoleh = $akses['jenis_boleh'];
+    $lihatPass = $akses['lihat_password'];
+    if (!empty($req['ke'])) {
+        // Sambungan tambahan (WAN tambahan / uplink kedua) satu perangkat.
+        list($hasil, $dilewati) = ubah_kabel_lain($proyek['id'], $ids[0], isset($req['kunci']) ? (string) $req['kunci'] : '', (int) $req['ke'],
+            isset($req['kabel']) ? (string) $req['kabel'] : '', $akses['id'], $akses['nama'], text_field($req, 'catatan', 2000, 'Catatan'),
+            function ($d) use ($jenisBoleh) { return !$jenisBoleh || in_array($d['jenis'], $jenisBoleh, true); });
+        json_out(['ok' => true, 'perangkat' => array_map(function ($d) use ($lihatPass) { return perangkat_row($d, !$lihatPass); }, $hasil),
+            'dilewati' => $dilewati]);
+    }
+    list($hasil, $dilewati) = ubah_kabel_massal($proyek['id'], $ids, isset($req['kabel']) ? (string) $req['kabel'] : '', $akses['id'],
+        $akses['nama'], text_field($req, 'catatan', 2000, 'Catatan'),
+        function ($d) use ($jenisBoleh) { return !$jenisBoleh || in_array($d['jenis'], $jenisBoleh, true); });
+    $lihatPass = $akses['lihat_password'];
+    json_out(['ok' => true, 'perangkat' => array_map(function ($d) use ($lihatPass) { return perangkat_row($d, !$lihatPass); }, $hasil),
+        'dilewati' => $dilewati]);
 }
 
 if ($method === 'POST' && ($action === 'status' || $action === 'catatan')) {

@@ -147,6 +147,21 @@
     bermasalah: { label: 'Bermasalah', color: '#dc2626' },
   };
 
+  /** Status penarikan kabel ke uplink (atribut "kabel"; kosong = belum). Sama dengan NP_KABEL di api/db.php. */
+  // Palet progresif yang tidak bentrok dengan warna jenis perangkat / media / status internet:
+  // abu (belum) → kuning (ditarik) → biru langit (terminasi) → hijau (dites), merah mawar = bermasalah.
+  // Ikon progres (○ ◑ ◕ ✓ ⚠) membuat status tetap terbaca tanpa mengandalkan warna saja.
+  const KABEL = {
+    belum: { label: 'Belum ditarik', short: 'Belum', color: '#94a3b8', icon: '○', step: 0 },
+    ditarik: { label: 'Sudah ditarik', short: 'Ditarik', color: '#d97706', icon: '◑', step: 1, aksi: 'Tandai sudah ditarik' },
+    terminasi: { label: 'Terminasi / konektor', short: 'Terminasi', color: '#0284c7', icon: '◕', step: 2, aksi: 'Tandai terminasi selesai' },
+    dites: { label: 'Sudah dites OK', short: 'Dites OK', color: '#16a34a', icon: '✓', step: 3, aksi: 'Tandai sudah dites OK' },
+    bermasalah: { label: 'Kabel bermasalah', short: 'Bermasalah', color: '#e11d48', icon: '⚠', step: -1 },
+  };
+  /** Perangkat yang butuh kabel ke uplink: punya uplink & bukan wireless. */
+  const perluKabel = d => !!d && d.uplink_id != null && d.media !== 'wireless';
+  const kabelSt = d => (d && d.atribut && KABEL[d.atribut.kabel] ? d.atribut.kabel : 'belum');
+
   const MEDIA = {
     '': { label: '—' },
     utp: { label: 'UTP (kabel LAN)', short: 'UTP', color: '#0369a1', dash: '' },
@@ -425,5 +440,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

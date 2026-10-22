@@ -19,6 +19,7 @@
  * POST {"action":"perangkat_save", id? | proyek_id, ...isian}  -> isian yang dikirim saja yang diubah
  * POST {"action":"perangkat_delete","ids":[N,...]}
  * POST {"action":"perangkat_rename","items":[{"id":N,"nama":"..."},...]}  -> ganti nama massal (penamaan group)
+ * POST {"action":"perangkat_kabel","ids":[N,...],"kabel":"ditarik"} -> status penarikan kabel (+ riwayat)
  * POST {"action":"perangkat_kunci","ids":[N,...],"kunci":true} -> kunci / buka kunci posisi titik
  * POST {"action":"perangkat_status_massal","ids":[N,...],"status":"terpasang","catatan":"..."} -> ubah status massal + riwayat
  * GET  ?action=katalog_list[&proyek_id=N]  -> katalog perangkat + jumlah pemakaian (semua event / event N)
@@ -357,6 +358,25 @@ switch ($method . ' ' . $action) {
         $pdo->commit();
         json_out(['ok' => true, 'jumlah' => $n]);
 
+    case 'POST perangkat_kabel':
+        // Status penarikan kabel ke uplink (satu / banyak perangkat), tercatat di riwayat.
+        $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
+        if (!$ids || count($ids) > 2000) {
+            json_error('Tidak ada perangkat yang dipilih');
+        }
+        $st = $pdo->prepare('SELECT proyek_id FROM np_perangkat WHERE id = ?');
+        $st->execute([$ids[0]]);
+        $pid = (int) $st->fetchColumn();
+        if (!empty($req['ke'])) {
+            // Sambungan tambahan (WAN tambahan / uplink kedua) satu perangkat.
+            list($hasil, $dilewati) = ubah_kabel_lain($pid, $ids[0], isset($req['kunci']) ? (string) $req['kunci'] : '', (int) $req['ke'],
+                isset($req['kabel']) ? (string) $req['kabel'] : '', null, 'Admin', text_field($req, 'catatan', 2000, 'Catatan'));
+            json_out(['ok' => true, 'perangkat' => array_map('perangkat_row', $hasil), 'dilewati' => $dilewati]);
+        }
+        list($hasil, $dilewati) = ubah_kabel_massal($pid, $ids, isset($req['kabel']) ? (string) $req['kabel'] : '', null, 'Admin',
+            text_field($req, 'catatan', 2000, 'Catatan'));
+        json_out(['ok' => true, 'perangkat' => array_map('perangkat_row', $hasil), 'dilewati' => $dilewati]);
+
     case 'POST perangkat_kunci':
         // Kunci / buka kunci posisi banyak perangkat sekaligus (atribut "kunci" = "1"): titik tidak bisa digeser.
         $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
@@ -641,6 +661,7 @@ function izin_admin_event($aksi, $req, $id)
         case 'POST perangkat_delete':
         case 'POST perangkat_status_massal':
         case 'POST perangkat_kunci':
+        case 'POST perangkat_kabel':
             return $proyekPerangkat(isset($req['ids']) && is_array($req['ids']) ? $req['ids'] : []);
         case 'POST perangkat_rename':
             $items = isset($req['items']) && is_array($req['items']) ? $req['items'] : [];
@@ -941,8 +962,10 @@ function atribut_json($atr)
         if ($v === '') {
             continue;
         }
-        if (mb_strlen($v) > 1000) {
-            json_error('Isian "' . $k . '" maksimal 1000 karakter');
+        // Daftar sambungan tambahan (JSON berisi port, status kabel & lekukan jalur) boleh lebih panjang.
+        $maks = in_array($k, ['wan_lain', 'uplink_lain'], true) ? 20000 : 1000;
+        if (mb_strlen($v) > $maks) {
+            json_error('Isian "' . $k . '" maksimal ' . $maks . ' karakter');
         }
         $out[$k] = $v;
     }
@@ -1034,30 +1057,41 @@ function salin_perangkat($proyekId, $list, $idSemula = false)
             $updLuar->execute([$oldUp, $newId]);
         }
     }
-    // Multi-WAN: id Sumber WAN di atribut wan_lain ikut dipetakan ke id baru (salin event, impor, buka backup).
-    // Saat pemulihan (id semula), id yang tidak ikut dipulihkan tetap dipakai bila perangkatnya masih ada.
+    // Sambungan tambahan (wan_lain = WAN tambahan router, uplink_lain = uplink kedua switch): id tujuan ikut dipetakan
+    // ke id baru (salin event, impor, buka backup). Saat pemulihan (id semula), id yang tidak ikut dipulihkan tetap
+    // dipakai bila perangkatnya masih ada. Isian lain per sambungan (port, media, status kabel) dipertahankan.
     $atrUpd = $pdo->prepare('UPDATE np_perangkat SET atribut = ? WHERE id = ?');
+    $modeKey = ['wan_lain' => 'wan_mode', 'uplink_lain' => 'uplink_mode'];
     foreach ($list as $d) {
-        if (!is_array($d) || !isset($d['id'], $map[(int) $d['id']], $d['atribut']) || !is_array($d['atribut']) || empty($d['atribut']['wan_lain'])) {
+        if (!is_array($d) || !isset($d['id'], $map[(int) $d['id']], $d['atribut']) || !is_array($d['atribut'])) {
             continue;
         }
-        $wl = json_decode((string) $d['atribut']['wan_lain'], true);
-        $baru = [];
-        foreach (is_array($wl) ? $wl : [] as $w) {
-            $wid = is_array($w) && isset($w['id']) ? (int) $w['id'] : 0;
-            if (isset($map[$wid])) {
-                $baru[] = ['id' => $map[$wid], 'port' => isset($w['port']) ? (string) $w['port'] : ''];
-            } elseif ($idSemula && $wid) {
-                $baru[] = ['id' => $wid, 'port' => isset($w['port']) ? (string) $w['port'] : ''];
+        $atr = $d['atribut'];
+        $ubah = false;
+        foreach ($modeKey as $kunci => $mode) {
+            if (empty($atr[$kunci])) {
+                continue;
+            }
+            $ubah = true;
+            $wl = json_decode((string) $atr[$kunci], true);
+            $baru = [];
+            foreach (is_array($wl) ? $wl : [] as $w) {
+                $wid = is_array($w) && isset($w['id']) ? (int) $w['id'] : 0;
+                if (isset($map[$wid])) {
+                    $baru[] = ['id' => $map[$wid]] + $w;
+                } elseif ($idSemula && $wid) {
+                    $baru[] = $w;
+                }
+            }
+            if ($baru) {
+                $atr[$kunci] = json_encode(array_map(function ($w) { return array_merge($w, ['id' => (int) $w['id']]); }, $baru), JSON_UNESCAPED_UNICODE);
+            } else {
+                unset($atr[$kunci], $atr[$mode]);
             }
         }
-        $atr = $d['atribut'];
-        if ($baru) {
-            $atr['wan_lain'] = json_encode($baru, JSON_UNESCAPED_UNICODE);
-        } else {
-            unset($atr['wan_lain'], $atr['wan_mode']);
+        if ($ubah) {
+            $atrUpd->execute([atribut_json($atr), $map[(int) $d['id']]]);
         }
-        $atrUpd->execute([atribut_json($atr), $map[(int) $d['id']]]);
     }
     $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyekId]);
     $pdo->commit();

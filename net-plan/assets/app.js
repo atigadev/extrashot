@@ -674,10 +674,21 @@
       if (d && awal !== undefined) d.atribut = awal;
       saveDev(id, { atribut }).catch(() => {});
     },
+    onAtributLain(id, atribut, awal) {
+      // Bentuk jalur sambungan tambahan (UP2 / WAN2) diubah di denah -> simpan atribut (bisa di-Ctrl+Z).
+      const d = S.model.byId.get(id);
+      if (d && awal !== undefined) d.atribut = awal;
+      saveDev(id, { atribut }, { keepPanel: true, label: 'jalur kabel tambahan' }).catch(() => {});
+    },
     onRoute(id, jalur, awal) {
       const d = S.model.byId.get(id);
       if (d && awal !== undefined) d.jalur = awal;
       saveDev(id, { jalur }, { keepPanel: true }).catch(() => {});
+    },
+    onKabel(id, x, y, lain) {
+      // HP/tablet: panel bawah tetap ringkas agar popover status kabel tidak tertutup.
+      if (mqSheet.matches) setSheet('peek');
+      bukaKabelPop([id], x, y, lain);
     },
     onMeasure(pts) {
       renderPanel();
@@ -689,6 +700,7 @@
   });
 
   function selectDev(id, center) {
+    tutupKabelPop();
     S.sel = id;
     const d = id != null && S.model.byId.get(id);
     if (d && TYPES[d.jenis] && TYPES[d.jenis].parent) S.parentCtx = id;
@@ -1045,6 +1057,20 @@
         .then(() => toast(`${p.nama} ditambahkan sebagai WAN${S.model.wanLain(c).length + 1} untuk ${c.nama} (atur mode di tab Koneksi)`));
       return;
     }
+    // Switch yang sudah punya uplink dihubungkan ke router/switch lain: tawarkan sebagai uplink kedua (redundan / LACP).
+    if (c.jenis === 'switch' && ['router', 'switch'].includes(p.jenis) && c.uplink_id != null && !S.model.descendants(childId).has(parentId)) {
+      if (S.model.uplinkLain(c).some(w => w.dev.id === parentId)) return toast(`${p.nama} sudah menjadi uplink kedua ${c.nama}`);
+      const sama = c.uplink_id === parentId;
+      const pesan = sama
+        ? `${p.nama} sudah uplink utama ${c.nama}.\n\nOK = tambah kabel kedua ke ${p.nama} (LACP, bandwidth digabung)\nBatal = tidak jadi`
+        : `${c.nama} sudah punya uplink ke ${(S.model.parentOf(c) || {}).nama}.\n\nOK = jadikan ${p.nama} uplink KEDUA (redundan)\nBatal = GANTI uplink utama ke ${p.nama}`;
+      if (confirm(pesan)) {
+        simpanUplink(c, [...upList(c), { id: parentId, port: '', media: 'utp' }], sama ? 'lacp' : S.model.uplinkMode(c))
+          .then(() => toast(`${p.nama} ditambahkan sebagai uplink kedua ${c.nama}${sama ? ' (LACP)' : ' (redundan)'} — atur di tab Koneksi`));
+        return;
+      }
+      if (sama) return;
+    }
     if (S.model.descendants(childId).has(parentId)) {
       toast(`${p.nama} berada di bawah ${c.nama} — tidak bisa jadi uplinknya (loop)`, true);
       return;
@@ -1226,6 +1252,7 @@
     const c = e.target.closest('[data-layer]');
     if (!c) return;
     peta.setLayer(c.dataset.layer, c.checked);
+    if (c.dataset.layer === 'kabel') $$('[data-kabel-layer]').forEach(x => { x.checked = c.checked; });
     try { localStorage.setItem('np-layers', JSON.stringify(peta.layers)); } catch (err) { /* abaikan */ }
   });
   try {
@@ -1409,6 +1436,8 @@
       { t: 'Cetak laporan / sheet AP', k: 'cetak print laporan sheet ap pdf', fn: () => $('#btn-print').click() },
       { t: 'Seluruh denah (zoom pas)', k: 'fit zoom seluruh denah', fn: () => { go('denah'); setTimeout(() => peta.fit(), 80); } },
       { t: 'Pintasan keyboard', k: 'bantuan help shortcut pintasan keyboard', fn: () => $('#dlg-pintasan').showModal() },
+      { t: (peta.layers.kabel ? 'Sembunyikan' : 'Tampilkan') + ' progres kabel di denah', k: 'kabel progres penarikan tarik layer warna', fn: () => { go('denah'); setTimeout(() => setLayerKabel(!peta.layers.kabel), 80); } },
+      { t: 'Daftar kabel yang belum ditarik', k: 'kabel belum ditarik daftar filter', fn: () => { ['#list-q', '#list-jenis', '#list-status', '#list-koneksi'].forEach(s => { $(s).value = ''; }); $('#list-kabel').value = 'belum'; go('daftar'); setTimeout(renderDaftar, 60); } },
     ];
     if (S.canEdit) {
       c.push({ t: 'Batalkan perubahan terakhir', k: 'undo batalkan', fn: () => jalankanRiwayat('undo') });
@@ -1478,7 +1507,7 @@
     const id = it.dev.id;
     if (keDaftar) {
       $('#list-q').value = it.dev.nama;
-      ['#list-jenis', '#list-status', '#list-koneksi'].forEach(s => { $(s).value = ''; });
+      ['#list-jenis', '#list-status', '#list-koneksi', '#list-kabel'].forEach(s => { $(s).value = ''; });
       go('daftar');
       setTimeout(renderDaftar, 60);
       return;
@@ -1684,6 +1713,215 @@
     return `<span class="kon kon-${k}"><i>${K.icon}</i>${esc(K.short)}</span>`;
   }
 
+  // ------------------------------------------------------------------------ penarikan kabel
+
+  const KABEL = NP.KABEL;
+  const kbSpan = k => {
+    k = KABEL[k] ? k : 'belum';
+    return `<span class="kb kb-${k}"${k !== 'belum' ? ` style="background:${KABEL[k].color}"` : ''}>${KABEL[k].icon} ${esc(KABEL[k].short)}</span>`;
+  };
+  const kabelBadge = d => kbSpan(NP.kabelSt(d));
+  /** Badge yang bisa diklik untuk membuka pemilih status (daftar & pohon topologi). */
+  const kabelBadgeBtn = d => {
+    const k = NP.kabelSt(d);
+    return `<button type="button" class="kb kb-${k}"${k !== 'belum' ? ` style="background:${KABEL[k].color}"` : ''} data-kb-pop="${d.id}" title="${esc(KABEL[k].label)} — klik untuk ubah">${KABEL[k].icon} ${esc(KABEL[k].short)} ▾</button>`;
+  };
+  /** Boleh mengubah status kabel perangkat ini: admin, atau tim update status pada kategori tugasnya. */
+  const bolehKabel = d => S.canEdit || (bolehStatus() && (!d || tugasTim(d)));
+
+  const LANGKAH = ['belum', 'ditarik', 'terminasi', 'dites'];
+
+  /**
+   * Pemilih status kabel bertahap: 4 langkah (Belum → Ditarik → Terminasi → Dites) + tombol "lanjut" ke tahap
+   * berikutnya (aksi paling sering, satu klik) + Bermasalah terpisah. ids = perangkat yang diubah.
+   */
+  function kabelPicker(ids, st, boleh, judul, lain) {
+    const k = KABEL[st] || KABEL.belum;
+    const bad = st === 'bermasalah';
+    const step = bad ? -1 : k.step;
+    const next = !bad && step < 3 ? LANGKAH[step + 1] : null;
+    const c = bad ? KABEL.bermasalah.color : k.color;
+    const dis = boleh ? '' : ' disabled';
+    return `<div class="kb-box${bad ? ' bad' : ''}" data-kb-ids="${ids.join(',')}"${lain ? ` data-kb-lain="${lain.ke}:${lain.kunci}"` : ''} style="--c:${c}">
+      ${judul ? `<div class="kb-box-t">${judul}</div>` : ''}
+      <div class="kb-step" role="radiogroup" aria-label="Status penarikan kabel">
+        <span class="kb-fill" style="width:${Math.max(0, step) / 3 * 75}%"></span>
+        ${LANGKAH.map((s, i) => `<button type="button" role="radio" aria-checked="${s === st}" data-kb-set="${s}" class="${s === st ? 'on' : step > i ? 'lewat' : ''}" style="--c:${KABEL[s].color}" title="${esc(KABEL[s].label)} (${i + 1})"${dis}>
+          <i>${s === st || step > i ? KABEL[s].icon : i + 1}</i>${esc(KABEL[s].short)}</button>`).join('')}
+      </div>
+      ${boleh ? `<div class="kb-actions">
+        ${next ? `<button type="button" class="small kb-next" data-kb-set="${next}" style="--c:${KABEL[next].color}">${KABEL[next].icon} ${esc(KABEL[next].aksi)}</button>` : bad ? `<button type="button" class="small" data-kb-set="ditarik">Sudah diperbaiki → ditarik</button>` : '<span class="small" style="color:#16a34a;font-weight:700">✓ Kabel selesai</span>'}
+        <span class="spacer"></span>
+        <button type="button" class="small kb-bad${bad ? ' on' : ''}" data-kb-set="bermasalah" title="Kabel bermasalah (5)">⚠ Bermasalah</button>
+      </div>` : ''}
+    </div>`;
+  }
+
+  /** Popover status kabel di dekat titik klik (garis di denah / badge di daftar). */
+  function bukaKabelPop(ids, x, y, lain) {
+    tutupKabelPop();
+    const ds = ids.map(id => S.model.byId.get(id)).filter(d => d && (lain || NP.perluKabel(d)));
+    if (!ds.length) return;
+    const d = ds[0];
+    const p = lain ? S.model.byId.get(lain.ke) : S.model.parentOf(d);
+    const km = lain ? S.model.kabelWanM(d, p) : ds.length === 1 ? S.model.kabelM(d) : null;
+    const boleh = ds.every(bolehKabel);
+    const st = lain ? statusLain(d, lain) : ds.every(x2 => NP.kabelSt(x2) === NP.kabelSt(d)) ? NP.kabelSt(d) : '';
+    const pop = document.createElement('div');
+    pop.className = 'kb-pop';
+    pop.id = 'kb-pop';
+    pop.setAttribute('role', 'dialog');
+    pop.innerHTML = `<div class="kb-pop-h"><span>🔌</span><b>${ds.length > 1 ? ds.length + ' kabel' : `${esc(d.nama)} → ${esc(p ? p.nama : '')}`}</b>
+        ${km ? `<span class="muted small">≈ ${esc(fmtM(km))}</span>` : ''}<button type="button" class="icon" data-kb-tutup aria-label="Tutup">✕</button></div>
+      ${lain ? `<div class="muted small" style="margin:-2px 0 4px">${lain.kunci === 'wan_lain' ? 'WAN tambahan' : 'Uplink kedua (' + (S.model.uplinkMode(d) === 'lacp' ? 'LACP' : 'redundan') + ')'}</div>` : ''}
+      ${kabelPicker(ds.map(x2 => x2.id), st, boleh, '', lain)}
+      <p class="hint">${boleh ? 'Tekan 1–4 untuk tahap, 5 = bermasalah, Enter = tahap berikutnya, Esc = tutup.' : 'Hanya bisa dilihat.'}</p>`;
+    document.body.appendChild(pop);
+    const r = pop.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, x - r.width / 2)) + 'px';
+    pop.style.top = (y + 16 + r.height > innerHeight - 8 ? Math.max(8, y - r.height - 16) : y + 16) + 'px';
+    const fokus = pop.querySelector('.kb-next') || pop.querySelector('[data-kb-set]');
+    if (fokus) fokus.focus({ preventScroll: true });
+  }
+  /** "12:uplink_lain" -> {ke: 12, kunci: 'uplink_lain'} (sambungan tambahan) atau null. */
+  function parseLain(v) {
+    if (!v) return null;
+    const [ke, kunci] = v.split(':');
+    return { ke: +ke, kunci };
+  }
+  /** Badge status kabel sambungan tambahan yang bisa diklik. */
+  function kabelLainBtn(d, w, boleh) {
+    const k = w.kabel;
+    const isi = `${KABEL[k].icon} ${esc(KABEL[k].short)}`;
+    const gaya = k !== 'belum' ? ` style="background:${KABEL[k].color}"` : '';
+    return boleh ? `<button type="button" class="kb kb-${k}"${gaya} data-kb-pop="${d.id}" data-kb-lain="${w.dev.id}:${w.kunci}" title="Status kabel ke ${esc(w.dev.nama)} — klik untuk ubah">${isi} ▾</button>`
+      : `<span class="kb kb-${k}"${gaya}>${isi}</span>`;
+  }
+  function tutupKabelPop() {
+    const p = $('#kb-pop');
+    if (p) p.remove();
+  }
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('[data-kb-set]');
+    if (b && !b.disabled) {
+      const box = b.closest('[data-kb-ids]');
+      const ids = box.dataset.kbIds.split(',').map(Number).filter(Boolean);
+      const diPop = !!b.closest('#kb-pop');
+      setKabel(ids, b.dataset.kbSet, false, parseLain(box.dataset.kbLain)).then(() => { if (diPop) tutupKabelPop(); });
+      return;
+    }
+    const lb = e.target.closest && e.target.closest('[data-kb-pop]');
+    if (lb) {
+      e.preventDefault();
+      e.stopPropagation();
+      const r = lb.getBoundingClientRect();
+      return bukaKabelPop([+lb.dataset.kbPop], r.left + r.width / 2, r.bottom - 8, parseLain(lb.dataset.kbLain));
+    }
+    if (e.target.closest && (e.target.closest('[data-kb-tutup]') || (!e.target.closest('#kb-pop') && !e.target.closest('#map')))) tutupKabelPop();
+  });
+  document.addEventListener('keydown', e => {
+    const pop = $('#kb-pop');
+    if (!pop) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      return tutupKabelPop();
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const pilihan = /^[1-5]$/.test(e.key) ? [...LANGKAH, 'bermasalah'][+e.key - 1] : e.key === 'Enter' ? ((pop.querySelector('.kb-next') || {}).dataset || {}).kbSet : null;
+    if (!pilihan) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const btn = pop.querySelector(`[data-kb-set="${pilihan}"]`);
+    if (btn) btn.click();
+  }, true);
+
+  /** Progres penarikan kabel: ringkas (panel denah) atau lengkap (tab Topologi). */
+  function progresKabelHtml(ringkas) {
+    const pk = S.model.progresKabel();
+    if (!pk.total) return ringkas ? '' : '<p class="muted">Belum ada sambungan kabel (perangkat dengan uplink non-wireless).</p>';
+    const urut = ['dites', 'terminasi', 'ditarik', 'bermasalah', 'belum'];
+    const bar = `<div class="kb-bar" title="${pk.selesai} dari ${pk.total} kabel sudah ditarik">${urut.map(k => pk.per[k].n
+      ? `<i style="width:${pk.per[k].n / pk.total * 100}%;background:${KABEL[k].color}" title="${esc(KABEL[k].label)}: ${pk.per[k].n}"></i>` : '').join('')}</div>`;
+    const meter = pk.totalM ? ` · ${fmtM(pk.selesaiM)} dari ${fmtM(pk.totalM)}` : '';
+    const layer = `<label class="small"><input type="checkbox" data-kabel-layer${peta.layers.kabel ? ' checked' : ''}> Warnai garis di denah menurut status kabel</label>`;
+    if (ringkas) {
+      return `<div class="pn-sec"><h4>Penarikan kabel <span class="muted small">${pk.selesai}/${pk.total} link (${pk.pct}%)${meter}</span></h4>${bar}
+        <div class="legend">${urut.map(k => `<span class="lg-item"><i class="kb-dot" style="background:${KABEL[k].color}">${KABEL[k].icon}</i>${esc(KABEL[k].label)}<b>${pk.per[k].n}</b></span>`).join('')}</div>${layer}</div>`;
+    }
+    return `<div class="kb-head"><span class="kb-pct">${pk.pct}%</span><span class="muted">${pk.selesai} dari ${pk.total} kabel sudah ditarik${meter}</span></div>${bar}
+      <table class="kb-rows">${urut.map(k => `<tr><td><span class="kb-dot" style="background:${KABEL[k].color}">${KABEL[k].icon}</span>${esc(KABEL[k].label)}</td>
+        <td class="num"><b>${pk.per[k].n}</b> link</td><td class="num muted">${pk.per[k].m ? fmtM(pk.per[k].m) : ''}</td>
+        <td class="num">${pk.per[k].n ? `<a href="#" data-kabel-filter="${k}">lihat</a>` : ''}</td></tr>`).join('')}</table>
+      <p style="margin:10px 0 0">${layer}</p>`;
+  }
+
+  /** Ubah status kabel (admin: semua; tim: kategori tugasnya). Admin bisa membatalkan dengan Ctrl+Z. */
+  async function setKabel(ids, kabel, tanpaRiwayat, lain) {
+    // lain = {ke, kunci}: kabel sambungan tambahan (WAN tambahan / uplink kedua) satu perangkat.
+    const lama = new Map(ids.map(id => [id, lain ? statusLain(S.model.byId.get(id), lain) : NP.kabelSt(S.model.byId.get(id))]));
+    try {
+      const extra = lain ? { ke: lain.ke, kunci: lain.kunci } : {};
+      const res = S.tim
+        ? await api('api/tim.php', Object.assign({ t: S.tim, action: 'kabel', ids, kabel }, extra))
+        : await enqueue(() => api(API, Object.assign({ action: 'perangkat_kabel', ids, kabel }, extra)));
+      res.perangkat.forEach(p => {
+        const i = S.list.findIndex(x => x.id === p.id);
+        if (i >= 0) S.list[i] = p;
+      });
+      riwayat.id = null;
+      refreshModel();
+      const n = res.perangkat.length;
+      if (!S.tim && !tanpaRiwayat && n) {
+        const ok = res.perangkat.map(p => p.id);
+        catat({
+          label: `status kabel ${n > 1 ? n + ' perangkat' : res.perangkat[0].nama}`,
+          undo: async () => {
+            const grup = new Map();
+            ok.forEach(id => { const st = lama.get(id); if (!grup.has(st)) grup.set(st, []); grup.get(st).push(id); });
+            for (const [st, gids] of grup) await setKabel(gids, st, true, lain);
+          },
+          redo: () => setKabel(ok, kabel, true, lain),
+        });
+      }
+      if (!tanpaRiwayat) {
+        toast(n ? `Kabel ${n > 1 ? n + ' perangkat' : res.perangkat[0].nama}${lain ? ' → ' + ((S.model.byId.get(lain.ke) || {}).nama || '') : ''}: ${KABEL[kabel].label}` +
+          (res.dilewati ? ` · ${res.dilewati} dilewati (tanpa kabel / di luar tugas)` : '') : 'Tidak ada kabel yang bisa diubah (tanpa uplink / wireless / di luar tugas)', !n);
+      }
+    } catch (e) {
+      setSaveState('error');
+      toast(e.message, true);
+    }
+  }
+
+  /** Status kabel sambungan tambahan perangkat d ke lain.ke. */
+  function statusLain(d, lain) {
+    const w = d && S.model.linkLain(d).find(x => x.dev.id === lain.ke && x.kunci === lain.kunci);
+    return w ? w.kabel : 'belum';
+  }
+
+  // Kotak centang "warnai garis menurut status kabel" (panel ringkasan & tab Topologi) = lapisan Progres kabel.
+  function setLayerKabel(on) {
+    peta.setLayer('kabel', on);
+    const c = $('[data-layer="kabel"]');
+    if (c) c.checked = on;
+    try { localStorage.setItem('np-layers', JSON.stringify(peta.layers)); } catch (err) { /* abaikan */ }
+  }
+  document.addEventListener('change', e => {
+    const c = e.target.closest && e.target.closest('[data-kabel-layer]');
+    if (c) setLayerKabel(c.checked);
+  });
+  document.addEventListener('click', e => {
+    const f = e.target.closest && e.target.closest('[data-kabel-filter]');
+    if (!f) return;
+    e.preventDefault();
+    ['#list-q', '#list-jenis', '#list-status', '#list-koneksi', '#list-kabel'].forEach(s => { $(s).value = ''; });
+    $('#list-kabel').value = f.dataset.kabelFilter;
+    go('daftar');
+    setTimeout(renderDaftar, 60);
+  });
+
   function panelRingkasan() {
     const m = S.model;
     const p = S.proyek;
@@ -1724,6 +1962,7 @@
           ${Object.keys(STATUS).map(k => `<span class="lg-item"><i class="ring" style="border-color:${STATUS[k].color}"></i>${STATUS[k].label}<b>${st[k] || 0}</b></span>`).join('')}
         </div>
       </div>
+      ${progresKabelHtml(true)}
       <div class="pn-sec">
         <h4>Garis uplink</h4>
         <div class="legend">
@@ -1891,8 +2130,10 @@
             ${fieldHtml({ k: 'port_lokal', label: 'Port di perangkat ini', ph: 'mis. ether1 / WAN' }, d.port_lokal, dis)}
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
             ${fieldHtml({ k: 'bandwidth_mbps', label: t.bwLabel, type: 'number' }, d.bandwidth_mbps, dis)}
+            ${NP.perluKabel(d) ? `<div class="wide field"><span>Status penarikan kabel ke uplink</span>${kabelPicker([d.id], NP.kabelSt(d), bolehKabel(d), '')}</div>` : ''}
             <div class="wide" id="pn-route"></div>
             ${d.jenis === 'router' || S.model.wanLain(d).length ? `<div class="wide" id="pn-wan">${wanEditor(d)}</div>` : ''}
+            ${d.jenis === 'switch' ? `<div class="wide pn-up" id="pn-up">${uplinkEditor(d)}</div>` : ''}
             ${fieldHtml({ k: 'ip', label: 'IP address', ph: 'mis. 10.10.0.11/22 · DHCP' }, d.ip, dis)}
             ${fieldHtml({ k: 'vlan', label: 'VLAN', ph: 'mis. 10 (tamu)' }, d.vlan, dis)}
           </div>
@@ -1920,13 +2161,93 @@
   /** Simpan daftar WAN tambahan + mode di atribut perangkat (JSON [{id, port}]). */
   function simpanWan(d, daftar, mode) {
     const atr = Object.assign({}, d.atribut);
-    if (daftar.length) atr.wan_lain = JSON.stringify(daftar.map(w => ({ id: w.id, port: w.port || '' })));
+    if (daftar.length) atr.wan_lain = JSON.stringify(daftar.map(w => Object.assign({ id: w.id, port: w.port || '' }, w.kabel && w.kabel !== 'belum' ? { kabel: w.kabel } : {}, w.jalur ? { jalur: w.jalur } : {})));
     else delete atr.wan_lain;
     if (mode) atr.wan_mode = mode;
     if (!daftar.length) delete atr.wan_mode;
     return saveDev(d.id, { atribut: atr }).catch(() => {});
   }
-  const wanList = d => S.model.wanLain(d).map(w => ({ id: w.dev.id, port: w.port }));
+  const wanList = d => S.model.linkLain(d).filter(w => w.kunci === 'wan_lain').map(w => ({ id: w.dev.id, port: w.port, kabel: w.kabel, jalur: w.jalur }));
+
+  // ------------------------------------------------------------------------ uplink kedua (switch): redundan / LACP
+
+  const upList = d => S.model.uplinkLain(d).map(w => ({ id: w.dev.id, port: w.port, media: w.media, kabel: w.kabel, jalur: w.jalur }));
+  function simpanUplink(d, daftar, mode) {
+    const atr = Object.assign({}, d.atribut);
+    if (daftar.length) {
+      atr.uplink_lain = JSON.stringify(daftar.map(w => Object.assign({ id: w.id, port: w.port || '', media: w.media || 'utp' }, w.kabel && w.kabel !== 'belum' ? { kabel: w.kabel } : {}, w.jalur ? { jalur: w.jalur } : {})));
+      atr.uplink_mode = mode || 'redundan';
+    } else {
+      delete atr.uplink_lain;
+      delete atr.uplink_mode;
+    }
+    return saveDev(d.id, { atribut: atr }).catch(() => {});
+  }
+
+  /** Calon uplink kedua: router/switch lain yang bukan perangkat di bawahnya (agar tidak loop). */
+  function calonUplink(d) {
+    const m = S.model;
+    const bawah = m.descendants(d.id);
+    const pakai = new Set(m.uplinkLain(d).map(w => w.dev.id));
+    return NP.Model.sortDev(m.list.filter(x => ['router', 'switch'].includes(x.jenis) && x.id !== d.id && !bawah.has(x.id) && !pakai.has(x.id)));
+  }
+
+  function uplinkEditor(d) {
+    const m = S.model;
+    const dis = S.canEdit ? '' : ' disabled';
+    const lain = m.uplinkLain(d);
+    const mode = m.uplinkMode(d);
+    const p = m.parentOf(d);
+    const calon = calonUplink(d);
+    const baris = (no, x, isi) => `<div class="wan-row"><span class="wan-no up">UP${no}</span>
+      <span class="dotlbl"><i style="background:${NP.tampil(x).color}"></i><b>${esc(x.nama)}</b></span>
+      <span class="muted small">${esc(TYPES[x.jenis].label)}</span>${konBadge(m.koneksi(x))}<span class="spacer"></span>${isi}</div>`;
+    let h = `<span class="route-lbl">Uplink switch${lain.length ? ` · <b>${lain.length + (p ? 1 : 0)} uplink · ${mode === 'lacp' ? 'LACP' : 'redundan'}</b>` : ''}</span><div class="wan-list">`;
+    h += p ? baris(1, p, `<span class="tag-kat">utama</span>`) : '<div class="wan-row muted small"><span class="wan-no up">UP1</span>Pilih Uplink utama di atas</div>';
+    lain.forEach((w, i) => {
+      h += baris(i + 2, w.dev, `${kabelLainBtn(d, { dev: w.dev, kabel: w.kabel, kunci: 'uplink_lain' }, bolehKabel(d))}`) +
+        `<div class="wan-row sub"><input type="text" class="wan-port" data-up-port="${w.dev.id}" value="${esc(w.port)}" placeholder="port, mis. sfp1 / ge24" aria-label="Port UP${i + 2}"${dis}>
+          <select data-up-media="${w.dev.id}" aria-label="Media UP${i + 2}"${dis}><option value="utp"${w.media === 'utp' ? ' selected' : ''}>UTP</option><option value="fiber"${w.media === 'fiber' ? ' selected' : ''}>Fiber optik</option></select>
+          ${S.canEdit ? `<button type="button" class="small danger" data-up-del="${w.dev.id}" title="Lepas UP${i + 2}">✕</button>` : ''}</div>`;
+    });
+    h += '</div>';
+    if (S.canEdit) {
+      h += `<div class="inline wan-add">${calon.length
+        ? `<select data-up-add aria-label="Tambah uplink kedua"><option value="">+ Tambah uplink kedua (redundan / LACP)…</option>${calon.map(x => `<option value="${x.id}">${esc(x.nama)} — ${esc(TYPES[x.jenis].label)}${p && x.id === p.id ? ' (kabel kedua ke uplink yang sama = LACP)' : ''}</option>`).join('')}</select>`
+        : '<span class="muted small">Tidak ada router/switch lain yang bisa jadi uplink kedua.</span>'}</div>`;
+    }
+    if (lain.length) {
+      h += `<label class="field"><span>Mode uplink</span><select data-up-mode${dis}>
+        <option value="redundan"${mode === 'redundan' ? ' selected' : ''}>Redundan (STP/RSTP) — satu aktif, lainnya cadangan</option>
+        <option value="lacp"${mode === 'lacp' ? ' selected' : ''}>LACP (802.3ad) — kabel digabung, bandwidth dijumlah</option></select></label>
+        <p class="muted small">${mode === 'lacp' ? 'Bandwidth maks. = jumlah semua uplink. LACP ke switch berbeda butuh stacking/MLAG.' : 'Internet tetap tersambung selama salah satu uplink masih baik. Aktifkan STP/RSTP agar tidak loop.'}</p>`;
+    }
+    return h;
+  }
+
+  $('#panel').addEventListener('change', e => {
+    if (!S.canEdit || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    const add = e.target.closest('[data-up-add]');
+    if (add && add.value) {
+      const x = S.model.byId.get(+add.value);
+      const lacp = d.uplink_id === x.id;
+      return simpanUplink(d, [...upList(d), { id: x.id, port: '', media: 'utp' }], lacp ? 'lacp' : S.model.uplinkMode(d))
+        .then(() => toast(`${x.nama} ditambahkan sebagai uplink kedua ${d.nama}${lacp ? ' (LACP)' : ' (redundan)'}`));
+    }
+    const port = e.target.closest('[data-up-port]');
+    if (port) return simpanUplink(d, upList(d).map(w => (w.id === +port.dataset.upPort ? Object.assign(w, { port: port.value.trim().slice(0, 50) }) : w)), S.model.uplinkMode(d));
+    const media = e.target.closest('[data-up-media]');
+    if (media) return simpanUplink(d, upList(d).map(w => (w.id === +media.dataset.upMedia ? Object.assign(w, { media: media.value }) : w)), S.model.uplinkMode(d));
+    const mode = e.target.closest('[data-up-mode]');
+    if (mode) return simpanUplink(d, upList(d), mode.value);
+  });
+  $('#panel').addEventListener('click', e => {
+    const del = e.target.closest('[data-up-del]');
+    if (!del || !S.canEdit || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    simpanUplink(d, upList(d).filter(w => w.id !== +del.dataset.upDel), S.model.uplinkMode(d));
+  });
 
   /** Editor WAN: WAN utama (lewat uplink) + WAN tambahan ke Sumber WAN/ISP lain, mode failover / load balance. */
   function wanEditor(d) {
@@ -1947,7 +2268,8 @@
       ? baris(1, utama, `<span class="tag-kat" title="Lewat uplink">utama</span>`)
       : `<div class="wan-row muted small"><span class="wan-no">WAN1</span>Lewat uplink — ${d.uplink_id != null ? 'belum berujung di Sumber WAN' : 'pilih Uplink ke Sumber WAN/ISP di atas'}</div>`;
     lain.forEach((w, i) => {
-      h += baris(i + 2, w.dev, `<input type="text" class="wan-port" data-wan-port="${w.dev.id}" value="${esc(w.port)}" placeholder="port, mis. ether2" aria-label="Port WAN${i + 2}"${dis}>` +
+      h += baris(i + 2, w.dev, kabelLainBtn(d, { dev: w.dev, kabel: statusLain(d, { ke: w.dev.id, kunci: 'wan_lain' }), kunci: 'wan_lain' }, bolehKabel(d)) +
+        `<input type="text" class="wan-port" data-wan-port="${w.dev.id}" value="${esc(w.port)}" placeholder="port, mis. ether2" aria-label="Port WAN${i + 2}"${dis}>` +
         (S.canEdit ? `<button type="button" class="small danger" data-wan-del="${w.dev.id}" title="Lepas WAN${i + 2}">✕</button>` : ''));
     });
     h += '</div>';
@@ -2057,14 +2379,25 @@
           <div class="path wrap">${semuaWan.map((w, i) => `<span class="wan-chip">WAN${i + 1} ${chip(w.dev)} <span class="muted small">${wanTxt(w.dev)}</span> ${konBadge(m.koneksi(w.dev))}</span>`).join('')}</div></div>`;
       }
     }
+    const up2 = m.uplinkLain(d);
+    if (up2.length) {
+      const p1 = m.parentOf(d);
+      h += `<div class="kv col"><span>Uplink (${up2.length + (p1 ? 1 : 0)}) · ${m.uplinkMode(d) === 'lacp' ? 'LACP — bandwidth digabung' : 'redundan — STP/RSTP'}</span>
+        <div class="path wrap">${p1 ? `<span class="wan-chip up">UP1 ${chip(p1)} ${konBadge(m.koneksi(p1))}</span>` : ''}${up2.map((w, i) => `<span class="wan-chip up">UP${i + 2} ${chip(w.dev)} ${konBadge(m.koneksi(w.dev))}
+          ${kabelLainBtn(d, { dev: w.dev, kabel: w.kabel, kunci: 'uplink_lain' }, bolehKabel(d))}</span>`).join('')}</div></div>`;
+    }
     if (bw.mbps != null) {
-      h += `<div class="kv"><span>Bandwidth maks.</span><b>${fmtBw(bw.mbps)}${bw.gabung ? ` <span class="muted">(gabungan ${bw.gabung} WAN)</span>` : bw.at && bw.at.id !== d.id ? ` <span class="muted">(dibatasi ${esc(bw.at.nama)})</span>` : ''}</b></div>`;
+      h += `<div class="kv"><span>Bandwidth maks.</span><b>${fmtBw(bw.mbps)}${bw.gabung ? ` <span class="muted">(gabungan ${bw.gabung} ${bw.at && bw.at.jenis === 'switch' ? 'uplink' : 'WAN'})</span>` : bw.at && bw.at.id !== d.id ? ` <span class="muted">(dibatasi ${esc(bw.at.nama)})</span>` : ''}</b></div>`;
     }
     if (m.parentOf(d)) {
       const berbelok = m.routePts(d).length > 2;
       h += `<div class="kv"><span>${d.media === 'wireless' ? 'Jarak link' : 'Kabel ke uplink'}</span><b>${jarak == null
         ? '<span class="muted">kalibrasi skala dulu</span>'
         : d.media === 'wireless' ? fmtM(jarak) : `≈ ${fmtM(kabel)} <span class="muted">(${berbelok ? 'jalur' : 'lurus'} ${fmtM(m.jalurM(d))} + ${S.proyek.slack_kabel}%)</span>`}</b></div>`;
+      // Tim update status punya pemilih kabel sendiri di kotak tim (di bawah), jadi di sini tidak diulang.
+      if (NP.perluKabel(d) && !(S.tim && bolehKabel(d))) {
+        h += kabelPicker([d.id], NP.kabelSt(d), bolehKabel(d), `<span>🔌 Kabel ke <b>${esc(m.parentOf(d).nama)}</b></span>${kabel ? `<span class="muted">≈ ${esc(fmtM(kabel))}</span>` : ''}`);
+      }
     }
     if (kids.length) {
       h += `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span><div class="path wrap">${kids.map(c => S.canEdit ? `<span class="chip-x">${chip(c)}<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button></span>` : chip(c)).join('')}</div></div>`;
@@ -2121,6 +2454,8 @@
     box.innerHTML = `<div class="pn-sec tim-box">
         <h4>Update status · ${esc(S.akses.nama)}</h4>
         <div class="st-pilih">${S.akses.status_boleh.map(k => `<button type="button" class="st-btn st-${k}${d.status === k ? ' on' : ''}" data-tim-status="${k}">${esc(STATUS[k].label)}</button>`).join('')}</div>
+        ${NP.perluKabel(d) ? `<h4 style="margin-top:12px">Kabel ke ${esc((S.model.parentOf(d) || {}).nama || 'uplink')}${S.model.kabelM(d) ? ` <span class="muted small">≈ ${esc(fmtM(S.model.kabelM(d)))}</span>` : ''}</h4>
+        ${kabelPicker([d.id], NP.kabelSt(d), true, '')}` : ''}
         <label class="field" style="margin-top:8px"><span>Catatan lapangan (opsional, ikut terkirim bersama status)</span>
           <textarea rows="2" id="tim-catatan" maxlength="2000" placeholder="mis. Terpasang di tiang 3 m, kabel kurang 5 m, sinyal -58 dBm"></textarea></label>
         <button type="button" class="small" data-tim-catatan>Kirim catatan saja</button>
@@ -2181,7 +2516,9 @@
       return `<li>
         <div class="log-top"><b>${esc(l.oleh || 'Admin')}</b>${denganPerangkat ? ` · ${l.perangkat_id != null ? `<a href="#" data-sel="${l.perangkat_id}">${esc(l.perangkat_nama)}</a>` : esc(l.perangkat_nama)}` : ''}
           <span class="muted small">${esc(waktu)}</span></div>
-        ${ubah ? `<div><span class="st st-${esc(l.status_lama)}">${esc((STATUS[l.status_lama] || {}).label || l.status_lama || '—')}</span> → <span class="st st-${esc(l.status_baru)}">${esc((STATUS[l.status_baru] || {}).label || l.status_baru)}</span></div>` : ''}
+        ${ubah && l.status_baru.startsWith('kabel:')
+          ? `<div><span class="muted small">Kabel:</span> ${kbSpan(l.status_lama.slice(6))} → ${kbSpan(l.status_baru.slice(6))}</div>`
+          : ubah ? `<div><span class="st st-${esc(l.status_lama)}">${esc((STATUS[l.status_lama] || {}).label || l.status_lama || '—')}</span> → <span class="st st-${esc(l.status_baru)}">${esc((STATUS[l.status_baru] || {}).label || l.status_baru)}</span></div>` : ''}
         ${l.catatan ? `<div class="log-cat">${esc(l.catatan)}</div>` : ''}
       </li>`;
     }).join('')}</ul>` : '';
@@ -2382,8 +2719,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     $('#list-jenis').innerHTML += TYPE_ORDER.map(j => `<option value="${j}">${esc(TYPES[j].label)}</option>`).join('');
     $('#list-status').innerHTML += Object.keys(STATUS).map(k => `<option value="${k}">${STATUS[k].label}</option>`).join('');
     $('#list-koneksi').innerHTML += Object.keys(KONEKSI).map(k => `<option value="${k}">${KONEKSI[k].short}</option>`).join('');
+    $('#list-kabel').innerHTML += Object.keys(NP.KABEL).map(k => `<option value="${k}">Kabel: ${NP.KABEL[k].short}</option>`).join('') + '<option value="perlu">Kabel: semua link kabel</option>';
   }
-  ['#list-q', '#list-jenis', '#list-status', '#list-koneksi'].forEach(s => $(s).addEventListener('input', renderDaftar));
+  ['#list-q', '#list-jenis', '#list-status', '#list-koneksi', '#list-kabel'].forEach(s => $(s).addEventListener('input', renderDaftar));
 
   /** Label jenis perangkat; endpoint ditambah tipenya, mis. "Endpoint (klien) · Laptop". */
   function jenisLabel(d) {
@@ -2412,6 +2750,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     { k: 'media', label: 'Media', v: d => d.media, show: d => d.media ? (MEDIA[d.media].short || d.media) : '' },
     { k: 'bw', label: 'Bandwidth', v: d => d.bandwidth_mbps == null ? -1 : d.bandwidth_mbps, show: d => fmtBw(d.bandwidth_mbps) },
     { k: 'kabel', label: 'Kabel', v: d => S.model.kabelM(d) || 0 },
+    { k: 'kabelst', label: 'Status kabel', v: d => (NP.perluKabel(d) ? ['bermasalah', 'belum', 'ditarik', 'terminasi', 'dites'].indexOf(NP.kabelSt(d)) : 9) },
     { k: 'status', label: 'Status', v: d => Object.keys(STATUS).indexOf(d.status) },
     { k: 'pic', label: 'PIC', v: d => d.pic },
   ];
@@ -2426,7 +2765,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const j = $('#list-jenis').value;
     const s = $('#list-status').value;
     const kn = $('#list-koneksi').value;
-    return S.list.filter(d => (!j || d.jenis === j) && (!s || d.status === s) && (!kn || S.model.koneksi(d) === kn) &&
+    const kb = $('#list-kabel').value;
+    const cocokKabel = d => !kb || (NP.perluKabel(d) && (kb === 'perlu' || NP.kabelSt(d) === kb));
+    return S.list.filter(d => (!j || d.jenis === j) && (!s || d.status === s) && (!kn || S.model.koneksi(d) === kn) && cocokKabel(d) &&
       (!q || [d.nama, d.model, d.ip, d.vlan, d.pic, d.catatan, d.port_uplink, d.port_lokal, ...Object.values(d.atribut || {})].join(' ').toLowerCase().includes(q)));
   }
 
@@ -2465,6 +2806,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         ${td('Media', esc(d.media ? (MEDIA[d.media].short || d.media) : ''))}
         ${td('Bandwidth', esc(fmtBw(d.bandwidth_mbps)), 'num')}
         ${td('Kabel', esc(kabelShow(d)), 'num')}
+        ${td('Status kabel', NP.perluKabel(d) ? (bolehKabel(d) ? kabelBadgeBtn(d) : kabelBadge(d)) : '')}
         ${td('Status', `<span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>`, 'c-status')}
         ${td('PIC', esc(d.pic))}
         <td data-label="Konfigurasi" class="cfg${extra ? '' : ' empty'}" title="${esc(extra)}">${esc(extra)}</td>
@@ -2472,7 +2814,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     }).join('');
     $('#dev-table').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${COLS.length + 2}" class="muted center">Tidak ada perangkat${S.list.length ? ' yang cocok' : ' — tambahkan dari tab Denah'}.</td></tr>`}</tbody>`;
     sembunyikanKolomKosong(rows.length);
-    const adaFilter = ['#list-q', '#list-jenis', '#list-status', '#list-koneksi'].some(s => $(s).value);
+    const adaFilter = ['#list-q', '#list-jenis', '#list-status', '#list-koneksi', '#list-kabel'].some(s => $(s).value);
     $('#list-reset').hidden = !adaFilter;
     $('#list-count').textContent = adaFilter ? `${rows.length} dari ${S.list.length} perangkat` : `${S.list.length} perangkat`;
     updateBulk();
@@ -2502,7 +2844,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   });
 
   $('#list-reset').addEventListener('click', () => {
-    ['#list-q', '#list-jenis', '#list-status', '#list-koneksi'].forEach(s => { $(s).value = ''; });
+    ['#list-q', '#list-jenis', '#list-status', '#list-koneksi', '#list-kabel'].forEach(s => { $(s).value = ''; });
     renderDaftar();
   });
 
@@ -2532,6 +2874,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   }
 
   $('#dev-table').addEventListener('click', e => {
+    if (e.target.closest('[data-kb-pop]')) return; // badge status kabel: buka pemilih, bukan pindah ke denah
     // Kolom centang: jangan pindah ke denah. Klik di sel (bukan kotaknya) ikut mencentang.
     const sel = e.target.closest('.c-cek');
     if (sel) {
@@ -2669,6 +3012,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     statusMassal(ids, status, false, ids.dilewati || 0);
   });
 
+  $('#bulk-kabel').innerHTML += Object.keys(NP.KABEL).map(k => `<option value="${k}">→ Kabel ${esc(NP.KABEL[k].short)}</option>`).join('');
+  $('#bulk-kabel').addEventListener('change', e => {
+    const kabel = e.target.value;
+    e.target.value = '';
+    if (!kabel) return;
+    const ids = [...S.pilih].filter(id => NP.perluKabel(S.model.byId.get(id)));
+    if (!ids.length) return toast('Perangkat terpilih tidak punya kabel ke uplink (belum tersambung / wireless)', true);
+    if (!confirm(`Ubah status kabel ${ids.length} perangkat menjadi "${NP.KABEL[kabel].label}"?`)) return;
+    setKabel(ids, kabel);
+  });
+
   $('#bulk-kunci').addEventListener('click', () => kunciPerangkat([...S.pilih], true));
   $('#bulk-buka').addEventListener('click', () => kunciPerangkat([...S.pilih], false));
 
@@ -2684,14 +3038,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
 
   $('#btn-csv').addEventListener('click', () => {
     const rows = [['Nama', 'Jenis', 'Nama alat', 'IP', 'VLAN', 'Uplink', 'Group', 'Port uplink', 'Port lokal', 'Media', 'Bandwidth (Mbps)',
-      'Bandwidth maks. (Mbps)', 'Sumber WAN', 'Internet', 'Kabel (m)', 'Status', 'PIC', 'Isian khusus', 'Keterangan konfigurasi']];
+      'Bandwidth maks. (Mbps)', 'Sumber WAN', 'Internet', 'Kabel (m)', 'Status kabel', 'Status', 'PIC', 'Isian khusus', 'Keterangan konfigurasi']];
     for (const d of NP.Model.sortDev(filteredList())) {
       const p = S.model.parentOf(d);
       const w = S.model.wanOf(d);
       const k = S.model.kabelM(d);
       rows.push([d.nama, jenisLabel(d), d.model, d.ip, d.vlan, p ? p.nama : '', p ? grupNama(p.id, d.jenis) : '', d.port_uplink, d.port_lokal,
         d.media ? MEDIA[d.media].label : '', d.bandwidth_mbps == null ? '' : d.bandwidth_mbps, S.model.bwEfektif(d).mbps == null ? '' : S.model.bwEfektif(d).mbps,
-        w ? w.nama : '', KONEKSI[S.model.koneksi(d)].label, k == null ? '' : Math.round(k), (STATUS[d.status] || STATUS.rencana).label, d.pic, attrSummary(d, false), d.catatan]);
+        w ? w.nama : '', KONEKSI[S.model.koneksi(d)].label, k == null ? '' : Math.round(k), NP.perluKabel(d) ? NP.KABEL[NP.kabelSt(d)].label : '', (STATUS[d.status] || STATUS.rencana).label, d.pic, attrSummary(d, false), d.catatan]);
     }
     downloadCsv(rows, `perangkat-${slug(S.proyek.nama)}.csv`);
   });
@@ -2781,7 +3135,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const pakaiWan = d.jenis === 'isp' ? m.pemakaiWan(d.id) : [];
       const meta = [d.model, d.ip, d.vlan ? 'VLAN ' + d.vlan : '', a.ssid ? 'SSID ' + a.ssid : '', a.channel ? 'ch ' + a.channel : '', fmtBw(d.bandwidth_mbps),
         lainWan.length ? `+ WAN tambahan: ${lainWan.map(w => w.dev.nama + (w.port ? ' (' + w.port + ')' : '')).join(', ')} · ${m.wanMode(d) === 'loadbalance' ? 'load balance' : 'failover'}` : '',
-        pakaiWan.length ? 'WAN tambahan untuk ' + pakaiWan.map(x => x.nama).join(', ') : ''].filter(Boolean);
+        pakaiWan.length ? 'WAN tambahan untuk ' + pakaiWan.map(x => x.nama).join(', ') : '',
+        m.uplinkLain(d).length ? `+ uplink kedua: ${m.uplinkLain(d).map(w => w.dev.nama + (w.port ? ' (' + w.port + ')' : '') + (w.media === 'fiber' ? ' · FO' : '')).join(', ')} · ${m.uplinkMode(d) === 'lacp' ? 'LACP' : 'redundan'}` : ''].filter(Boolean);
       const port = [d.port_lokal, d.port_uplink].filter(Boolean).join(' ↔ ');
       const lv = issuesBy.get(d.id);
       const kids = NP.Model.sortDev(m.kids(d.id));
@@ -2807,6 +3162,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             ${port ? `<span class="port" title="Port lokal ↔ port di uplink">${esc(port)}${d.media ? ' · ' + esc(MEDIA[d.media].short || d.media) : ''}</span>` : d.media && depth ? `<span class="port">${esc(MEDIA[d.media].short || d.media)}</span>` : ''}
             <span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>
             ${konBadge(m.koneksi(d))}
+            ${NP.perluKabel(d) && m.parentOf(d) ? `<span title="Status kabel ke ${esc(m.parentOf(d).nama)}">🔌 ${bolehKabel(d) ? kabelBadgeBtn(d) : kabelBadge(d)}</span>` : ''}
             ${lv ? `<span class="lv ${lv}">${lv === 'err' ? 'masalah' : lv === 'warn' ? 'peringatan' : 'catatan'}</span>` : ''}
           </div>
           ${meta.length ? `<div class="tmeta">${meta.map(esc).join(' · ')}</div>` : ''}
@@ -2838,6 +3194,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     // Stok: hanya untuk alat dari katalog; merah bila kebutuhan event melebihi stok.
     const stokCell = b => b.stok == null ? '<span class="muted">—</span>'
       : b.jumlah > b.stok ? `<b class="bad">${b.stok} (kurang ${b.jumlah - b.stok})</b>` : String(b.stok);
+    $('#kabel-progres').innerHTML = progresKabelHtml(false);
     $('#bom').innerHTML = bom.length ? `<table class="mini"><tr><th>Jenis</th><th>Nama alat</th><th class="num">Jumlah</th><th class="num">Stok</th></tr>${bom.map(b =>
       `<tr><td>${esc((TYPES[b.jenis] || TYPES.lainnya).label)}</td><td>${b.model ? esc(b.model) : '<span class="muted">(belum diisi)</span>'}${b.katalog ? ' <span class="tag-kat" title="Dari katalog">katalog</span>' : ''}</td><td class="num"><b>${b.jumlah}</b></td><td class="num">${stokCell(b)}</td></tr>`).join('')}</table>` : '<p class="muted">—</p>';
 

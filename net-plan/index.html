@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=29">
+<link rel="stylesheet" href="assets/np.css?v=35">
 </head>
 <body>
 
@@ -126,6 +126,7 @@
           <label><input type="checkbox" data-layer="jarak"> Panjang kabel</label>
           <label><input type="checkbox" data-layer="cakupan" checked> Cakupan AP</label>
           <label><input type="checkbox" data-layer="internet" checked> Status internet</label>
+          <label title="Warna garis = status penarikan kabel"><input type="checkbox" data-layer="kabel"> Progres kabel</label>
           <label class="opacity-ctl" title="Pudarkan denah agar titik perangkat lebih jelas">Denah
             <input type="range" id="denah-opacity" min="10" max="100" step="5" value="100">
             <output id="denah-opacity-val">100%</output></label>
@@ -149,6 +150,7 @@
         <select id="list-jenis"><option value="">Semua jenis</option></select>
         <select id="list-status"><option value="">Semua status</option></select>
         <select id="list-koneksi"><option value="">Semua koneksi</option></select>
+        <select id="list-kabel" aria-label="Filter status kabel"><option value="">Semua status kabel</option></select>
         <button type="button" class="small ghost" id="list-reset" hidden>Reset filter</button>
         <span class="spacer"></span>
         <span class="muted small" id="list-count"></span>
@@ -171,6 +173,7 @@
         <span class="spacer"></span>
         <button type="button" class="small" id="bulk-all">Pilih semua yang tampil</button>
         <select id="bulk-status" class="small-select" aria-label="Ubah status perangkat terpilih"><option value="">Ubah status…</option></select>
+        <select id="bulk-kabel" class="small-select" aria-label="Ubah status kabel perangkat terpilih"><option value="">Status kabel…</option></select>
         <button type="button" class="small edit-only" id="bulk-kunci" title="Kunci posisi titik terpilih agar tidak tergeser di denah">🔒 Kunci posisi</button>
         <button type="button" class="small edit-only" id="bulk-buka" title="Buka kunci posisi titik terpilih">🔓 Buka kunci</button>
         <button type="button" class="small edit-only" id="bulk-unlink" title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
@@ -195,6 +198,7 @@
         <div class="tree" id="tree"></div>
       </div>
       <div class="topo-side">
+        <div class="card"><h2>Progres penarikan kabel</h2><div id="kabel-progres"></div></div>
         <div class="card"><h2>Pemeriksaan desain</h2><div id="checks"></div></div>
         <div class="card"><h2>Sumber WAN</h2><div id="wan-sum"></div></div>
         <div class="card"><h2>SSID</h2><div id="ssid-sum"></div></div>
@@ -405,12 +409,12 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=29"></script>
-<script src="assets/common.js?v=29"></script>
-<script src="assets/analisis.js?v=29"></script>
-<script src="assets/peta.js?v=29"></script>
-<script src="assets/katalog.js?v=29"></script>
-<script src="assets/backup.js?v=29"></script>
-<script src="assets/app.js?v=29"></script>
+<script src="vendor/qrcode.min.js?v=35"></script>
+<script src="assets/common.js?v=35"></script>
+<script src="assets/analisis.js?v=35"></script>
+<script src="assets/peta.js?v=35"></script>
+<script src="assets/katalog.js?v=35"></script>
+<script src="assets/backup.js?v=35"></script>
+<script src="assets/app.js?v=35"></script>
 </body>
 </html>

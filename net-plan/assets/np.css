@@ -193,18 +193,27 @@ button.danger:not(:disabled):hover { background: var(--danger-soft); border-colo
 .map .net text { fill: #fff; font: 800 8px/1 system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
 .map.no-net .net { display: none; }
 /* Editor multi-WAN di tab Koneksi router */
-#pn-wan { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; background: #fbfcfd; }
+#pn-wan, #pn-up { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; background: #fbfcfd; }
 .wan-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .wan-row { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; padding: 4px 0; border-bottom: 1px dashed #e5e8ee; }
 .wan-row:last-child { border-bottom: 0; }
 .wan-no { font: 800 10.5px/1 system-ui, sans-serif; color: #0f766e; background: #ccfbf1; border-radius: 4px; padding: 3px 5px; }
+.wan-no.up { color: #4338ca; background: #e0e7ff; }
+.wan-row.sub { padding: 0 0 6px 46px; border-bottom: 1px dashed #e5e8ee; gap: 6px; }
+.wan-row.sub select { width: auto; padding: 3px 6px; font-size: 13px; }
 .wan-row .wan-port { width: 120px; padding: 3px 7px; font-size: 13px; }
 .wan-add select { width: 100%; }
 .wan-chip { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; font: 700 11px system-ui, sans-serif; color: #0f766e; margin-right: 8px; }
+.wan-chip.up { color: #4338ca; }
 /* WAN tambahan router multi-WAN: hijau toska putus-putus panjang + label WAN2/WAN3. */
-.map .link.wan2 .ln { stroke-width: 3.5; stroke-dasharray: 12 4 2 4; }
+.map .link.wan2 .ln { stroke: #0f766e; stroke-width: 3.5; stroke-dasharray: 12 4 2 4; }
 .map:not(.no-net) .link.wan2.k-online .ln { stroke: #0f766e; stroke-dasharray: 12 4 2 4; stroke-width: 3.5; }
-.map .link.wan2 .wan-lbl { font: 800 10px system-ui, sans-serif; text-anchor: middle; fill: #0f766e; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
+.map .link.wan2 .wan-lbl, .map .link.up2 .wan-lbl { font: 800 10px system-ui, sans-serif; text-anchor: middle; fill: #0f766e; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
+/* Uplink kedua switch (redundan / LACP): ungu tua putus-putus; fiber = oranye. */
+.map .link.up2 .ln { stroke: #4338ca; stroke-width: 3.5; stroke-dasharray: 10 4; }
+.map .link.up2.fo .ln { stroke: #ea580c; }
+.map .link.up2 .wan-lbl { fill: #4338ca; }
+.map:not(.no-net) .link.up2.k-offline .ln { stroke: #dc2626; stroke-dasharray: 1 7; }
 .map .lock circle { fill: #334155; stroke: #fff; stroke-width: 1.5; }
 .map .lock path { fill: none; stroke: #fff; stroke-width: 1.3; stroke-linejoin: round; }
 .map .lock path { fill-rule: evenodd; }
@@ -223,6 +232,63 @@ button.danger:not(:disabled):hover { background: var(--danger-soft); border-colo
 .map .link.on-path .ln { stroke-width: 5; }
 .map .link .dist { font: 600 10.5px system-ui, sans-serif; text-anchor: middle; fill: #334155; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
 .map.no-dist .link .dist { display: none; }
+/* Lapisan "Progres kabel": warna garis = status penarikan kabel (menggantikan warna status internet). */
+/* Pola garis juga dibedakan (bukan hanya warna): belum = putus-putus tipis, ditarik = garis, terminasi = garis + titik,
+   dites = garis tebal, bermasalah = titik-titik rapat. Warna sama dengan NP.KABEL. */
+.map.mode-kabel .link .ln { stroke-width: 5 !important; stroke-dasharray: none !important; }
+.map.mode-kabel .link.kb-belum .ln { stroke: #94a3b8 !important; stroke-dasharray: 8 7 !important; stroke-width: 3.5 !important; }
+.map.mode-kabel .link.kb-ditarik .ln { stroke: #d97706 !important; }
+.map.mode-kabel .link.kb-terminasi .ln { stroke: #0284c7 !important; stroke-dasharray: 18 4 2 4 !important; }
+.map.mode-kabel .link.kb-dites .ln { stroke: #16a34a !important; stroke-width: 6.5 !important; }
+.map.mode-kabel .link.kb-bermasalah .ln { stroke: #e11d48 !important; stroke-dasharray: 2 5 !important; stroke-width: 6 !important; }
+.map.mode-kabel .link.kb-na { opacity: .35; }
+.map .kb-mark { display: none; cursor: pointer; }
+.map.mode-kabel .kb-mark { display: block; }
+.map .kb-mark circle { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 1px 2px rgba(0,0,0,.35)); }
+.map .kb-mark text { fill: #fff; font: 800 11px/1 system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
+.map .kb-mark:hover circle { stroke-width: 3.5; }
+.map.mode-kabel .link .hit { cursor: pointer; }
+.map.mode-kabel.no-dist .link .dist { display: none; }
+@media (pointer: coarse) { .map .kb-mark circle { r: 12; } .map .kb-mark text { font-size: 14px; } }
+.kb { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; border-radius: 10px; padding: 0 8px; line-height: 20px; white-space: nowrap; color: #fff; }
+.kb.kb-belum { background: #eef1f5; color: #475569; }
+button.kb { border: 0; cursor: pointer; }
+button.kb:hover { filter: brightness(1.08); box-shadow: 0 0 0 2px rgba(0,0,0,.08); }
+
+/* Pemilih status kabel: langkah bertahap (panel, popover di denah & daftar, link tim) */
+.kb-step { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; position: relative; margin: 4px 0 8px; }
+.kb-step button { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 2px; text-align: center; font-size: 11.5px; font-weight: 600; color: var(--muted); position: relative; z-index: 1; border-radius: 8px; }
+.kb-step button:hover:not(:disabled), .kb-step button:focus-visible { background: #f3f5f8; color: var(--text); }
+.kb-step button:disabled { cursor: not-allowed; opacity: .55; }
+.kb-step button i { font-style: normal; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; font-weight: 800; background: #fff; border: 2px solid #cbd5e1; color: #94a3b8; transition: transform .1s; }
+.kb-step button.lewat i { background: var(--c); border-color: var(--c); color: #fff; opacity: .55; }
+.kb-step button.on i { background: var(--c); border-color: var(--c); color: #fff; transform: scale(1.12); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent); }
+.kb-step button.on { color: var(--text); }
+.kb-step::before { content: ""; position: absolute; left: 12.5%; right: 12.5%; top: 19px; height: 3px; background: #e2e8f0; border-radius: 2px; }
+.kb-step .kb-fill { position: absolute; left: 12.5%; top: 19px; height: 3px; background: var(--c, #16a34a); border-radius: 2px; transition: width .2s; }
+.kb-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.kb-actions .kb-next { background: var(--c); border-color: var(--c); color: #fff; font-weight: 700; }
+.kb-actions .kb-next:hover { filter: brightness(1.06); background: var(--c); }
+.kb-actions .kb-bad { color: #e11d48; }
+.kb-actions .kb-bad.on { background: #e11d48; border-color: #e11d48; color: #fff; }
+.kb-box { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; background: #fff; }
+.kb-box.bad { border-color: #fda4af; background: #fff1f2; }
+.kb-box-t { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 12.5px; margin-bottom: 2px; }
+
+/* Popover status kabel (klik garis di denah / badge di daftar) */
+.kb-pop { position: fixed; z-index: 60; width: min(340px, calc(100vw - 16px)); background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px rgba(16, 24, 40, .22); padding: 10px 12px 12px; }
+.kb-pop .kb-pop-h { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.kb-pop .kb-pop-h b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-pop .hint { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; }
+@media (pointer: coarse) { .kb-pop .hint { display: none; } .kb-step button i { width: 36px; height: 36px; } .kb-step::before, .kb-step .kb-fill { top: 22px; } }
+.kb-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #eef1f5; margin: 6px 0 10px; }
+.kb-bar i { display: block; height: 100%; }
+.kb-rows { width: 100%; border-collapse: collapse; font-size: 13px; }
+.kb-rows td { padding: 4px 6px; border-bottom: 1px solid #eef0f4; }
+.kb-rows td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.kb-dot { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; margin-right: 6px; vertical-align: -4px; color: #fff; font: 800 10px/1 system-ui, sans-serif; font-style: normal; }
+.kb-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.kb-pct { font-size: 26px; font-weight: 800; line-height: 1; }
 .map .cov-c { fill: #059669; fill-opacity: .07; stroke: #059669; stroke-opacity: .45; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .map .cov-c.sel { fill-opacity: .16; stroke-opacity: .9; }
 .map .cov-c.sektor { fill-opacity: .13; stroke-dasharray: none; }
@@ -597,6 +663,7 @@ body.map-full .editor { height: 100vh; height: 100dvh; }
 .st-btn.st-terpasang.on { border-color: #1d4ed8; background: #dbeafe; }
 .st-btn.st-diuji.on { border-color: #15803d; background: #dcfce7; }
 .st-btn.st-bermasalah.on { border-color: var(--danger); background: var(--danger-soft); }
+.st-btn.kb-btn.on { border-color: var(--kb); background: var(--kb); color: #fff; }
 .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .log-list li { border-left: 3px solid var(--line); padding: 2px 0 2px 10px; font-size: 13px; }
 .log-top { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }

@@ -46,7 +46,7 @@
       model: null, W: DEFAULT_W, H: DEFAULT_H, img: null,
       z: 1, tx: 0, ty: 0, fitted: false,
       tool: 'pilih', sel: null, canEdit: true,
-      layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true },
+      layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true, kabel: false },
       hidden: new Set(), // jenis yang disembunyikan
       measure: [], linkSrc: null, cursor: null, flash: null,
       userView: false, // pengguna sudah zoom/pan sendiri
@@ -96,21 +96,31 @@
         const media = MEDIA[d.media] || MEDIA.utp;
         // Garis = tepi putih (kontras di atas denah) + garis berwarna media. Garis yang belum membawa internet
         // diberi kelas k-offline / k-gangguan (warna & pola diatur np.css).
-        const g = el('g', { class: 'link k-' + m.koneksiLink(d), 'data-id': d.id });
+        const g = el('g', { class: 'link k-' + m.koneksiLink(d) + ' kb-' + (NP.perluKabel(d) ? NP.kabelSt(d) : 'na'), 'data-id': d.id });
         g.innerHTML = `<polyline class="hit"/><polyline class="case"/><polyline class="ln" stroke="${media.color || '#0369a1'}" stroke-dasharray="${media.dash || ''}"/>
-          <text class="dist"></text>`;
+          <text class="dist"></text>${NP.perluKabel(d) ? (() => {
+            // Penanda status kabel di tengah garis (tampil di lapisan Progres kabel; klik = ubah status).
+            const kb = NP.KABEL[NP.kabelSt(d)];
+            return `<g class="kb-mark"><circle r="9" fill="${kb.color}"/><text dy="0.35em">${kb.icon}</text><title>Kabel ${esc(d.nama)} → ${esc(p.nama)}: ${esc(kb.label)} (klik untuk ubah)</title></g>`;
+          })() : ''}`;
         gLinks.appendChild(g);
         linkEls.set(d.id, g);
       }
-      // WAN tambahan (multi-WAN): garis putus-putus ganda ke Sumber WAN lain, berlabel WAN2, WAN3, ...
+      // Sambungan tambahan: WAN tambahan router (WAN2, WAN3 · LB) & uplink kedua switch (UP2 · RSTP/LACP).
+      // Kabelnya punya status sendiri (penanda di tengah garis, klik = ubah status di lapisan Progres kabel).
       for (const d of m.list) {
-        m.wanLain(d).forEach((w, i) => {
-          const g = el('g', { class: 'link wan2 k-' + m.koneksi(w.dev), 'data-id': d.id });
-          g.innerHTML = `<polyline class="hit"/><polyline class="case"/><polyline class="ln" stroke="#0f766e"/>
-            <text class="wan-lbl">WAN${i + 2}${m.wanMode(d) === 'loadbalance' ? ' · LB' : ''}</text><text class="dist"></text>`;
+        for (const w of m.linkLain(d)) {
+          const wan = w.kunci === 'wan_lain';
+          const lbl = wan ? `WAN${w.no}${m.wanMode(d) === 'loadbalance' ? ' · LB' : ''}` : `UP${w.no} · ${m.uplinkMode(d) === 'lacp' ? 'LACP' : 'RSTP'}`;
+          const kb = NP.KABEL[w.kabel];
+          const g = el('g', { class: `link ${wan ? 'wan2' : 'up2'} k-${m.koneksi(w.dev)} kb-${w.kabel}${w.media === 'fiber' ? ' fo' : ''}`, 'data-id': d.id, 'data-ke': w.dev.id, 'data-kunci': w.kunci });
+          g.innerHTML = `<polyline class="hit"/><polyline class="case"/><polyline class="ln"/>
+            <text class="wan-lbl">${lbl}</text><text class="dist"></text>
+            <g class="kb-mark"><circle r="9" fill="${kb.color}"/><text dy="0.35em">${kb.icon}</text><title>Kabel ${esc(d.nama)} → ${esc(w.dev.nama)} (${lbl}): ${esc(kb.label)} (klik untuk ubah)</title></g>`;
           gLinks.appendChild(g);
-          wanEls.push({ g, d, isp: w.dev });
-        });
+          // Sambungan ke perangkat yang sama dengan uplink utama (LACP) digeser sejajar agar tidak menumpuk.
+          wanEls.push({ g, d, isp: w.dev, kunci: w.kunci, geser: d.uplink_id === w.dev.id ? 7 : 0 });
+        }
       }
       for (const d of ordered) {
         const t = NP.tampil(d);
@@ -192,6 +202,7 @@
       svg.classList.toggle('no-label', !st.layers.label);
       svg.classList.toggle('no-dist', !st.layers.jarak);
       svg.classList.toggle('no-net', !st.layers.internet);
+      svg.classList.toggle('mode-kabel', !!st.layers.kabel);
       svg.dataset.tool = st.tool.split(':')[0];
       svg.classList.toggle('readonly', !st.canEdit);
       drawHandles();
@@ -224,9 +235,17 @@
         const mid = alongPolyline(pts, 0.5);
         t.setAttribute('x', mid.x);
         t.setAttribute('y', mid.y - 4);
+        const mk = g.querySelector('.kb-mark');
+        if (mk) mk.setAttribute('transform', `translate(${mid.x.toFixed(1)},${mid.y.toFixed(1)})`);
       }
       for (const w of wanEls) {
-        const pts = [{ x: sx(w.d.x), y: sy(w.d.y) }, { x: sx(w.isp.x), y: sy(w.isp.y) }];
+        // Ikuti bentuk jalur yang tersimpan di entri sambungan (dibaca ulang tiap layout agar ikut saat ditarik).
+        const lw = m.linkLain(w.d).find(x => x.dev.id === w.isp.id && x.kunci === w.kunci);
+        const pts = (lw ? m.routePtsLain(w.d, lw) : [w.d, w.isp]).map(q => ({ x: sx(q.x), y: sy(q.y) }));
+        if (w.geser && pts.length === 2) {
+          const dx = pts[1].x - pts[0].x, dy = pts[1].y - pts[0].y, len = Math.hypot(dx, dy) || 1;
+          pts.forEach(q => { q.x += -dy / len * w.geser; q.y += dx / len * w.geser; });
+        }
         const attr = pts.map(q => q.x.toFixed(1) + ',' + q.y.toFixed(1)).join(' ');
         for (const ln of w.g.querySelectorAll('polyline')) ln.setAttribute('points', attr);
         const mid = alongPolyline(pts, 0.5);
@@ -238,6 +257,8 @@
         t.textContent = k != null ? fmtM(k) : '';
         t.setAttribute('x', mid.x);
         t.setAttribute('y', mid.y - 4);
+        const mk = w.g.querySelector('.kb-mark');
+        if (mk) mk.setAttribute('transform', `translate(${mid.x.toFixed(1)},${mid.y.toFixed(1)})`);
       }
       drawHandles();
       drawTool();
@@ -293,7 +314,7 @@
     /** Perangkat terpilih yang garis uplinknya bisa diedit (dihapus / dibentuk). */
     function linkedDev() {
       const m = st.model;
-      if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || !st.layers.garis) return null;
+      if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || !st.layers.garis || st.layers.kabel) return null; // lapisan kabel: klik garis = ubah status, bukan bentuk jalur
       const d = m.byId.get(st.sel);
       return d && m.parentOf(d) && !st.hidden.has(d.jenis) ? d : null;
     }
@@ -332,7 +353,42 @@
         `<title>Geser untuk memutar arah sektor (${Math.round(sk.arah)}°) · tahan Alt = tanpa snap 5°</title></g>`;
     }
 
+    /** Sambungan tambahan perangkat terpilih yang bentuk jalurnya bisa diatur (WAN tambahan / uplink kedua). */
+    function lainEdit() {
+      const m = st.model;
+      if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || !st.layers.garis || st.layers.kabel) return [];
+      const d = m.byId.get(st.sel);
+      return d && !st.hidden.has(d.jenis) ? m.linkLain(d).map(w => ({ d, w })) : [];
+    }
+
+    /** Pegangan lekukan untuk satu jalur (data-ke/data-kunci menandai sambungan tambahan). */
+    function bendHandles(pts, attr, taken) {
+      let h = '';
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        if (Math.hypot(b.x - a.x, b.y - a.y) < 28) continue;
+        const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        taken.push(c);
+        h += `<circle class="mid" data-seg="${i}"${attr} cx="${c.x}" cy="${c.y}" r="${MID_R}"><title>Tarik untuk membuat lekukan</title></circle>`;
+      }
+      for (let i = 1; i < pts.length - 1; i++) {
+        taken.push(pts[i]);
+        h += `<rect class="wp" data-i="${i - 1}"${attr} x="${pts[i].x - WP / 2}" y="${pts[i].y - WP / 2}" width="${WP}" height="${WP}" rx="3"><title>Geser lekukan · klik ganda / klik kanan untuk menghapus</title></rect>`;
+      }
+      return h;
+    }
+
     function linkHandles() {
+      // Sambungan tambahan (UP2 / WAN2): lekukan bisa dibentuk seperti kabel uplink utama.
+      let lainH = '';
+      for (const { d: ld, w } of lainEdit()) {
+        const pts = st.model.routePtsLain(ld, w).map(q => ({ x: sx(q.x), y: sy(q.y) }));
+        lainH += bendHandles(pts, ` data-ke="${w.dev.id}" data-kunci="${w.kunci}"`, []);
+      }
+      return linkHandlesUtama() + lainH;
+    }
+
+    function linkHandlesUtama() {
       const d = linkedDev();
       if (!d) return '';
       const pts = st.model.routePts(d).map(q => ({ x: sx(q.x), y: sy(q.y) }));
@@ -500,7 +556,8 @@
     }
     function nodeIdAt(e) {
       const g = e.target.closest && e.target.closest('.node, .link, .cov-c');
-      return g ? { id: +g.dataset.id, kind: g.classList.contains('node') ? 'node' : 'link' } : null;
+      // Sambungan tambahan (WAN tambahan / uplink kedua) membawa id tujuan & jenis daftarnya.
+      return g ? { id: +g.dataset.id, kind: g.classList.contains('node') ? 'node' : 'link', lain: g.dataset.ke ? { ke: +g.dataset.ke, kunci: g.dataset.kunci } : null } : null;
     }
 
     svg.addEventListener('pointerdown', e => {
@@ -530,7 +587,24 @@
         return;
       }
       const handle = !middle && e.target.closest && e.target.closest('.wp, .mid');
-      const rd = handle && routeDev();
+      const lh = handle && handle.dataset.ke ? lainEdit().find(x => x.w.dev.id === +handle.dataset.ke && x.w.kunci === handle.dataset.kunci) : null;
+      if (lh) {
+        // Bentuk jalur sambungan tambahan: lekukan disimpan di entri sambungan (atribut wan_lain / uplink_lain).
+        const full = st.model.routePtsLain(lh.d, lh.w);
+        const pts = full.slice(1, -1);
+        let idx;
+        if (handle.classList.contains('mid')) {
+          const k = +handle.dataset.seg;
+          idx = k;
+          pts.splice(k, 0, { x: (full[k].x + full[k + 1].x) / 2, y: (full[k].y + full[k + 1].y) / 2 });
+        } else {
+          idx = +handle.dataset.i;
+        }
+        gesture = { type: 'route', id: lh.d.id, lain: { ke: lh.w.dev.id, kunci: lh.w.kunci }, ujung: lh.w.dev, pts, idx,
+          origAtr: lh.d.atribut, start: p, moved: false, inserted: handle.classList.contains('mid') };
+        return;
+      }
+      const rd = handle && !handle.dataset.ke && routeDev();
       if (rd) {
         // Bentuk jalur kabel: geser lekukan, atau tarik titik tengah ruas untuk menambah lekukan baru.
         const orig = rd.jalur ? JSON.parse(JSON.stringify(rd.jalur)) : null;
@@ -609,7 +683,7 @@
         let x = clampX(w.x), y = clampY(w.y);
         if (!e.altKey) {
           // Snap: sejajar horizontal/vertikal dengan titik sebelum/sesudahnya -> sudut siku yang rapi.
-          const full = [{ x: d.x, y: d.y }, ...pts, st.model.parentOf(d)];
+          const full = [{ x: d.x, y: d.y }, ...pts, gesture.lain ? gesture.ujung : st.model.parentOf(d)];
           const tol = 10 / st.z;
           for (const n of [full[gesture.idx], full[gesture.idx + 2]]) {
             if (Math.abs(x - n.x) < tol) x = n.x;
@@ -617,7 +691,9 @@
           }
         }
         pts[gesture.idx] = { x, y };
-        d.jalur = { m: 'bebas', p: pts.map(q => [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10]) };
+        const jalur = { m: 'bebas', p: pts.map(q => [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10]) };
+        if (gesture.lain) d.atribut = NP.Model.atributJalurLain(gesture.origAtr, gesture.lain.kunci, gesture.lain.ke, jalur);
+        else d.jalur = jalur;
         st.dragging = true;
         svg.classList.add('dragging');
         layout();
@@ -642,6 +718,16 @@
         } else if (g.moved) {
           d.atribut = g.orig;
           build();
+          layout();
+        }
+        return;
+      }
+      if (g.type === 'route' && g.lain) {
+        const d = st.model.byId.get(g.id);
+        if (g.moved && e.type !== 'pointercancel') {
+          cb.onAtributLain(d.id, d.atribut, g.origAtr);
+        } else if (g.inserted || g.moved) {
+          d.atribut = g.origAtr;
           layout();
         }
         return;
@@ -688,6 +774,18 @@
     /** Hapus satu lekukan (klik ganda / klik kanan pada kotak lekukan). */
     function removeBend(e) {
       const wp = e.target.closest && e.target.closest('.wp');
+      if (wp && wp.dataset.ke) {
+        // Lekukan sambungan tambahan.
+        const lh = lainEdit().find(x => x.w.dev.id === +wp.dataset.ke && x.w.kunci === wp.dataset.kunci);
+        if (!lh) return;
+        const awal = lh.d.atribut;
+        const pts = st.model.routePtsLain(lh.d, lh.w).slice(1, -1);
+        pts.splice(+wp.dataset.i, 1);
+        lh.d.atribut = NP.Model.atributJalurLain(awal, lh.w.kunci, lh.w.dev.id, pts.length ? { m: 'bebas', p: pts.map(q => [q.x, q.y]) } : null);
+        layout();
+        cb.onAtributLain(lh.d.id, lh.d.atribut, awal);
+        return;
+      }
       const d = wp && routeDev();
       if (!d) return;
       const orig = d.jalur;
@@ -702,6 +800,12 @@
       const w = toWorld(p);
       const tool = st.tool;
       if (tool === 'pilih') {
+        // Lapisan Progres kabel: klik garis / penanda kabel = pilih status kabel itu.
+        if (hit && hit.kind === 'link' && st.layers.kabel && cb.onKabel) {
+          select(hit.id, true);
+          cb.onKabel(hit.id, e.clientX, e.clientY, hit.lain);
+          return;
+        }
         select(hit ? hit.id : null, true);
       } else if (tool === 'hubung') {
         if (!hit || hit.kind !== 'node') {

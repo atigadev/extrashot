@@ -973,7 +973,7 @@ function atribut_json($atr)
             continue;
         }
         // Daftar sambungan tambahan (JSON berisi port, status kabel & lekukan jalur) boleh lebih panjang.
-        $maks = in_array($k, ['wan_lain', 'uplink_lain'], true) ? 20000 : 1000;
+        $maks = in_array($k, ['wan_lain', 'uplink_lain', 'ceklis', 'ceklis_x'], true) ? 20000 : 1000;
         if (mb_strlen($v) > $maks) {
             json_error('Isian "' . $k . '" maksimal ' . $maks . ' karakter');
         }

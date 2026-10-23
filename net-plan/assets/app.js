@@ -394,7 +394,7 @@
       return;
     }
     const id = +m[1];
-    const tab = ['denah', 'daftar', 'topologi', 'support', 'proyek'].includes(m[2]) ? m[2] : 'denah';
+    const tab = ['denah', 'daftar', 'topologi', 'support', 'ceklis', 'proyek'].includes(m[2]) ? m[2] : 'denah';
     try {
       if (!S.proyek || S.proyek.id !== id) await loadProyek(id);
       else if (S.katalogBasi) await muatKatalog();
@@ -644,6 +644,7 @@
     if (S.tab === 'daftar') renderDaftar();
     else if (S.tab === 'topologi') renderTopologi();
     else if (S.tab === 'support') renderSupport();
+    else if (S.tab === 'ceklis') renderCeklisPage();
     else if (S.tab === 'proyek') renderProyek();
   }
 
@@ -1451,9 +1452,9 @@
       return jalankanRiwayat(k === 'y' || e.shiftKey ? 'redo' : 'undo');
     }
     if (ketik) return;
-    if (e.altKey && !mod && /^[1-5]$/.test(e.key)) {
+    if (e.altKey && !mod && /^[1-6]$/.test(e.key)) {
       e.preventDefault();
-      return go(['denah', 'daftar', 'topologi', 'support', 'proyek'][+e.key - 1]);
+      return go(['denah', 'daftar', 'topologi', 'support', 'ceklis', 'proyek'][+e.key - 1]);
     }
     if (mod || e.altKey) return;
     if (e.key === '/') {
@@ -1790,6 +1791,40 @@
    * Pemilih status kabel bertahap: 4 langkah (Belum → Ditarik → Terminasi → Dites) + tombol "lanjut" ke tahap
    * berikutnya (aksi paling sering, satu klik) + Bermasalah terpisah. ids = perangkat yang diubah.
    */
+  // ------------------------------------------------------------------------ salin SSID & password WiFi
+
+  const SAMAR = '••••••';
+  /** Nilai WiFi terkini: isian di panel (bila sedang dibuka, walau belum tersimpan) atau data tersimpan. */
+  function nilaiWifi(d) {
+    const ambil = k => {
+      const el = $(`#panel [data-f="${k}"]`);
+      return (el ? el.value : (d.atribut || {})[k] || '').trim();
+    };
+    return { ssid: ambil('ssid'), pass: ambil('password') };
+  }
+
+  /** Kotak salin SSID / password / keduanya (ringkas = baris di tab Info). */
+  function wifiCopyHtml(d, ringkas) {
+    const a = d.atribut || {};
+    const samar = a.password === SAMAR;
+    const btn = (k, l, title) => `<button type="button" class="small" data-wifi-copy="${k}" title="${title}">${l}</button>`;
+    return `<div class="wifi-copy${ringkas ? ' ringkas' : ''}">
+      <div class="wifi-copy-v"><span class="muted small">WiFi</span><b class="mono">${esc(a.ssid || '—')}</b>${a.password ? `<span class="muted small">· ${samar ? 'password disamarkan' : 'password terisi'}</span>` : ''}</div>
+      <div class="btn-row">${btn('ssid', '⧉ SSID', 'Salin SSID ke clipboard')}${samar ? '' : btn('pass', '⧉ Password', 'Salin password WiFi ke clipboard')}${samar ? '' : btn('both', '⧉ SSID + password', 'Salin SSID dan password sekaligus')}</div>
+    </div>`;
+  }
+
+  $('#panel').addEventListener('click', e => {
+    const b = e.target.closest('[data-wifi-copy]');
+    if (!b || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    const w = nilaiWifi(d);
+    if (b.dataset.wifiCopy !== 'ssid' && w.pass === SAMAR) return toast('Password disamarkan di link ini', true);
+    const teks = b.dataset.wifiCopy === 'ssid' ? w.ssid : b.dataset.wifiCopy === 'pass' ? w.pass : `SSID: ${w.ssid}\nPassword: ${w.pass || '(tanpa password)'}`;
+    if (!teks || (b.dataset.wifiCopy === 'ssid' && !w.ssid) || (b.dataset.wifiCopy === 'pass' && !w.pass)) return toast(b.dataset.wifiCopy === 'pass' ? 'Password WiFi belum diisi' : 'SSID belum diisi', true);
+    copy(teks).then(() => toast(b.dataset.wifiCopy === 'ssid' ? `SSID "${w.ssid}" disalin` : b.dataset.wifiCopy === 'pass' ? 'Password WiFi disalin' : 'SSID & password disalin'));
+  });
+
   // ------------------------------------------------------------------------ port switch / router
 
   /** Label port kosong perangkat P, mengikuti gaya penamaan yang sudah dipakai (mis. "ether7", "sfp1"). */
@@ -2267,7 +2302,8 @@
         ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="koneksi">Koneksi</button>`}
         <button type="button" role="tab" data-pt="jenis">${esc(tabJenis(d))}</button>
         ${NP.isListrik(d) ? "" : `<button type="button" role="tab" data-pt="listrik">⚡ Listrik</button>`}
-        ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="grup">Group<span class="pt-n" hidden></span></button>`}
+        <button type="button" role="tab" data-pt="ceklis">✓ Ceklis <span class="pt-n">${(p => p.selesai + "/" + p.total)(NP.ceklisProgres(d))}</span></button>
+        ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="grup">Group<span class="pt-n pt-grup" hidden></span></button>`}
       </nav>
       </div>
       <div data-pp="info">
@@ -2307,6 +2343,7 @@
         <div data-pp="jenis">
           ${t.fields.length ? `<div class="pn-sec">
             <h4>Pengaturan ${esc(t.label)}</h4>
+            ${["ap", "bridge"].includes(d.jenis) ? wifiCopyHtml(d) : ""}
             ${NP.isListrik(d) ? `<div id="mcb-live">${mcbInfoHtml(d, a)}</div>` : ''}
             <div class="fgrid">${t.fields.map(f => fieldHtml(Object.assign({ attr: true }, f), a[f.k], dis)).join('')}</div>
           </div>` : ''}
@@ -2316,6 +2353,7 @@
           </div>
         </div>
       </form>
+      <div data-pp="ceklis">${ceklisPanelHtml(d)}</div>
       ${NP.isListrik(d) ? "" : `<div data-pp="listrik">${dayaSection(d, dis)}</div>`}
       <div data-pp="grup">
         <div class="pn-sec" id="pn-grup-sec"><h4>Group perangkat ini</h4><div id="pn-grup"></div></div>
@@ -2739,6 +2777,7 @@
           <div class="path wrap">${semuaWan.map((w, i) => `<span class="wan-chip">WAN${i + 1} ${chip(w.dev)} <span class="muted small">${wanTxt(w.dev)}</span> ${konBadge(m.koneksi(w.dev))}</span>`).join('')}</div></div>`;
       }
     }
+    if (["ap", "bridge"].includes(d.jenis) && (d.atribut || {}).ssid) h += wifiCopyHtml(d, true);
     const up2 = m.uplinkLain(d);
     if (up2.length) {
       const p1 = m.parentOf(d);
@@ -2784,7 +2823,7 @@
     $('#pn-grup-anak-box').innerHTML = `<div class="grp-list">${gAnak}</div>`;
     $('#pn-grup-anak-sec').hidden = !gAnak;
     const nGrup = (p && grupNama(p.id, d.jenis) ? 1 : 0) + jenisAnak.filter(j => grupNama(d.id, j)).length;
-    const pn = $('.pn-tabs .pt-n');
+    const pn = $('.pn-tabs .pt-grup');
     pn.textContent = nGrup;
     pn.hidden = !nGrup;
     // Tanda di tab Info bila ada masalah/peringatan desain pada perangkat ini.
@@ -3831,6 +3870,228 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     go('denah');
     setTimeout(() => selectDev(id, true), 60);
   });
+
+  // ------------------------------------------------------------------------ ceklis pekerjaan
+
+  const CKG = NP.CEKLIS_GRUP;
+  const SEB_KABEL = { ditarik: 'belum', terminasi: 'ditarik', dites: 'terminasi' };
+  const SEB_STATUS = { terpasang: 'rencana', diuji: 'terpasang' };
+
+  /** Boleh mencentang ceklis perangkat ini: admin, atau tim update status pada kategori tugasnya. */
+  const bolehCeklis = d => S.canEdit || (bolehStatus() && tugasTim(d));
+
+  /**
+   * Centang / batal centang satu item. Item tersinkron mengubah status kabel / status pemasangan;
+   * item lain disimpan di atribut "ceklis" (admin: bisa Ctrl+Z; tim: lewat api tim, tercatat di riwayat).
+   */
+  async function setCeklis(d, it, cek) {
+    if (!bolehCeklis(d)) return toast('Tidak punya izin mengubah ceklis perangkat ini', true);
+    if (it.link) {
+      const [jenis, st] = it.link.split(':');
+      if (jenis === 'kabel') return setKabel([d.id], cek ? st : SEB_KABEL[st]);
+      const tujuan = cek ? st : SEB_STATUS[st];
+      if (S.tim) {
+        if (!S.akses.status_boleh.includes(tujuan)) return toast(`Tim ini tidak diizinkan mengubah status menjadi "${STATUS[tujuan].label}"`, true);
+        return kirimTim(d, tujuan);
+      }
+      return saveDev(d.id, { status: tujuan }).then(() => toast(`${d.nama} → ${STATUS[tujuan].label}`)).catch(() => {});
+    }
+    if (S.tim) {
+      try {
+        const res = await api('api/tim.php', { t: S.tim, action: 'ceklis', id: d.id, item: it.key, cek, label: it.label });
+        const i = S.list.findIndex(x => x.id === d.id);
+        if (i >= 0) S.list[i] = res.perangkat;
+        riwayat.id = null;
+        refreshModel();
+      } catch (e) {
+        toast(e.message, true);
+      }
+      return;
+    }
+    const data = NP.ceklisData(d);
+    const n = new Date(), dua = x => String(x).padStart(2, '0');
+    if (cek) data[it.key] = { t: `${n.getFullYear()}-${dua(n.getMonth() + 1)}-${dua(n.getDate())} ${dua(n.getHours())}:${dua(n.getMinutes())}`, o: 'Admin' };
+    else delete data[it.key];
+    const atr = Object.assign({}, d.atribut);
+    if (Object.keys(data).length) atr.ceklis = JSON.stringify(data);
+    else delete atr.ceklis;
+    return saveDev(d.id, { atribut: atr }, { keepPanel: false }).catch(() => {});
+  }
+
+  /** Item ceklis berdasarkan kunci (dari data-ck). */
+  function ckItem(d, key) {
+    return NP.ceklisItems(d).find(x => x.key === key);
+  }
+
+  const ckBar = (pct, tinggi) => `<div class="kb-bar" style="height:${tinggi || 8}px;margin:4px 0"><i style="width:${pct}%;background:${pct >= 100 ? '#16a34a' : pct >= 50 ? '#0284c7' : '#d97706'}"></i></div>`;
+
+  /** Isi tab Ceklis di panel perangkat. */
+  function ceklisPanelHtml(d) {
+    const pg = NP.ceklisProgres(d);
+    const boleh = bolehCeklis(d);
+    let h = `<div class="pn-sec"><h4>Ceklis pekerjaan <span class="small">${pg.selesai}/${pg.total} selesai (${pg.pct}%)</span></h4>${ckBar(pg.pct)}`;
+    for (const g of Object.keys(CKG)) {
+      const items = pg.items.filter(x => x.grup === g);
+      if (!items.length) continue;
+      h += `<div class="ck-grup"><div class="ck-grup-h">${CKG[g].icon} ${esc(CKG[g].label)} <span class="muted small">${pg.per[g].selesai}/${pg.per[g].total}</span></div>`;
+      h += items.map(it => `<label class="ck-item${it.ok ? ' ok' : ''}">
+          <input type="checkbox" data-ck-id="${d.id}" data-ck-key="${it.key}"${it.ok ? ' checked' : ''}${boleh ? '' : ' disabled'}>
+          <span class="ck-lbl">${esc(it.label)}${it.link ? ` <span class="ck-link" title="Tersinkron dengan ${it.link.startsWith('kabel') ? 'status kabel' : 'status pemasangan'}">↔ ${it.link.startsWith('kabel') ? 'status kabel' : 'status'}</span>` : ''}
+            ${it.info ? `<small class="muted">${esc(it.info.o || '')} · ${esc(it.info.t || '')}</small>` : ''}</span>
+          ${g === 'lain' && S.canEdit ? `<button type="button" class="icon" data-ck-hapus="${it.key}" title="Hapus item tambahan">✕</button>` : ''}
+        </label>`).join('');
+      h += '</div>';
+    }
+    if (S.canEdit) {
+      h += `<div class="inline ck-tambah"><input type="text" id="ck-baru" maxlength="80" placeholder="Tambah item ceklis, mis. Pasang bracket dinding"><button type="button" class="small" data-ck-tambah>Tambah</button></div>`;
+    }
+    return h + '</div>';
+  }
+
+  /** Tambah / hapus item ceklis tambahan perangkat (atribut ceklis_x). */
+  function ubahCeklisX(d, fn) {
+    let x = [];
+    try { x = JSON.parse((d.atribut || {}).ceklis_x || '[]'); } catch (e) { x = []; }
+    if (!Array.isArray(x)) x = [];
+    const baru = fn(x.slice());
+    const atr = Object.assign({}, d.atribut);
+    if (baru.filter(Boolean).length) atr.ceklis_x = JSON.stringify(baru);
+    else delete atr.ceklis_x;
+    return saveDev(d.id, { atribut: atr }).catch(() => {});
+  }
+
+  // Centang di panel / halaman Ceklis (delegasi, berlaku di mana pun data-ck-* berada).
+  document.addEventListener('change', e => {
+    const c = e.target.closest && e.target.closest('[data-ck-id]');
+    if (!c) return;
+    const d = S.model.byId.get(+c.dataset.ckId);
+    const it = d && ckItem(d, c.dataset.ckKey);
+    if (it) setCeklis(d, it, c.checked);
+  });
+  document.addEventListener('click', e => {
+    const chip = e.target.closest && e.target.closest('[data-ck-chip]');
+    if (chip) {
+      const [id, key] = chip.dataset.ckChip.split(':');
+      const d = S.model.byId.get(+id);
+      const it = d && ckItem(d, key);
+      if (it) setCeklis(d, it, !chip.classList.contains('ok'));
+      return;
+    }
+    if (S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    if (e.target.closest && e.target.closest('[data-ck-tambah]')) {
+      const v = ($('#ck-baru') || {}).value || '';
+      if (!v.trim()) return;
+      return ubahCeklisX(d, x => x.concat([v.trim().slice(0, 80)]));
+    }
+    const hapus = e.target.closest && e.target.closest('[data-ck-hapus]');
+    if (hapus) {
+      e.preventDefault();
+      const i = +hapus.dataset.ckHapus.slice(1) - 1;
+      // Item tambahan dikosongkan (bukan digeser) agar centang item lain tetap pada kuncinya.
+      return ubahCeklisX(d, x => { x[i] = ''; return x; });
+    }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.id === 'ck-baru') {
+      e.preventDefault();
+      const b = $('[data-ck-tambah]');
+      if (b) b.click();
+    }
+  });
+
+  // ---- halaman Ceklis (semua perangkat)
+
+  const ckF = { grup: '', jenis: '', belum: false, q: '' };
+
+  function renderCeklisPage() {
+    const m = S.model;
+    const rows = NP.Model.sortDev(m.list).map(d => ({ d, pg: NP.ceklisProgres(d) }));
+    // Ringkasan per kelompok pekerjaan.
+    const tot = {};
+    Object.keys(CKG).forEach(g => { tot[g] = { selesai: 0, total: 0 }; });
+    let all = 0, done = 0;
+    rows.forEach(r => r.pg.items.forEach(it => { tot[it.grup].total++; all++; if (it.ok) { tot[it.grup].selesai++; done++; } }));
+    const pct = (a, b) => (b ? Math.round(a / b * 100) : 0);
+    const tile = (judul, s, t) => `<div class="sp-tile"><b>${pct(s, t)}%</b><span>${judul} · ${s}/${t}</span>${ckBar(pct(s, t), 6)}</div>`;
+    let h = `<div class="sp-head">
+        <div><h1>Ceklis pekerjaan</h1><p class="muted">Penarikan kabel, penempatan peralatan, dan konfigurasi tiap perangkat. Klik item untuk mencentang.</p></div>
+        <div class="btn-row"><button type="button" data-ckp="csv">Unduh CSV</button><button type="button" class="primary" data-ckp="cetak">Cetak ceklis</button></div>
+      </div>
+      <div class="sp-tiles">${tile('Semua pekerjaan', done, all)}${Object.keys(CKG).filter(g => tot[g].total).map(g => tile(CKG[g].icon + ' ' + CKG[g].label, tot[g].selesai, tot[g].total)).join('')}</div>
+      <div class="list-tools">
+        <input type="search" id="ck-q" placeholder="Cari perangkat…" value="${esc(ckF.q)}">
+        <select id="ck-grup"><option value="">Semua pekerjaan</option>${Object.keys(CKG).map(g => `<option value="${g}"${ckF.grup === g ? ' selected' : ''}>${CKG[g].icon} ${esc(CKG[g].label)}</option>`).join('')}</select>
+        <select id="ck-jenis"><option value="">Semua jenis</option>${TYPE_ORDER.filter(j => m.list.some(d => d.jenis === j)).map(j => `<option value="${j}"${ckF.jenis === j ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select>
+        <label class="check-inline"><input type="checkbox" id="ck-belum"${ckF.belum ? ' checked' : ''}> Hanya yang belum selesai</label>
+      </div>`;
+    const q = ckF.q.trim().toLowerCase();
+    const tampil = rows.filter(r => (!ckF.jenis || r.d.jenis === ckF.jenis) && (!q || r.d.nama.toLowerCase().includes(q)))
+      .map(r => Object.assign(r, { items: r.pg.items.filter(it => !ckF.grup || it.grup === ckF.grup) }))
+      .filter(r => r.items.length && (!ckF.belum || r.items.some(it => !it.ok)));
+    h += `<div class="card"><table class="mini ck-table"><tr><th>Perangkat</th><th>Progres</th><th>Item pekerjaan</th></tr>${tampil.map(r => {
+      const s = r.items.filter(it => it.ok).length;
+      const boleh = bolehCeklis(r.d);
+      return `<tr><td><a href="#" class="dev-link" data-sel="${r.d.id}"><i style="background:${NP.tampil(r.d).color}">${NP.isListrik(r.d) ? '⚡' : esc(NP.tampil(r.d).short)}</i>${esc(r.d.nama)}</a></td>
+        <td class="ck-prog"><b>${s}/${r.items.length}</b>${ckBar(pct(s, r.items.length), 6)}</td>
+        <td><div class="ck-chips">${r.items.map(it => `<button type="button" class="ck-chip${it.ok ? ' ok' : ''}" ${boleh ? `data-ck-chip="${r.d.id}:${it.key}"` : 'disabled'} title="${esc(CKG[it.grup].label)}${it.info ? ' · ' + esc(it.info.o + ' ' + it.info.t) : ''}">${it.ok ? '✓' : '○'} ${esc(it.label)}</button>`).join('')}</div></td></tr>`;
+    }).join('') || '<tr><td colspan="3" class="muted center">Tidak ada yang cocok.</td></tr>'}</table></div>`;
+    $('#ceklis-pane').innerHTML = h;
+  }
+
+  $('[data-pane="ceklis"]').addEventListener('input', e => {
+    if (e.target.id === 'ck-q') { ckF.q = e.target.value; renderCeklisPage(); const i = $('#ck-q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+  });
+  $('[data-pane="ceklis"]').addEventListener('change', e => {
+    if (e.target.id === 'ck-grup') ckF.grup = e.target.value;
+    else if (e.target.id === 'ck-jenis') ckF.jenis = e.target.value;
+    else if (e.target.id === 'ck-belum') ckF.belum = e.target.checked;
+    else return;
+    renderCeklisPage();
+  });
+  $('[data-pane="ceklis"]').addEventListener('click', e => {
+    const b = e.target.closest('[data-ckp]');
+    if (b) return b.dataset.ckp === 'csv' ? csvCeklis() : cetakCeklis();
+    const a = e.target.closest('[data-sel]');
+    if (!a) return;
+    e.preventDefault();
+    const id = +a.dataset.sel;
+    S.sel = id;
+    go('denah');
+    setTimeout(() => selectDev(id, true), 60);
+  });
+
+  function csvCeklis() {
+    const rows = [['Perangkat', 'Jenis', 'Kelompok pekerjaan', 'Item', 'Selesai', 'Oleh', 'Waktu']];
+    for (const d of NP.Model.sortDev(S.model.list)) {
+      for (const it of NP.ceklisProgres(d).items) {
+        rows.push([d.nama, jenisLabel(d), CKG[it.grup].label, it.label, it.ok ? 'Ya' : 'Belum', it.info ? it.info.o : '', it.info ? it.info.t : '']);
+      }
+    }
+    downloadCsv(rows, `ceklis-${slug(S.proyek.nama)}.csv`);
+  }
+
+  /** Lembar ceklis untuk teknisi (A4 tegak): per perangkat, kotak ☐ / ☑ per item, mengikuti filter halaman. */
+  function cetakCeklis() {
+    const m = S.model;
+    const q = ckF.q.trim().toLowerCase();
+    const ds = NP.Model.sortDev(m.list).filter(d => (!ckF.jenis || d.jenis === ckF.jenis) && (!q || d.nama.toLowerCase().includes(q)));
+    const blok = ds.map(d => {
+      const pg = NP.ceklisProgres(d);
+      const items = pg.items.filter(it => !ckF.grup || it.grup === ckF.grup);
+      if (!items.length || (ckF.belum && items.every(it => it.ok))) return '';
+      const p = m.parentOf(d);
+      return `<div class="ck-print">
+        <div class="ck-print-h"><b>${esc(d.nama)}</b> <span>${esc(jenisLabel(d))}${p ? ' · uplink ' + esc(p.nama) + (d.port_uplink ? ' (' + esc(d.port_uplink) + ')' : '') : ''}${d.ip ? ' · ' + esc(d.ip) : ''}</span>
+          <span class="ck-print-p">${items.filter(it => it.ok).length}/${items.length}</span></div>
+        <div class="ck-print-i">${items.map(it => `<span>${it.ok ? '☑' : '☐'} ${esc(it.label)}</span>`).join('')}</div>
+      </div>`;
+    }).join('');
+    $('#print').className = 'print';
+    $('#print').innerHTML = prHead('Ceklis pekerjaan' + (ckF.grup ? ' — ' + CKG[ckF.grup].label : '')) +
+      `<p>Paraf teknisi: ____________ &nbsp; Tanggal: ____________</p>${blok || '<p>Tidak ada item.</p>'}`;
+    printWith('A4 portrait');
+  }
 
   // ------------------------------------------------------------------------ proyek / info
 

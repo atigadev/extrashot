@@ -924,3 +924,36 @@ td .bad, b.bad { color: var(--danger); }
 .port-pilih-row b { flex: 1; }
 .port-pilih-row select { width: auto; padding: 3px 6px; font-size: 13px; }
 .port-pilih button { align-self: flex-start; }
+
+/* ---------- Ceklis pekerjaan ---------- */
+.ck-grup { margin: 10px 0 4px; }
+.ck-grup-h { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.ck-item { display: flex; align-items: flex-start; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; font-size: 13.5px; }
+.ck-item:hover { background: #f6f8fb; }
+.ck-item input { margin-top: 3px; width: 16px; height: 16px; flex: none; }
+.ck-item .ck-lbl { flex: 1; display: flex; flex-direction: column; }
+.ck-item.ok .ck-lbl > :first-child, .ck-item.ok .ck-lbl { color: #15803d; }
+.ck-link { font-size: 11px; color: var(--muted); font-weight: 400; }
+.ck-tambah { margin-top: 8px; }
+.ck-tambah input { flex: 1; }
+.ck-table td { vertical-align: top; }
+.ck-prog { width: 90px; }
+.ck-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ck-chip { border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 2px 9px; font-size: 12px; color: #475569; cursor: pointer; }
+.ck-chip:hover:not(:disabled) { border-color: var(--accent); }
+.ck-chip.ok { background: #dcfce7; border-color: #86efac; color: #15803d; }
+.ck-chip:disabled { cursor: default; opacity: .8; }
+.check-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+@media print {
+  .ck-print { border: 1px solid #999; border-radius: 4px; padding: 2mm 3mm; margin-bottom: 2.5mm; break-inside: avoid; }
+  .ck-print-h { display: flex; gap: 3mm; align-items: baseline; border-bottom: 1px solid #ccc; padding-bottom: 1mm; margin-bottom: 1mm; }
+  .ck-print-h span { color: #444; }
+  .ck-print-p { margin-left: auto; font-weight: 700; }
+  .ck-print-i { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1mm 4mm; font-size: 10px; }
+}
+/* Salin SSID & password WiFi */
+.wifi-copy { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; border: 1px solid #a7f3d0; background: #ecfdf5; border-radius: 10px; padding: 8px 10px; margin: 0 0 10px; }
+.wifi-copy.ringkas { margin: 6px 0; }
+.wifi-copy-v { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.wifi-copy-v b { overflow-wrap: anywhere; }
+.wifi-copy .btn-row { gap: 4px; }

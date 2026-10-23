@@ -180,6 +180,32 @@ terlihat di atas tab.
 Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
 untuk perangkat berikutnya.
 
+**Salin SSID & password WiFi.** Di tab *Access Point* (juga *Wireless bridge*) dan tab *Info*, kotak WiFi punya
+tombol **⧉ SSID**, **⧉ Password**, dan **⧉ SSID + password**. Nilai diambil langsung dari isian saat itu, jadi yang
+baru diketik pun ikut. Format salin keduanya: `SSID: …` / `Password: …`. Di link lihat-saja / tim tanpa izin lihat
+password, hanya SSID yang bisa disalin.
+
+**Ceklis pekerjaan.** Setiap perangkat punya daftar pekerjaan dalam tiga kelompok:
+- **🔌 Penarikan kabel**: kabel ditarik, terminasi, dites. Tersinkron dengan status kabel.
+- **📦 Penempatan**: alat ditempatkan (tersinkron dengan status *Terpasang*), listrik/PoE tersambung, label ditempel.
+- **⚙ Konfigurasi**: item per jenis. Contoh:
+  - router: WAN/PPPoE, DHCP & DNS, NAT & firewall, QoS, VLAN/hotspot, backup & password
+  - switch: VLAN & trunk, STP, PoE, IP manajemen, label port
+  - AP: SSID, channel & power, VLAN/controller, firmware, uji sinyal
+  - item terakhir *Uji akhir*: tersinkron dengan status *Sudah diuji*
+
+Ceklis bisa ditambah item sendiri per perangkat. Centang item tersinkron langsung mengubah status kabel / pemasangan,
+jadi tidak perlu dicatat dua kali. Item lain menyimpan siapa & kapan.
+
+Tempat mengisi:
+- **Panel perangkat → tab ✓ Ceklis** (dengan jumlah selesai).
+- **Tab Ceklis** (`Alt+5`): progres semua pekerjaan & per kelompok, filter (kelompok, jenis, hanya yang belum selesai,
+  cari), klik chip untuk mencentang, **Unduh CSV**, dan **Cetak ceklis** (lembar ☐/☑ per perangkat + paraf teknisi,
+  mengikuti filter).
+
+Link tim (update status) bisa mencentang ceklis perangkat dalam kategori tugasnya, dan tercatat di riwayat
+("Ceklis: Firmware terbaru ✓"). Perubahan admin bisa di-Ctrl+Z.
+
 **Status pemasangan bertahap.** Di tab *Identitas* (dan kotak update status link tim), status alat memakai langkah
 yang sama dengan status kabel: *Rencana → Terpasang → Sudah diuji*, tombol satu klik *Tandai tahap berikutnya*, dan
 *Bermasalah* terpisah. Tim hanya bisa memilih status yang diizinkan PM. Perubahan admin bisa di-Ctrl+Z.
@@ -361,7 +387,7 @@ Pintasan di Denah:
 | `P` | Sembunyikan / tampilkan panel kanan (desktop) |
 | `K` | Kunci / buka kunci posisi perangkat terpilih |
 | `Esc` | Batal |
-| `Alt+1`–`5` | Pindah tab (Denah · Daftar · Topologi · Support · Proyek) |
+| `Alt+1`–`6` | Pindah tab (Denah · Daftar · Topologi · Support · Ceklis · Proyek) |
 | `?` | Daftar semua pintasan (juga di menu akun) |
 
 Scroll/pinch untuk zoom, geser latar untuk pan. Saat menghubungkan, Shift+klik menghubungkan beberapa perangkat

@@ -8,6 +8,7 @@
  * POST {"t":TOKEN,"action":"catatan","id":N,"catatan":"..."}                     (peran "status")
  * POST {"t":TOKEN,"action":"status_massal","ids":[N,...],"status":"diuji","catatan":"..."} (peran "status")
  * POST {"t":TOKEN,"action":"kabel","ids":[N,...],"kabel":"ditarik","catatan":"..."} (peran "status") -> status penarikan kabel
+ * POST {"t":TOKEN,"action":"ceklis","id":N,"item":"k_ssid","cek":true,"label":"SSID & password"} (peran "status") -> ceklis pekerjaan
  *
  * Tim hanya boleh mengubah status yang diizinkan admin (status_boleh) pada kategori tugasnya (jenis_boleh; kosong = semua).
  * POST wajib header "X-NP: 1" (pengaman CSRF, sama seperti admin).
@@ -97,6 +98,48 @@ if ($method === 'POST' && $action === 'status_massal') {
     $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyek['id']]);
     $pdo->commit();
     json_out(['ok' => true, 'perangkat' => $hasil, 'dilewati' => $dilewati]);
+}
+
+if ($method === 'POST' && $action === 'ceklis') {
+    // Centang / batal centang satu item ceklis pekerjaan (item yang disimpan di atribut "ceklis"), kategori tugas tim.
+    if ($akses['peran'] !== 'status') {
+        json_error('Akses tim ini hanya untuk melihat', 403);
+    }
+    $item = isset($req['item']) ? (string) $req['item'] : '';
+    if (!preg_match('/^[a-z0-9_]{1,40}$/', $item)) {
+        json_error('Item ceklis tidak dikenal');
+    }
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ? AND proyek_id = ?');
+    $st->execute([isset($req['id']) ? (int) $req['id'] : 0, $proyek['id']]);
+    $d = $st->fetch();
+    if (!$d) {
+        json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    if ($akses['jenis_boleh'] && !in_array($d['jenis'], $akses['jenis_boleh'], true)) {
+        json_error($d['nama'] . ' di luar tugas "' . $akses['nama'] . '"', 403);
+    }
+    $atr = json_decode((string) $d['atribut'], true);
+    $atr = is_array($atr) ? $atr : [];
+    $cek = isset($atr['ceklis']) ? json_decode((string) $atr['ceklis'], true) : [];
+    $cek = is_array($cek) ? $cek : [];
+    $nyala = !empty($req['cek']);
+    if ($nyala) {
+        $cek[$item] = ['t' => date('Y-m-d H:i'), 'o' => $akses['nama']];
+    } else {
+        unset($cek[$item]);
+    }
+    if ($cek) {
+        $atr['ceklis'] = json_encode($cek, JSON_UNESCAPED_UNICODE);
+    } else {
+        unset($atr['ceklis']);
+    }
+    $pdo->prepare('UPDATE np_perangkat SET atribut = ? WHERE id = ?')->execute([atribut_json_db($atr), $d['id']]);
+    $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyek['id']]);
+    $label = isset($req['label']) ? mb_substr(trim((string) $req['label']), 0, 120) : $item;
+    tulis_log($proyek['id'], $d, $akses['id'], $akses['nama'], '', '', 'Ceklis: ' . $label . ($nyala ? ' ✓' : ' (dibatalkan)'));
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ?');
+    $st->execute([$d['id']]);
+    json_out(['ok' => true, 'perangkat' => perangkat_row($st->fetch(), !$akses['lihat_password'])]);
 }
 
 if ($method === 'POST' && $action === 'kabel') {

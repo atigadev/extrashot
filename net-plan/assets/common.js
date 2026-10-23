@@ -184,6 +184,89 @@
     return { w: v * a * (tiga ? Math.sqrt(3) : 1), v, a, tiga };
   }
 
+  // ---- Ceklis pekerjaan per perangkat: penarikan kabel, penempatan, konfigurasi.
+  // Item "link" tersinkron dengan data lain (status kabel / status pemasangan) sehingga tidak dicatat dua kali;
+  // item lain disimpan di atribut "ceklis" (JSON {key: {t: waktu, o: oleh}}). Item tambahan: atribut "ceklis_x".
+  const CEKLIS_GRUP = {
+    kabel: { label: 'Penarikan kabel', icon: '🔌' },
+    pasang: { label: 'Penempatan', icon: '📦' },
+    konfig: { label: 'Konfigurasi', icon: '⚙' },
+    lain: { label: 'Tambahan', icon: '＋' },
+  };
+  const KONFIG = {
+    isp: [['modem', 'Modem/ONT aktif, login dicatat'], ['speedtest', 'Speedtest WAN sesuai paket']],
+    router: [['wan', 'WAN / PPPoE / IP publik'], ['dhcp', 'LAN, DHCP & DNS'], ['nat', 'NAT & firewall'], ['qos', 'Limit bandwidth / QoS'],
+      ['vlan', 'VLAN / hotspot'], ['backup', 'Backup konfigurasi & ganti password admin']],
+    switch: [['vlan', 'VLAN & trunk'], ['stp', 'STP/RSTP / loop protection'], ['poe', 'PoE port aktif'], ['mgmt', 'IP manajemen & password admin'],
+      ['label_port', 'Label port']],
+    ap: [['ssid', 'SSID & password'], ['channel', 'Channel & tx power'], ['vlan', 'VLAN / controller'], ['firmware', 'Firmware terbaru'],
+      ['sinyal', 'Uji sinyal & speedtest']],
+    bridge: [['mode', 'Mode AP/station & SSID'], ['align', 'Alignment antena'], ['link', 'Uji link (RSSI/CCQ, throughput)']],
+    lan: [['tes_port', 'Uji koneksi port (link up)']],
+    server: [['os', 'OS & layanan berjalan'], ['ip', 'IP statis & akses remote']],
+    cctv: [['stream', 'Stream / rekaman ke NVR'], ['sudut', 'Sudut & fokus kamera']],
+    endpoint: [['ip', 'IP / DHCP didapat'], ['internet', 'Uji koneksi internet']],
+    lainnya: [['fungsi', 'Uji fungsi']],
+    support: [['fungsi', 'Uji fungsi']],
+    listrik: [['mcb', 'MCB & tegangan dicek'], ['beban', 'Uji beban / colokan']],
+  };
+
+  /** Item ceklis perangkat: [{key, grup, label, link?}] — link: 'kabel:<status>' | 'status:<status>'. */
+  function ceklisItems(d) {
+    const out = [];
+    const t = TYPES[d.jenis] || TYPES.lainnya;
+    if (perluKabel(d)) {
+      out.push({ key: 'kabel_tarik', grup: 'kabel', label: 'Kabel ditarik', link: 'kabel:ditarik' });
+      out.push({ key: 'kabel_terminasi', grup: 'kabel', label: 'Terminasi / konektor', link: 'kabel:terminasi' });
+      out.push({ key: 'kabel_tes', grup: 'kabel', label: 'Kabel dites OK', link: 'kabel:dites' });
+    }
+    out.push({ key: 'tempat', grup: 'pasang', label: t.listrik ? 'Panel / colokan siap' : 'Alat ditempatkan di lokasi', link: 'status:terpasang' });
+    if (!t.listrik && (d.atribut || {}).listrik !== 'baterai') out.push({ key: 'listrik', grup: 'pasang', label: (d.atribut || {}).listrik === 'poe' ? 'Daya PoE menyala' : 'Listrik tersambung' });
+    out.push({ key: 'label', grup: 'pasang', label: 'Label nama ditempel' });
+    (KONFIG[d.jenis] || KONFIG.lainnya).forEach(([k, l]) => out.push({ key: 'k_' + k, grup: 'konfig', label: l }));
+    out.push({ key: 'uji', grup: 'konfig', label: 'Uji akhir (sudah diuji)', link: 'status:diuji' });
+    let x = [];
+    try { x = JSON.parse((d.atribut || {}).ceklis_x || '[]'); } catch (e) { x = []; }
+    (Array.isArray(x) ? x : []).forEach((l, i) => { if (l) out.push({ key: 'x' + (i + 1), grup: 'lain', label: String(l) }); });
+    return out;
+  }
+
+  /** Data centang tersimpan: {key: {t, o}}. */
+  function ceklisData(d) {
+    try {
+      const v = JSON.parse((d.atribut || {}).ceklis || '{}');
+      return v && typeof v === 'object' ? v : {};
+    } catch (e) { return {}; }
+  }
+
+  const URUT_KABEL = ['belum', 'ditarik', 'terminasi', 'dites'];
+  const URUT_STATUS = ['rencana', 'terpasang', 'diuji'];
+  /** Item sudah dicentang? Item tersinkron dibaca dari status kabel / status pemasangan. */
+  function ceklisSelesai(d, it, data) {
+    if (it.link) {
+      const [jenis, st] = it.link.split(':');
+      if (jenis === 'kabel') return URUT_KABEL.indexOf(kabelSt(d)) >= URUT_KABEL.indexOf(st);
+      return URUT_STATUS.indexOf(d.status) >= URUT_STATUS.indexOf(st);
+    }
+    return !!(data || ceklisData(d))[it.key];
+  }
+
+  /** Progres ceklis perangkat: {items, selesai, total, pct, per: {grup: {selesai, total}}}. */
+  function ceklisProgres(d) {
+    const items = ceklisItems(d);
+    const data = ceklisData(d);
+    const per = {};
+    let selesai = 0;
+    items.forEach(it => {
+      it.ok = ceklisSelesai(d, it, data);
+      it.info = data[it.key] || null;
+      per[it.grup] = per[it.grup] || { selesai: 0, total: 0 };
+      per[it.grup].total++;
+      if (it.ok) { per[it.grup].selesai++; selesai++; }
+    });
+    return { items, selesai, total: items.length, pct: items.length ? Math.round(selesai / items.length * 100) : 0, per };
+  }
+
   /** Bukan perangkat jaringan (tanpa uplink, status internet & kabel jaringan): titik listrik. */
   const nonJaringan = d => !!d && grupJenis(d.jenis) === 'support';
   /** Titik listrik (sumber daya dengan MCB). */
@@ -498,5 +581,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

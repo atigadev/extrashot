@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=51">
+<link rel="stylesheet" href="assets/np.css?v=54">
 </head>
 <body>
 
@@ -88,6 +88,7 @@
     <button type="button" data-tab="daftar">Daftar<span class="hide-phone"> perangkat</span></button>
     <button type="button" data-tab="topologi">Topologi<span class="hide-phone"> &amp; cek</span></button>
     <button type="button" data-tab="support">Support<span class="hide-phone"> &amp; listrik</span></button>
+    <button type="button" data-tab="ceklis">Ceklis</button>
     <button type="button" data-tab="proyek">Proyek</button>
     <span class="spacer"></span>
     <div class="tab-actions">
@@ -221,6 +222,10 @@
 
   <section class="tab-pane scroll" data-pane="support" hidden>
     <div class="page" id="support-pane"></div>
+  </section>
+
+  <section class="tab-pane scroll" data-pane="ceklis" hidden>
+    <div class="page" id="ceklis-pane"></div>
   </section>
 
   <section class="tab-pane scroll" data-pane="proyek" hidden>
@@ -401,7 +406,7 @@
       <p><kbd>Ctrl</kbd> <kbd>K</kbd> atau <kbd>/</kbd><span>Cari perangkat &amp; perintah</span></p>
       <p><kbd>Ctrl</kbd> <kbd>Z</kbd><span>Batalkan perubahan terakhir</span></p>
       <p><kbd>Ctrl</kbd> <kbd>Y</kbd> / <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd><span>Ulangi</span></p>
-      <p><kbd>Alt</kbd> <kbd>1</kbd>–<kbd>5</kbd><span>Pindah tab Denah · Daftar · Topologi · Support · Proyek</span></p>
+      <p><kbd>Alt</kbd> <kbd>1</kbd>–<kbd>6</kbd><span>Pindah tab Denah · Daftar · Topologi · Support · Ceklis · Proyek</span></p>
       <p><kbd>?</kbd><span>Tampilkan bantuan ini</span></p>
     </section>
     <section>
@@ -426,12 +431,12 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=51"></script>
-<script src="assets/common.js?v=51"></script>
-<script src="assets/analisis.js?v=51"></script>
-<script src="assets/peta.js?v=51"></script>
-<script src="assets/katalog.js?v=51"></script>
-<script src="assets/backup.js?v=51"></script>
-<script src="assets/app.js?v=51"></script>
+<script src="vendor/qrcode.min.js?v=54"></script>
+<script src="assets/common.js?v=54"></script>
+<script src="assets/analisis.js?v=54"></script>
+<script src="assets/peta.js?v=54"></script>
+<script src="assets/katalog.js?v=54"></script>
+<script src="assets/backup.js?v=54"></script>
+<script src="assets/app.js?v=54"></script>
 </body>
 </html>

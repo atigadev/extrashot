@@ -298,8 +298,12 @@ Admin melihat kotak yang sama, tanpa acuan plan, dan bisa mengisi, mengubah, ata
 - **Satu slide per titik berfoto**:
   - 1–3 foto bercap, utuh tanpa terpotong, disusun 1 besar / 2 / 3 kolom mengikuti rasio foto;
   - keterangan tiap foto: waktu, pengambil, dan koordinat yang bisa diklik ke Google Maps;
-  - kolom kanan: **potongan denah** dengan penanda lokasi titik, data titik (uplink & port, IP/VLAN, posisi pasang,
-    SSID, PIC), dan kotak hasil pengecekan (sesuai / tidak sesuai + catatan).
+  - tabel **Spesifikasi & data titik** di bawah foto (dua pasang kolom, maks. 20 baris): alat (merek/model katalog),
+    data pemasangan (uplink & port, IP/VLAN, posisi pasang, limit, PIC), spesifikasi katalog (port, PoE, daya, standar
+    WiFi, band, throughput, antena, OS, …), dan isian jenis (mis. tipe switch, channel AP). Password dan setelan
+    jaringan router (DHCP, DNS, admin) tidak ikut;
+  - kolom kanan: **potongan denah** dengan penanda lokasi titik,
+    dan kotak hasil pengecekan (sesuai / tidak sesuai + catatan).
 
 Pustaka PptxGenJS 3.12.0 (MIT) ada di `vendor/pptxgenjs.bundle.js` dan hanya dimuat saat tombol diklik.
 

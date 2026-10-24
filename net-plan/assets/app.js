@@ -4681,6 +4681,52 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     return cv.toDataURL('image/png');
   }
 
+  /** Isian jenis yang bukan spesifikasi alat (setelan jaringan router / data layanan) — tidak masuk laporan. */
+  const BUKAN_SPEK = ['subnet_lan', 'dhcp', 'lease', 'dns', 'qos', 'user_admin', 'mode_wan', 'hotspot', 'id_layanan', 'kontak_noc',
+    'ip_publik', 'gateway', 'mounting', 'lokasi_rak', 'tipe_endpoint', 'vlan_trunk', 'kontak'];
+
+  /**
+   * Spesifikasi & data titik untuk laporan: [[label, nilai], ...]. Urutan: alat (merek/model katalog), data pemasangan
+   * (uplink & port, IP/VLAN, posisi pasang, limit, PIC), spesifikasi katalog (satuan dipindah ke nilai, mis.
+   * "Konsumsi daya maks. (W)" → "15 W"), lalu isian jenis (tanpa password). Label kembar dilewati; maks. 20 baris.
+   */
+  function specPpt(d) {
+    const m = S.model;
+    const k = m.kat(d);
+    const a = d.atribut || {};
+    const out = [];
+    const ada = new Set();
+    const tambah = (label, nilai) => {
+      const v = String(nilai == null ? '' : nilai).trim();
+      const kunci = label.toLowerCase();
+      if (!v || ada.has(kunci)) return;
+      ada.add(kunci);
+      out.push([label, v]);
+    };
+    const satuan = (label, nilai) => {
+      const u = label.match(/\s*\((W|Mbps|m|°|dBi|GHz)\)$/);
+      return u ? [label.slice(0, u.index), `${nilai}${u[1] === '°' ? '°' : ' ' + u[1]}`] : [label, nilai];
+    };
+    tambah('Alat', k ? [k.merek, k.model].filter(Boolean).join(' ') : d.model);
+    // Data pemasangan lebih dulu: tetap tampil walau spesifikasi katalog panjang (batas 20 baris).
+    const up = m.parentOf(d);
+    tambah('Uplink', up ? `${up.nama}${d.port_uplink ? ' port ' + d.port_uplink : ''}${d.media ? ' · ' + MEDIA[d.media].label : ''}` : '');
+    tambah('IP / VLAN', [d.ip, d.vlan ? 'VLAN ' + d.vlan : ''].filter(Boolean).join(' · '));
+    tambah('Posisi pasang', [a.mounting, a.lokasi_rak].filter(Boolean).join(' · '));
+    tambah('Limit bandwidth', d.bandwidth_mbps > 0 ? fmtBw(d.bandwidth_mbps) : '');
+    tambah('PIC', d.pic);
+    const sp = (k && k.spesifikasi) || {};
+    NP.specFields(d.jenis).forEach(f => {
+      if (sp[f.k] === undefined || sp[f.k] === '' || sp[f.k] === 'Tidak') return;
+      tambah(...satuan(f.label, sp[f.k]));
+    });
+    ((TYPES[d.jenis] || TYPES.lainnya).fields || []).forEach(f => {
+      if (f.secret || f.type === 'password' || BUKAN_SPEK.includes(f.k) || !a[f.k]) return;
+      tambah(...satuan(f.label, a[f.k]));
+    });
+    return out.slice(0, 20);
+  }
+
   /** Kotak gambar (contain) di dalam area x, y, w, h sesuai rasio foto. */
   function pasKotak(fw, fh, x, y, w, h) {
     const r = fw && fh ? fw / fh : 4 / 3;
@@ -4770,7 +4816,6 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         const d = ada[k];
         toast(`Menyiapkan PowerPoint… ${k + 1}/${ada.length}`);
         const fs = fotoOf(d.id);
-        const a = d.atribut || {};
         const v = NP.verifOf(d);
         const s = ppt.addSlide();
         s.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.95, fill: { color: GELAP } });
@@ -4778,11 +4823,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           { text: `   ${jenisLabel(d)}${d.model ? ' · ' + d.model : ''}`, options: { fontSize: 14, color: 'CBD5E1' } }],
         { x: 0.4, y: 0.12, w: 9.6, h: 0.7, fontFace: F, valign: 'middle' });
         s.addText(st(d), { x: 10.3, y: 0.25, w: 2.6, h: 0.45, align: 'right', fontFace: F, fontSize: 14, bold: true, color: (STATUS[d.status] || STATUS.rencana).color.slice(1) });
+        // Spesifikasi & data titik: alat (katalog), spesifikasi katalog, isian jenis (tanpa password / setelan jaringan
+        // router), lalu uplink, IP, posisi pasang, PIC. Disusun dua pasang kolom di bawah foto.
+        const spek = specPpt(d);
+        const barisSpek = Math.ceil(spek.length / 2);
+        const tinggiSpek = spek.length ? 0.34 + barisSpek * 0.26 : 0;
         // Foto (kiri, 9,3 in): 1 besar / 2 berdampingan / 3 kolom; keterangan di bawah tiap foto.
         const lebar = 9.3, gap = 0.2, n = fs.length;
         const bw = (lebar - gap * (n - 1)) / n;
-        // Tinggi area foto mengikuti rasio foto paling tinggi (tanpa ruang kosong), maks. per jumlah foto.
-        const bh = Math.min(n === 1 ? 5.2 : n === 2 ? 4.9 : 4.6, Math.max(...fs.map(f => (f.w && f.h ? bw * f.h / f.w : bw * 0.75))));
+        // Tinggi area foto mengikuti rasio foto paling tinggi (tanpa ruang kosong), dibatasi agar tabel spesifikasi muat.
+        const bhMaks = 6.95 - 1.15 - 0.62 - (tinggiSpek ? tinggiSpek + 0.1 : 0);
+        const bh = Math.max(1.6, Math.min(bhMaks, n === 1 ? 5.2 : n === 2 ? 4.9 : 4.6, Math.max(...fs.map(f => (f.w && f.h ? bw * f.h / f.w : bw * 0.75)))));
         for (let i = 0; i < n; i++) {
           const f = fs[i];
           const bx = 0.4 + i * (bw + gap);
@@ -4795,36 +4846,41 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             f.lat != null
               ? { text: `📍 ${koordinat(f)}${f.akurasi_m != null ? ` (±${Math.round(f.akurasi_m)} m)` : ''}`, options: { hyperlink: { url: petaUrl(f) }, color: '2563EB' } }
               : { text: '📍 tanpa koordinat', options: { color: 'B91C1C' } },
-          ], { x: bx, y: 1.2 + bh, w: bw, h: 0.6, fontFace: F, fontSize: 10, color: '334155', valign: 'top' });
+          ], { x: bx, y: 1.2 + bh, w: bw, h: 0.55, fontFace: F, fontSize: 10, color: '334155', valign: 'top' });
         }
-        // Kolom kanan: lokasi di denah + data titik + hasil pengecekan.
+        if (spek.length) {
+          const ty = 1.15 + bh + 0.62 + 0.1;
+          s.addText('Spesifikasi & data titik', { x: 0.4, y: ty, w: 9.3, h: 0.28, fontFace: F, fontSize: 11, bold: true, color: GELAP });
+          const sel = (x, label) => ({ text: x || '', options: label ? { color: ABU } : { bold: true, color: GELAP } });
+          const baris = [];
+          for (let r = 0; r < barisSpek; r++) {
+            const A1 = spek[r], B1 = spek[r + barisSpek];
+            baris.push([sel(A1[0], true), sel(A1[1]), sel(B1 ? B1[0] : '', true), sel(B1 ? B1[1] : '')]);
+          }
+          s.addTable(baris, {
+            x: 0.4, y: ty + 0.3, w: 9.3, colW: [1.55, 3.05, 1.55, 3.15], rowH: 0.26, fontFace: F, fontSize: 9.5, margin: [0.02, 0.06, 0.02, 0.06],
+            border: { type: 'solid', pt: 0.5, color: 'E2E8F0' }, fill: { color: 'FFFFFF' },
+          });
+        }
+        // Kolom kanan: lokasi di denah + hasil pengecekan.
         const rx = 9.95, rw = 3.0;
         let ry = 1.15;
         if (denahImg) {
           s.addText('Lokasi di denah', { x: rx, y: ry, w: rw, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: GELAP });
           const [, , cw, ch] = cropAround(d, 0.5);
-          const kotak = pasKotak(cw, ch, rx, ry + 0.32, rw, 2.2);
+          const kotak = pasKotak(cw, ch, rx, ry + 0.32, rw, 2.3);
           s.addImage({ data: potonganDenah(denahImg, d), ...kotak, line: { color: GARIS } });
-          ry += 0.32 + kotak.h + 0.15;
+          ry += 0.32 + kotak.h + 0.25;
         }
-        const data = [
-          ['Uplink', uplink(d) + (d.media ? ' · ' + MEDIA[d.media].short : '')],
-          ['IP / VLAN', [d.ip, d.vlan ? 'VLAN ' + d.vlan : ''].filter(Boolean).join(' · ')],
-          ['Posisi pasang', [a.mounting, a.lokasi_rak].filter(Boolean).join(' · ')],
-          ['SSID', d.jenis === 'ap' ? a.ssid || '' : ''],
-          ['PIC', d.pic || ''],
-        ].filter(x => x[1]);
-        s.addTable(data.map(([l, x]) => [{ text: l, options: { color: ABU } }, { text: x, options: { bold: true, color: GELAP } }]),
-          { x: rx, y: ry, w: rw, colW: [1.0, 2.0], fontFace: F, fontSize: 10, border: { type: 'none' }, margin: 0.03 });
-        ry += data.length * 0.3 + 0.2;
         const V = v && NP.VERIF[v.h];
-        s.addShape(ppt.ShapeType.roundRect, { x: rx, y: ry, w: rw, h: Math.min(6.85 - ry, v && v.c ? 1.5 : 0.75), fill: { color: V ? (v.h === 'tidak' ? 'FEF2F2' : 'EFF6FF') : 'F8FAFC' }, line: { color: V ? V.color.slice(1) : GARIS }, rectRadius: 0.06 });
+        const vh = Math.min(6.85 - ry, v && v.c ? 2.2 : 0.8);
+        s.addShape(ppt.ShapeType.roundRect, { x: rx, y: ry, w: rw, h: vh, fill: { color: V ? (v.h === 'tidak' ? 'FEF2F2' : 'EFF6FF') : 'F8FAFC' }, line: { color: V ? V.color.slice(1) : GARIS }, rectRadius: 0.06 });
         s.addText([
           { text: 'Pengecekan penempatan', options: { fontSize: 9, color: ABU, breakLine: true } },
           { text: vTxt(d), options: { bold: true, fontSize: 13, color: V ? V.color.slice(1) : ABU, breakLine: true } },
           ...(v ? [{ text: `${v.o || ''} · ${v.t || ''}`, options: { fontSize: 9, color: ABU, breakLine: !!v.c } }] : []),
           ...(v && v.c ? [{ text: v.c, options: { fontSize: 10, color: '334155' } }] : []),
-        ], { x: rx + 0.08, y: ry + 0.04, w: rw - 0.16, h: Math.min(6.85 - ry, v && v.c ? 1.5 : 0.75) - 0.08, fontFace: F, valign: 'top', fit: 'shrink' });
+        ], { x: rx + 0.08, y: ry + 0.04, w: rw - 0.16, h: vh - 0.08, fontFace: F, valign: 'top', fit: 'shrink' });
         kaki(s, `${p.nama} · Titik ${k + 1}/${ada.length}`);
       }
 

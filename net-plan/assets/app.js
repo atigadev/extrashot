@@ -861,7 +861,7 @@
     if (await simpanEp(form, null)) {
       toast('Tipe ditambahkan');
       form.reset();
-      form.elements.warna.value = '#0f766e';
+      form.elements.warna.value = '#ea580c';
     }
   });
   $('#dlg-ep [data-close]').addEventListener('click', () => $('#dlg-ep').close());

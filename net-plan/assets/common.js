@@ -117,7 +117,7 @@
       ],
     },
     endpoint: {
-      label: 'Endpoint (klien)', short: 'EP', prefix: 'EP', color: '#0f766e',
+      label: 'Endpoint (klien)', short: 'EP', prefix: 'EP', color: '#ea580c',
       bwLabel: 'Limit bandwidth (Mbps)',
       // Tipe (laptop, PC, printer, pinpad, ...) diambil dari daftar tipe endpoint yang bisa diubah pengguna.
       fields: [

@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS np_endpoint_tipe (
   nama            VARCHAR(60)  NOT NULL,
   singkatan       VARCHAR(4)   NOT NULL,             -- teks di titik denah, mis. LPT
   ikon            VARCHAR(20)  NOT NULL DEFAULT '',  -- ikon di titik denah: laptop, pc, printer, scanner, pinpad, server, ...
-  warna           VARCHAR(7)   NOT NULL DEFAULT '#0f766e',
+  warna           VARCHAR(7)   NOT NULL DEFAULT '#ea580c',
   prefix          VARCHAR(12)  NOT NULL,             -- awalan nama otomatis, mis. LPT -> LPT-01
   urutan          SMALLINT     NOT NULL DEFAULT 0,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -18,7 +18,7 @@ define('NP_UPLOAD_DIR', dirname(__DIR__) . '/uploads');
 const NP_JENIS = ['isp', 'router', 'switch', 'ap', 'bridge', 'lan', 'server', 'cctv', 'endpoint', 'lainnya', 'listrik', 'support'];
 /** Tipe endpoint bawaan: [nama, singkatan, warna, prefix nama, ikon]. Bisa diubah / ditambah di aplikasi. */
 const NP_ENDPOINT_BAWAAN = [
-    ['Laptop', 'LPT', '#0d9488', 'LPT', 'laptop'],
+    ['Laptop', 'LPT', '#ea580c', 'LPT', 'laptop'],
     ['Komputer / PC', 'PC', '#4f46e5', 'PC', 'pc'],
     ['Server', 'SVR', '#334155', 'SVR', 'server'],
     ['Printer network', 'PRN', '#a16207', 'PRN', 'printer'],
@@ -34,7 +34,7 @@ const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 9;
+const NP_SCHEMA = 10;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -307,6 +307,9 @@ function np_install_schema()
             $ins->execute([$t[0], $t[1], $t[4], $t[2], $t[3], $i + 1]);
         }
     }
+    // Skema 10: warna Laptop bawaan (teal) terlalu mirip warna AP (hijau) di denah -> oranye. Hanya yang masih warna
+    // bawaan lama; warna yang sudah diganti pengguna tidak disentuh.
+    $pdo->prepare("UPDATE np_endpoint_tipe SET warna = '#ea580c' WHERE nama = 'Laptop' AND warna = '#0d9488'")->execute();
     // Tipe bawaan dari versi tanpa ikon: isi ikonnya (hanya yang masih kosong, aman diulang).
     $upd = $pdo->prepare("UPDATE np_endpoint_tipe SET ikon = ? WHERE nama = ? AND ikon = ''");
     foreach (NP_ENDPOINT_BAWAAN as $t) {

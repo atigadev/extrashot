@@ -253,6 +253,11 @@ pada kategori tugasnya.
 - **Tanpa lokasi**: bila izin ditolak atau GPS gagal, foto tetap tersimpan dengan cap "Lokasi tidak tersedia" dan
   muncul peringatan.
 - **Galeri** di panel menampilkan thumbnail, koordinat (klik untuk membuka Google Maps), waktu, dan pengambil foto.
+  Klik thumbnail untuk membuka **penampil foto** (modal layar penuh, bukan halaman baru):
+  - pindah foto dengan panah ‹ ›, tombol ← →, geser jari di ponsel, atau titik di bawah;
+  - keterangan koordinat, waktu, dan pengambil;
+  - tombol ⬇ unduh;
+  - tutup dengan Esc, ✕, atau klik latar.
 - **Hapus foto**: admin bisa menghapus semua foto; tim hanya foto yang diambilnya sendiri.
 - **Penyimpanan**: tabel `np_foto` (migrasi otomatis, skema 9) dan file `uploads/foto_*.jpg`. File hanya disajikan lewat
   `api/foto.php`, dengan cek login admin, link tim, atau link lihat-saja event yang sama.

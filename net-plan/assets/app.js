@@ -3478,11 +3478,79 @@
     if (S.sel === d.id) renderFoto(d);
   }
 
+  /**
+   * Penampil foto (modal geser): foto perangkat d mulai dari foto id. Panah / geser (sentuh) / tombol ← → untuk pindah,
+   * Esc / klik latar untuk menutup. Keterangan: perangkat, urutan, koordinat (Google Maps), waktu, pengambil.
+   */
+  const viewer = { d: null, list: [], i: 0, x0: null };
+  function lihatFoto(d, id) {
+    viewer.d = d;
+    viewer.list = fotoOf(d.id);
+    viewer.i = Math.max(0, viewer.list.findIndex(f => f.id === id));
+    let dlg = $('#dlg-foto');
+    if (!dlg) {
+      dlg = document.createElement('dialog');
+      dlg.id = 'dlg-foto';
+      dlg.className = 'dlg-foto';
+      dlg.innerHTML = `<div class="fv-top"><b class="fv-judul"></b><span class="fv-n"></span>
+          <a class="fv-unduh" title="Unduh foto" aria-label="Unduh foto">⬇</a>
+          <button type="button" class="fv-x" data-fv="tutup" title="Tutup (Esc)" aria-label="Tutup">✕</button></div>
+        <div class="fv-stage" tabindex="-1" autofocus><button type="button" class="fv-nav prev" data-fv="-1" aria-label="Foto sebelumnya">‹</button>
+          <img class="fv-img" alt=""><button type="button" class="fv-nav next" data-fv="1" aria-label="Foto berikutnya">›</button></div>
+        <div class="fv-cap"></div><div class="fv-dots"></div>`;
+      document.body.appendChild(dlg);
+      dlg.addEventListener('click', e => {
+        const b = e.target.closest('[data-fv]');
+        if (b) return b.dataset.fv === 'tutup' ? dlg.close() : geserFoto(+b.dataset.fv);
+        const dot = e.target.closest('[data-fv-i]');
+        if (dot) return tampilFoto(+dot.dataset.fvI);
+        if (e.target === dlg || e.target.classList.contains('fv-stage')) dlg.close(); // klik latar
+      });
+      dlg.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft') geserFoto(-1);
+        else if (e.key === 'ArrowRight') geserFoto(1);
+      });
+      // Geser jari ke kiri / kanan.
+      const st = dlg.querySelector('.fv-stage');
+      st.addEventListener('touchstart', e => { viewer.x0 = e.touches[0].clientX; }, { passive: true });
+      st.addEventListener('touchend', e => {
+        if (viewer.x0 == null) return;
+        const dx = e.changedTouches[0].clientX - viewer.x0;
+        viewer.x0 = null;
+        if (Math.abs(dx) > 40) geserFoto(dx < 0 ? 1 : -1);
+      });
+    }
+    tampilFoto(viewer.i);
+    if (!dlg.open) dlg.showModal();
+  }
+  function geserFoto(arah) {
+    const n = viewer.list.length;
+    if (n > 1) tampilFoto((viewer.i + arah + n) % n);
+  }
+  function tampilFoto(i) {
+    const dlg = $('#dlg-foto');
+    const f = viewer.list[i];
+    if (!dlg || !f) return;
+    viewer.i = i;
+    const n = viewer.list.length;
+    const img = dlg.querySelector('.fv-img');
+    img.src = fotoUrl(f);
+    img.alt = `Foto ${i + 1} ${viewer.d.nama}`;
+    dlg.querySelector('.fv-judul').textContent = viewer.d.nama;
+    dlg.querySelector('.fv-n').textContent = `Foto ${i + 1}/${n}`;
+    dlg.querySelector('.fv-unduh').href = fotoUrl(f) + '&unduh=1';
+    dlg.querySelectorAll('.fv-nav').forEach(b => { b.hidden = n < 2; });
+    dlg.querySelector('.fv-cap').innerHTML = `${f.lat != null
+      ? `<a href="${petaUrl(f)}" target="_blank" rel="noopener">📍 ${koordinat(f)}${f.akurasi_m != null ? ` (±${Math.round(f.akurasi_m)} m)` : ''}</a>`
+      : '<span class="bad">📍 tanpa koordinat</span>'} <span>🕒 ${esc(f.diambil_at || '')}${f.oleh ? ' · ' + esc(f.oleh) : ''}</span>`;
+    dlg.querySelector('.fv-dots').innerHTML = n > 1 ? viewer.list.map((x, j) => `<button type="button" class="${j === i ? 'on' : ''}" data-fv-i="${j}" aria-label="Foto ${j + 1}"></button>`).join('') : '';
+  }
+
   /** Galeri kecil foto bukti (dipakai di panel & laporan). */
   function fotoGaleri(d, hapus) {
     const fs = fotoOf(d.id);
     return fs.map((f, i) => `<figure class="foto-it">
-        <a href="${fotoUrl(f)}" target="_blank" rel="noopener" title="Buka foto ${i + 1} ukuran penuh"><img src="${fotoUrl(f)}" alt="Foto ${i + 1} ${esc(d.nama)}" loading="lazy"></a>
+        <button type="button" class="foto-buka" data-foto-buka="${f.id}" title="Lihat foto ${i + 1}"><img src="${fotoUrl(f)}" alt="Foto ${i + 1} ${esc(d.nama)}" loading="lazy"></button>
         <figcaption>${f.lat != null ? `<a href="${petaUrl(f)}" target="_blank" rel="noopener" title="Buka di Google Maps${f.akurasi_m != null ? ' · akurasi ±' + Math.round(f.akurasi_m) + ' m' : ''}">📍 ${koordinat(f)}</a>` : '<span class="bad">📍 tanpa koordinat</span>'}
           <span class="muted">${esc((f.diambil_at || '').slice(0, 16))}${f.oleh ? ' · ' + esc(f.oleh) : ''}</span></figcaption>
         ${hapus && bisaHapusFoto(d, f) ? `<button type="button" class="foto-del" data-foto-hapus="${f.id}" title="Hapus foto" aria-label="Hapus foto ${i + 1}">✕</button>` : ''}
@@ -3511,6 +3579,8 @@
     const d = S.model.byId.get(S.sel);
     if (!d) return;
     if (e.target.closest('[data-foto-ambil]')) return void ambilFoto(d);
+    const buka = e.target.closest('[data-foto-buka]');
+    if (buka) return lihatFoto(d, +buka.dataset.fotoBuka);
     const h = e.target.closest('[data-foto-hapus]');
     if (h) hapusFoto(d, +h.dataset.fotoHapus);
   });

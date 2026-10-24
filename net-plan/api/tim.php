@@ -9,6 +9,8 @@
  * POST {"t":TOKEN,"action":"status_massal","ids":[N,...],"status":"diuji","catatan":"..."} (peran "status")
  * POST {"t":TOKEN,"action":"kabel","ids":[N,...],"kabel":"ditarik","catatan":"..."} (peran "status") -> status penarikan kabel
  * POST {"t":TOKEN,"action":"ceklis","id":N,"item":"k_ssid","cek":true,"label":"SSID & password"} (peran "status") -> ceklis pekerjaan
+ * POST multipart t, action=foto, id=N, foto=<jpeg>, lat, lng, akurasi, waktu (peran "status") -> foto bukti (maks. 3 per perangkat)
+ * POST {"t":TOKEN,"action":"foto_hapus","id":N} (peran "status") -> hapus foto yang diambil tim ini
  *
  * Tim hanya boleh mengubah status yang diizinkan admin (status_boleh) pada kategori tugasnya (jenis_boleh; kosong = semua).
  * POST wajib header "X-NP: 1" (pengaman CSRF, sama seperti admin).
@@ -20,7 +22,8 @@ if ($method === 'POST') {
     if (!isset($_SERVER['HTTP_X_NP']) || $_SERVER['HTTP_X_NP'] !== '1') {
         json_error('Permintaan ditolak', 403);
     }
-    $req = json_body();
+    // Foto bukti dikirim multipart (file + koordinat); aksi lain JSON.
+    $req = isset($_SERVER['CONTENT_TYPE']) && stripos($_SERVER['CONTENT_TYPE'], 'multipart/form-data') === 0 ? $_POST : json_body();
 } elseif ($method === 'GET') {
     $req = $_GET;
 } else {
@@ -98,6 +101,26 @@ if ($method === 'POST' && $action === 'status_massal') {
     $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyek['id']]);
     $pdo->commit();
     json_out(['ok' => true, 'perangkat' => $hasil, 'dilewati' => $dilewati]);
+}
+
+if ($method === 'POST' && ($action === 'foto' || $action === 'foto_hapus')) {
+    // Foto bukti pemasangan: perangkat di kategori tugas tim; tim hanya menghapus foto yang diambilnya sendiri.
+    if ($akses['peran'] !== 'status') {
+        json_error('Akses tim ini hanya untuk melihat', 403);
+    }
+    if ($action === 'foto_hapus') {
+        json_out(['ok' => true, 'foto' => hapus_foto((int) $proyek['id'], isset($req['id']) ? (int) $req['id'] : 0, $akses['id'])]);
+    }
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ? AND proyek_id = ?');
+    $st->execute([isset($req['id']) ? (int) $req['id'] : 0, $proyek['id']]);
+    $d = $st->fetch();
+    if (!$d) {
+        json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    if ($akses['jenis_boleh'] && !in_array($d['jenis'], $akses['jenis_boleh'], true)) {
+        json_error($d['nama'] . ' di luar tugas "' . $akses['nama'] . '"', 403);
+    }
+    json_out(['ok' => true, 'foto' => simpan_foto($d, $req, $akses['nama'], $akses['id'])]);
 }
 
 if ($method === 'POST' && $action === 'ceklis') {

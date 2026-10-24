@@ -180,6 +180,91 @@ terlihat di atas tab.
 Tab terakhir diingat saat pindah perangkat, sehingga mengisi IP banyak perangkat cukup di tab Koneksi lalu tekan `Tab`
 untuk perangkat berikutnya.
 
+**Konfigurasi router & script MikroTik (RouterOS v7).** Konfigurasi router diisi **sekali** di tab **Router** (khusus
+admin; link lihat-saja/tim tetap melihat ringkasan isian router). Isian yang dulu kembar (subnet LAN, pool, lease,
+DNS, admin, mode WAN, QoS) kini satu tempat. Nilai lama tetap dipakai sebagai cadangan: *Subnet LAN* untuk IP LAN dan
+catatan *QoS* lama ditampilkan di bagian Bandwidth. Tab **⚙ MikroTik** hanya berisi hasil: validasi, script `.rsc`,
+salin / unduh, dan panduan memasang.
+
+Sumber data script: konfigurasi router di atas + Sumber WAN yang tersambung (WAN utama lewat uplink + WAN tambahan /
+multi-WAN, termasuk IP publik, gateway, dan bandwidth ISP).
+
+Formulir di tab Router ada enam bagian:
+1. **Sistem**: identitas, zona waktu, NTP, jumlah port ether.
+2. **WAN**: per sumber pilih interface dan tipe DHCP / PPPoE (user & password) / IP statis (IP & gateway). Bila lebih
+   dari satu WAN, mode **failover** (distance + check-gateway) atau **load balance PCC** (routing table + mangle per
+   WAN).
+3. **LAN & DHCP**: IP router (CIDR), port bridge LAN (otomatis semua port selain WAN), pool, lease, DNS.
+4. **VLAN**: ID, nama, gateway, DHCP, isolasi (hanya ke internet). Bisa diambil otomatis dari VLAN perangkat.
+5. **Keamanan & admin**: firewall dasar, kunci layanan (telnet/ftp/www/api mati; winbox/SSH hanya dari LAN), user
+   admin baru, dan nonaktifkan `admin` bawaan.
+6. **Bandwidth**: limit per user dengan PCQ (+ total). Bila aktif, fasttrack tidak dipakai.
+
+Bagian *Hasil* menampilkan validasi (port WAN dobel / bentrok dengan LAN, IP & pool di luar subnet, kredensial PPPoE
+kosong, VLAN dobel / bertumpuk, dll.), pratinjau script, tombol **⧉ Salin script** dan **⬇ Unduh .rsc**, serta panduan
+memasang:
+- `/system reset-configuration no-defaults=yes skip-backup=yes`
+- upload file ke *Files* lewat Winbox (MAC)
+- `/import file-name=RTR-01.rsc verbose=yes`
+
+Karakter khusus di password (`"` `$` `?` `\`) di-escape otomatis. Hotspot belum dibuat otomatis (ditandai TODO).
+Konfigurasi disimpan di atribut router `mt` (JSON, tanpa migrasi). Password PPPoE di dalamnya disamarkan di link
+lihat-saja / tim, dan ID WAN di dalamnya dipetakan ulang saat duplikat event, impor, atau buka backup.
+
+**VLAN trunk / access turunan.** VLAN yang dibuat di router menjadi turunan untuk perangkat di bawahnya. Setiap kabel
+(port uplink) dihitung otomatis dari VLAN perangkat itu dan semua perangkat di bawahnya. Sumber VLAN perangkat adalah
+isian *VLAN* dan SSID tambahan AP bertanda `(VLAN n)`.
+- **Access** (untagged): perangkat ujung yang butuh tepat satu VLAN.
+- **Trunk** (tagged): switch, AP, atau cabang yang butuh beberapa VLAN. LAN untagged tetap lewat.
+- **Native**: tidak butuh VLAN.
+
+VLAN berhenti di router (gateway). Kabel router ke WAN tidak membawa VLAN LAN.
+
+**VLAN per port router.** Di tab *Router* → VLAN ada tabel semua port LAN (ether2, ether3, …). Tiap port bisa diatur
+Otomatis, Trunk + VLAN diizinkan, Access + satu VLAN, atau LAN saja (tanpa VLAN). Hasilnya langsung tampil di tabel.
+- Port yang tersambung ke perangkat menyimpan pilihannya di perangkat itu, jadi sama dengan kotak VLAN di tab Koneksi
+  perangkat tersebut.
+- Port kosong disimpan di `mt.port` router. Bila dibiarkan Otomatis, port kosong menjadi trunk semua VLAN.
+
+Mode per kabel bisa ditetapkan manual di tab *Koneksi* lewat kotak **VLAN di port …**: Otomatis / LAN saja / Trunk + daftar VLAN
+yang diizinkan / Access + VLAN. Badge `T 10,20` / `A 20` tampil di pohon topologi dan di daftar *Terhubung* per port.
+Kartu **VLAN** di Topologi merangkum VLAN, gateway, jumlah perangkat, dan masalahnya.
+
+Peringatan VLAN, juga muncul di pemeriksaan desain:
+- VLAN dipakai perangkat tetapi belum dibuat di router.
+- ID VLAN tidak valid.
+- VLAN terputus di suatu kabel, misalnya uplink switch dijadikan access padahal perangkat di bawahnya butuh VLAN lain.
+- Trunk manual yang kurang VLAN.
+- Switch unmanaged yang diminta membuat port access, atau dilewati trunk.
+- Titik LAN pasif yang dipakai lebih dari satu VLAN.
+
+Script MikroTik menambahkan bagian **Bridge VLAN filtering**. Port access mendapat `pvid` dan `frame-types`. Setiap VLAN
+mendapat `/interface bridge vlan` dengan port trunk sebagai tagged dan port access sebagai untagged. Port tanpa
+perangkat tercatat menjadi trunk semua VLAN. `vlan-filtering=yes` diaktifkan paling akhir. Validasi juga memeriksa port
+yang dipakai dua perangkat dan VLAN port yang belum dibuat di router.
+
+**Foto bukti pemasangan.** Setiap perangkat bisa punya 1–3 foto bukti, diambil langsung dari kamera ponsel di
+tab *Info* lewat tombol **📷 Ambil foto n/3**. Tombol ini tersedia untuk admin, dan untuk link tim *update status*
+pada kategori tugasnya.
+- **Kamera & GPS**: kamera belakang terbuka langsung. Lokasi GPS dibaca bersamaan, jadi izinkan akses lokasi. Pembacaan
+  lokasi butuh HTTPS.
+- **Pengolahan di ponsel**: foto diperkecil (sisi terpanjang 1600 px) lalu diberi **cap** di bagian bawah: judul event,
+  nama & jenis perangkat, koordinat ±akurasi, waktu, dan nama tim. Hasilnya JPEG tanpa EXIF asli.
+- **Tanpa lokasi**: bila izin ditolak atau GPS gagal, foto tetap tersimpan dengan cap "Lokasi tidak tersedia" dan
+  muncul peringatan.
+- **Galeri** di panel menampilkan thumbnail, koordinat (klik untuk membuka Google Maps), waktu, dan pengambil foto.
+- **Hapus foto**: admin bisa menghapus semua foto; tim hanya foto yang diambilnya sendiri.
+- **Penyimpanan**: tabel `np_foto` (migrasi otomatis, skema 9) dan file `uploads/foto_*.jpg`. File hanya disajikan lewat
+  `api/foto.php`, dengan cek login admin, link tim, atau link lihat-saja event yang sama.
+- **Validasi server**: batas 3 foto dikunci dengan transaksi, hanya JPEG, maks. 8 MB.
+- **Hapus event** ikut menghapus file fotonya. Foto perangkat yang dihapus tetap disimpan agar ikut kembali saat Ctrl+Z.
+
+**Laporan foto pemasangan** (menu *Cetak*, A4 tegak) berisi:
+- ringkasan: jumlah perangkat, yang sudah / belum difoto, total foto, dan foto tanpa koordinat;
+- satu kartu per perangkat berfoto: status, uplink & port, IP, PIC, lalu foto utuh dengan capnya, waktu, pengambil,
+  dan koordinat;
+- tabel perangkat yang belum difoto.
+
 **Salin SSID & password WiFi.** Di tab *Access Point* (juga *Wireless bridge*) dan tab *Info*, kotak WiFi punya
 tombol **⧉ SSID**, **⧉ Password**, dan **⧉ SSID + password**. Nilai diambil langsung dari isian saat itu, jadi yang
 baru diketik pun ikut. Format salin keduanya: `SSID: …` / `Password: …`. Di link lihat-saja / tim tanpa izin lihat
@@ -199,9 +284,16 @@ jadi tidak perlu dicatat dua kali. Item lain menyimpan siapa & kapan.
 
 Tempat mengisi:
 - **Panel perangkat → tab ✓ Ceklis** (dengan jumlah selesai).
-- **Tab Ceklis** (`Alt+5`): progres semua pekerjaan & per kelompok, filter (kelompok, jenis, hanya yang belum selesai,
-  cari), klik chip untuk mencentang, **Unduh CSV**, dan **Cetak ceklis** (lembar ☐/☑ per perangkat + paraf teknisi,
-  mengikuti filter).
+- **Tab Ceklis** (`Alt+5`):
+  - **Kartu ringkasan** (semua / kabel / penempatan / konfigurasi) sekaligus filter: klik untuk menampilkan kelompok itu
+    saja.
+  - **Matriks per jenis perangkat** (bagian bisa dilipat; bagian > 20 perangkat, mis. endpoint, terlipat awal): baris =
+    perangkat, kolom = pekerjaan (dikelompokkan berwarna), klik kotak untuk mencentang. Kepala kolom menampilkan jumlah
+    selesai dan tombol **✓ semua**, untuk mencentang satu pekerjaan di semua perangkat jenis itu (satu langkah Ctrl+Z).
+  - **Di HP**: kartu per perangkat dengan tombol **Berikutnya: …** (satu ketuk mencentang pekerjaan berikutnya) dan
+    daftar lengkap yang bisa dibuka.
+  - Filter jenis, cari, *hanya yang belum selesai*, **Unduh CSV**, dan **Cetak ceklis** (lembar ☐/☑ per perangkat +
+    paraf teknisi, mengikuti filter).
 
 Link tim (update status) bisa mencentang ceklis perangkat dalam kategori tugasnya, dan tercatat di riwayat
 ("Ceklis: Firmware terbaru ✓"). Perubahan admin bisa di-Ctrl+Z.
@@ -211,7 +303,9 @@ yang sama dengan status kabel: *Rencana → Terpasang → Sudah diuji*, tombol s
 *Bermasalah* terpisah. Tim hanya bisa memilih status yang diizinkan PM. Perubahan admin bisa di-Ctrl+Z.
 
 **Port switch / router.** Di panel switch/router (tab *Info*, bagian *Terhubung ke sini*) tampil **peta port**.
-Jumlah port diambil dari isian *Jumlah port* atau katalog (Port Ethernet + SFP). Isinya:
+Jumlah port diambil dari isian *Jumlah port* atau katalog (Port Ethernet + SFP). Untuk router, sumbernya *Jumlah port
+ether* di tab Router → Sistem; tanpa isian, router dianggap 5 port (sama dengan script MikroTik). Uplink yang jumlah
+port-nya belum diketahui tetap bisa diisi port anaknya dengan diketik. Isinya:
 - Kotak port 1…N (+ SFP): terpakai berwarna perangkatnya, kosong abu-abu, port uplink bergaris tepi, port dobel
   merah bergaris. Klik kotak port untuk membuka perangkatnya.
 - Setiap perangkat terhubung menampilkan label port-nya. Port yang tidak ada di switch ditandai merah.
@@ -221,6 +315,25 @@ Jumlah port diambil dari isian *Jumlah port* atau katalog (Port Ethernet + SFP).
 Di sisi perangkat anak, kolom *Port di uplink* (tab Koneksi) menyarankan port kosong. Nama port dibaca dari angka
 terakhirnya ("ether5" = "5" = "ge-0/0/5", "sfp2" = SFP 2). Pemeriksaan desain memberi tanda port dobel dan port di
 luar jumlah port.
+
+**Port WAN router.** Peta port, isi-otomatis port anak, dan script MikroTik memakai satu sumber, yaitu `Model.portWan`.
+- **Sumber port**: *Port di perangkat ini* untuk WAN utama, dan port WAN tambahan di tab Koneksi.
+- **Satu isian**: kolom *Port di router* pada tab Router menyimpan ke isian yang sama, jadi keduanya selalu sinkron.
+- **Port belum diisi**: WAN memakai port pertama yang tidak dipakai perangkat anak (ether1, lalu berikutnya). Di peta
+  port, port itu bergaris putus-putus dan ikut dicadangkan, sehingga port anak tidak bergeser ke port WAN.
+- **Validasi MikroTik**:
+  - port WAN belum diisi;
+  - perangkat anak di port WAN;
+  - perangkat anak di port yang tidak masuk bridge LAN.
+
+Port perangkat baru yang dibuat dari uplink memakai port kosong pertama dari peta port, termasuk gaya `ether3`. Klien
+AP / wireless bridge tidak diberi port.
+
+**Media mengikuti uplink.** Saat menghubungkan atau mengganti uplink, media disesuaikan aturan jaringan:
+- Klien di bawah AP menjadi wireless, dan port uplink-nya dikosongkan.
+- Wireless bridge ke wireless bridge menjadi wireless.
+- Media wireless ke perangkat tanpa radio menjadi UTP.
+- Fiber dan lainnya tetap seperti pilihan pengguna.
 
 **Perangkat jaringan vs support.** Perangkat dibagi dua kelompok:
 - **Jaringan**: WAN, router, switch, AP, LAN, server, CCTV, endpoint, dan lainnya.
@@ -405,6 +518,41 @@ sekaligus.
   lebih dari 90 m, oversubscription (total alokasi perangkat di bawah > kapasitas induk), alokasi anak lebih besar dari
   induk, perangkat tanpa jalur ke WAN, AP dengan channel sama yang cakupannya bertumpuk (co-channel), AP tanpa
   SSID/password, dan perangkat berstatus bermasalah.
+- **Aturan koneksi per kategori** (dikelompokkan per uplink):
+
+  | Aturan | Level |
+  |---|---|
+  | Endpoint / CCTV / server adalah perangkat ujung dan tidak bisa menjadi uplink | error |
+  | Media wireless ke perangkat tanpa radio | error |
+  | Switch / router / titik LAN di-uplink wireless ke AP | error |
+  | Perangkat selain router / wireless bridge langsung di Sumber WAN (tanpa NAT/DHCP/firewall) | peringatan |
+  | Sumber WAN yang punya uplink | peringatan |
+  | Klien kabel di AP | peringatan |
+  | Router / titik LAN di bawah AP atau titik LAN | peringatan |
+  | Titik LAN tidak ditarik dari switch / router | peringatan |
+  | Fiber ke switch / router tanpa port SFP (butuh media converter) | peringatan |
+  | Antar wireless bridge memakai kabel | info |
+- **Konfigurasi perangkat inti**:
+
+  | Aturan | Level |
+  |---|---|
+  | Router tanpa IP LAN / subnet | error |
+  | Switch yang membawa VLAN tetapi tipenya (managed) belum diisi | peringatan |
+  | VLAN dibuat di router tetapi tidak dipakai perangkat | info |
+  | Bandwidth Sumber WAN belum diisi | info |
+
+  **Garis merah di denah.** Kabel yang terkena **error** digambar merah tegas dengan halo berkedip pelan. Contohnya:
+  - media wireless ke switch;
+  - port dobel;
+  - VLAN terputus atau belum dibuat;
+  - uplink access yang memutus VLAN;
+  - kabel berstatus bermasalah.
+
+  Arahkan kursor ke garis untuk melihat pesan error-nya. Garis kembali normal begitu error diperbaiki. Di lapisan
+  *Progres kabel*, warna status kabel tetap dipakai. IP ganda tidak memerahkan garis karena bukan kesalahan kabel.
+
+  VLAN access yang diatur manual di kotak VLAN ikut dihitung sebagai VLAN perangkat. Jadi VLAN yang belum dibuat di
+  router, atau tidak dibawa trunk di atasnya, ikut terdeteksi. Peringatan VLAN tampil juga di kotak VLAN tab Koneksi.
 
 ## Link lihat-saja
 

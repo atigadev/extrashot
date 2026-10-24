@@ -34,7 +34,7 @@ const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 8;
+const NP_SCHEMA = 9;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -395,6 +395,18 @@ function perangkat_row($r, $sembunyikanRahasia = false)
                 $atr[$k] = '••••••';
             }
         }
+        // Konfigurasi MikroTik (atribut "mt", JSON): password PPPoE per WAN ikut disamarkan.
+        if (!empty($atr['mt'])) {
+            $mt = json_decode((string) $atr['mt'], true);
+            if (is_array($mt) && isset($mt['wan']) && is_array($mt['wan'])) {
+                foreach ($mt['wan'] as $wid => $w) {
+                    if (is_array($w) && isset($w['pass']) && $w['pass'] !== '') {
+                        $mt['wan'][$wid]['pass'] = '••••••';
+                    }
+                }
+                $atr['mt'] = json_encode($mt, JSON_UNESCAPED_UNICODE);
+            }
+        }
     }
     $r['atribut'] = (object) $atr;
     $jalur = isset($r['jalur']) ? json_decode((string) $r['jalur'], true) : null;
@@ -575,7 +587,134 @@ function proyek_lengkap($proyek, $sembunyikanRahasia = false)
             // Tabel katalog belum dibuat (belum ada login admin sejak update): tampilkan tanpa katalog.
         }
     }
-    return ['proyek' => proyek_row($proyek), 'perangkat' => $list, 'katalog' => $katalog, 'endpoint_tipe' => endpoint_tipe_list()];
+    return ['proyek' => proyek_row($proyek), 'perangkat' => $list, 'katalog' => $katalog, 'endpoint_tipe' => endpoint_tipe_list(),
+        'foto' => foto_list($proyek['id'])];
+}
+
+// ------------------------------------------------------------------------------------------- foto bukti pemasangan
+
+/** Batas foto bukti per perangkat. */
+const NP_FOTO_MAKS = 3;
+
+function foto_row($r)
+{
+    foreach (['id', 'proyek_id', 'perangkat_id', 'w', 'h', 'akses_id'] as $k) {
+        $r[$k] = $r[$k] === null ? null : (int) $r[$k];
+    }
+    foreach (['lat', 'lng', 'akurasi_m'] as $k) {
+        $r[$k] = $r[$k] === null ? null : (float) $r[$k];
+    }
+    unset($r['file']); // gambar dibaca lewat api/foto.php?id=N
+    return $r;
+}
+
+/** Foto bukti satu event, urut per perangkat lalu waktu ambil. */
+function foto_list($proyekId)
+{
+    try {
+        $st = db()->prepare('SELECT * FROM np_foto WHERE proyek_id = ? ORDER BY perangkat_id, id');
+        $st->execute([$proyekId]);
+    } catch (PDOException $e) {
+        return []; // tabel belum dibuat (migrasi belum jalan)
+    }
+    return array_map('foto_row', $st->fetchAll());
+}
+
+function hapus_file_foto($file)
+{
+    if ($file && preg_match('/^foto_[a-f0-9]+\.jpg$/', $file) && is_file(NP_UPLOAD_DIR . '/' . $file)) {
+        @unlink(NP_UPLOAD_DIR . '/' . $file);
+    }
+}
+
+/** Hapus semua file foto satu event (dipanggil sebelum event dihapus; baris ikut terhapus oleh foreign key). */
+function hapus_foto_proyek($proyekId)
+{
+    try {
+        $st = db()->prepare('SELECT file FROM np_foto WHERE proyek_id = ?');
+        $st->execute([$proyekId]);
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $f) {
+            hapus_file_foto($f);
+        }
+    } catch (PDOException $e) {
+        // tabel belum ada: tidak ada foto
+    }
+}
+
+/**
+ * Simpan foto bukti (multipart: file "foto", lat, lng, akurasi, waktu "Y-m-d H:i:s") untuk perangkat $d.
+ * Gambar harus JPEG (sudah diperkecil & diberi cap di browser). Maks. NP_FOTO_MAKS per perangkat.
+ */
+function simpan_foto($d, $req, $oleh, $aksesId)
+{
+    $f = isset($_FILES['foto']) ? $_FILES['foto'] : null;
+    if (!$f || is_array($f['error']) || $f['error'] !== UPLOAD_ERR_OK) {
+        json_error($f && !is_array($f['error']) && in_array($f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)
+            ? 'Foto terlalu besar untuk server' : 'Foto gagal diunggah, coba lagi', 400);
+    }
+    if ($f['size'] > 8 * 1024 * 1024) {
+        json_error('Foto maksimal 8 MB', 413);
+    }
+    $info = @getimagesize($f['tmp_name']);
+    if (!$info || $info[2] !== IMAGETYPE_JPEG || $info[0] < 50 || $info[1] < 50 || $info[0] > 6000 || $info[1] > 6000) {
+        json_error('Format foto tidak dikenali (harus JPEG)');
+    }
+    $num = function ($k, $min, $max) use ($req) {
+        if (!isset($req[$k]) || $req[$k] === '' || !is_numeric($req[$k])) {
+            return null;
+        }
+        $v = (float) $req[$k];
+        return $v >= $min && $v <= $max ? $v : null;
+    };
+    $lat = $num('lat', -90, 90);
+    $lng = $num('lng', -180, 180);
+    if ($lat === null || $lng === null) {
+        $lat = $lng = null;
+    }
+    $akurasi = $lat === null ? null : $num('akurasi', 0, 100000);
+    $waktu = isset($req['waktu']) && preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', (string) $req['waktu']) ? (string) $req['waktu'] : date('Y-m-d H:i:s');
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    // Kunci baris perangkat: dua unggahan bersamaan tidak bisa melewati batas foto.
+    $st = $pdo->prepare('SELECT id FROM np_perangkat WHERE id = ? FOR UPDATE');
+    $st->execute([$d['id']]);
+    $st = $pdo->prepare('SELECT COUNT(*) FROM np_foto WHERE perangkat_id = ?');
+    $st->execute([$d['id']]);
+    if ((int) $st->fetchColumn() >= NP_FOTO_MAKS) {
+        $pdo->rollBack();
+        json_error($d['nama'] . ' sudah punya ' . NP_FOTO_MAKS . ' foto. Hapus salah satu untuk mengganti.');
+    }
+    if (!is_dir(NP_UPLOAD_DIR)) {
+        mkdir(NP_UPLOAD_DIR, 0755, true);
+    }
+    $name = 'foto_' . rand_hex(12) . '.jpg';
+    if (!move_uploaded_file($f['tmp_name'], NP_UPLOAD_DIR . '/' . $name)) {
+        $pdo->rollBack();
+        json_error('Tidak bisa menyimpan foto di folder uploads/', 500);
+    }
+    $pdo->prepare('INSERT INTO np_foto (proyek_id, perangkat_id, file, w, h, lat, lng, akurasi_m, diambil_at, akses_id, oleh)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        ->execute([$d['proyek_id'], $d['id'], $name, $info[0], $info[1], $lat, $lng, $akurasi, $waktu, $aksesId, $oleh]);
+    $pdo->commit();
+    return foto_list((int) $d['proyek_id']);
+}
+
+/** Hapus satu foto ($aksesId != null: tim hanya boleh menghapus foto yang diambilnya sendiri). */
+function hapus_foto($proyekId, $fotoId, $aksesId = null)
+{
+    $st = db()->prepare('SELECT * FROM np_foto WHERE id = ? AND proyek_id = ?');
+    $st->execute([$fotoId, $proyekId]);
+    $r = $st->fetch();
+    if (!$r) {
+        json_error('Foto tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    if ($aksesId !== null && (int) $r['akses_id'] !== (int) $aksesId) {
+        json_error('Foto ini diambil oleh ' . ($r['oleh'] ?: 'admin') . ' — hanya bisa dihapus olehnya atau admin', 403);
+    }
+    db()->prepare('DELETE FROM np_foto WHERE id = ?')->execute([$fotoId]);
+    hapus_file_foto($r['file']);
+    return foto_list((int) $proyekId);
 }
 
 function katalog_row($r, $sembunyikanRahasia = false)

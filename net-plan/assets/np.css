@@ -230,6 +230,11 @@ button.danger:not(:disabled):hover { background: var(--danger-soft); border-colo
 /* Jalur ke WAN dari perangkat terpilih: disorot dengan pendar kuning, warna media tetap terlihat. */
 .map .link.on-path .case { stroke: #facc15; stroke-width: 12; opacity: 1; }
 .map .link.on-path .ln { stroke-width: 5; }
+/* Kabel yang terkena error pemeriksaan desain: merah tegas + halo, berkedip pelan (kecuali lapisan Progres kabel). */
+.map:not(.mode-kabel) .link.err .ln { stroke: #dc2626 !important; stroke-dasharray: none !important; stroke-width: 5 !important; }
+.map:not(.mode-kabel) .link.err .case { stroke: #fecaca; stroke-width: 12; opacity: 1; animation: err-pulse 1.6s ease-in-out infinite; }
+@keyframes err-pulse { 50% { stroke: #fca5a5; stroke-width: 15; } }
+@media (prefers-reduced-motion: reduce) { .map .link.err .case { animation: none; } }
 .map .link .dist { font: 600 10.5px system-ui, sans-serif; text-anchor: middle; fill: #334155; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
 .map.no-dist .link .dist { display: none; }
 /* Lapisan "Progres kabel": warna garis = status penarikan kabel (menggantikan warna status internet). */
@@ -915,6 +920,7 @@ td .bad, b.bad { color: var(--danger); }
 .port-grid .port.isi { background: var(--c); border-color: var(--c); color: #fff; cursor: pointer; }
 .port-grid .port.isi:hover { filter: brightness(1.1); box-shadow: 0 0 0 2px rgba(0,0,0,.12); }
 .port-grid .port.up { outline: 2px solid #1f2937; outline-offset: 1px; }
+.port-grid .port.oto { outline-style: dashed; opacity: .7; }
 .port-grid .port.bentrok { background: repeating-linear-gradient(45deg, var(--danger), var(--danger) 4px, #fca5a5 4px, #fca5a5 8px); border-color: var(--danger); }
 .port-tag { font: 700 10.5px/1 ui-monospace, Consolas, monospace; background: #e2e8f0; color: #334155; border-radius: 4px; padding: 3px 5px; margin-left: 3px; align-self: center; }
 .port-tag.kosong { background: #fef3c7; color: #92400e; font-family: system-ui, sans-serif; }
@@ -957,3 +963,111 @@ td .bad, b.bad { color: var(--danger); }
 .wifi-copy-v { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .wifi-copy-v b { overflow-wrap: anywhere; }
 .wifi-copy .btn-row { gap: 4px; }
+/* Halaman Ceklis: kartu ringkasan sebagai filter, bagian per jenis, matriks perangkat × pekerjaan */
+.ck-tile { all: unset; box-sizing: border-box; cursor: pointer; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; }
+.ck-tile:hover { border-color: var(--accent); }
+.ck-tile.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow); }
+.ck-tile b { font-size: 20px; }
+.ck-tools { margin-top: 4px; }
+.ck-sec { padding: 0; overflow: hidden; margin-bottom: 12px; }
+.ck-sec-h { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; }
+.ck-sec-h:hover { background: #f8fafc; }
+.ck-sec-h .twig { width: 16px; }
+.ck-sec-p { font-weight: 800; }
+.ck-sec-bar { width: 120px; }
+.ck-scroll { overflow-x: auto; border-top: 1px solid var(--line); }
+.ck-mx { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+.ck-mx th, .ck-mx td { border-bottom: 1px solid #eef0f4; padding: 4px 6px; text-align: center; }
+.ck-mx thead th { position: sticky; top: 0; background: #fff; vertical-align: bottom; font-weight: 600; min-width: 74px; max-width: 110px; border-top: 3px solid #cbd5e1; }
+.ck-mx thead th.ck-g-kabel { border-top-color: #d97706; }
+.ck-mx thead th.ck-g-pasang { border-top-color: #2563eb; }
+.ck-mx thead th.ck-g-konfig { border-top-color: #7c3aed; }
+.ck-mx thead th.ck-g-lain { border-top-color: #64748b; }
+.ck-th-l { display: block; font-size: 11.5px; line-height: 1.25; color: var(--text); white-space: normal; }
+.ck-th-n { display: inline-block; margin-top: 3px; font-size: 10.5px; color: var(--muted); }
+.ck-th-n.ok { color: #16a34a; font-weight: 700; }
+.ck-all { display: block; margin: 3px auto 0; border: 0; background: var(--accent-soft); color: var(--accent); font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; cursor: pointer; }
+.ck-all:hover { background: var(--accent); color: #fff; }
+.ck-mx .ck-mx-dev { text-align: left; position: sticky; left: 0; background: #fff; z-index: 1; min-width: 150px; white-space: nowrap; }
+.ck-mx .ck-mx-p { min-width: 80px; text-align: left; }
+.ck-mx tbody tr:hover td { background: #f8fafc; }
+.ck-cell { width: 26px; height: 26px; border-radius: 6px; border: 2px solid #cbd5e1; background: #fff; color: #fff; font-weight: 800; font-size: 14px; line-height: 1; cursor: pointer; padding: 0; }
+.ck-cell:hover:not(:disabled) { border-color: var(--accent); }
+.ck-cell.ok { background: #16a34a; border-color: #16a34a; }
+.ck-cell:disabled { cursor: default; opacity: .7; }
+.ck-na { color: #cbd5e1; }
+/* HP: kartu per perangkat */
+.ck-card { border-top: 1px solid var(--line); padding: 10px 14px; }
+.ck-card-h { display: flex; align-items: center; gap: 8px; }
+.ck-next { width: 100%; text-align: left; margin: 6px 0 4px; padding: 10px 12px; border: 1.5px dashed var(--accent); background: var(--accent-soft); color: var(--text); border-radius: 10px; font-size: 14px; }
+.ck-done { margin: 6px 0 4px; color: #15803d; font-weight: 700; font-size: 13.5px; }
+.ck-more { border: 0; background: none; color: var(--muted); padding: 2px 0; font-size: 12.5px; }
+.ck-mx thead tr.ck-grp-row th { border-top: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 6px 4px 4px; min-width: 0; }
+.ck-mx thead tr.ck-grp-row th.ck-g-kabel { color: #b45309; background: #fffbeb; }
+.ck-mx thead tr.ck-grp-row th.ck-g-pasang { color: #1d4ed8; background: #eff6ff; }
+.ck-mx thead tr.ck-grp-row th.ck-g-konfig { color: #6d28d9; background: #f5f3ff; }
+.ck-mx thead tr.ck-grp-row th.ck-g-lain { color: #475569; background: #f8fafc; }
+.ck-mx thead tr:not(.ck-grp-row) th { top: 26px; }
+@media (max-width: 700px) { .sp-head p { display: none; } }
+
+/* ---------- Script MikroTik ---------- */
+.mt-sec { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 8px; background: #fff; }
+.mt-sec > summary { list-style: none; cursor: pointer; padding: 9px 12px; font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
+.mt-sec > summary::-webkit-details-marker { display: none; }
+.mt-sec[open] > summary { border-bottom: 1px solid var(--line); }
+.mt-no { width: 20px; height: 20px; border-radius: 50%; background: #1f2937; color: #fff; display: inline-grid; place-items: center; font-size: 11px; flex: none; }
+.mt-isi { padding: 10px 12px; }
+.mt-wan { border: 1px dashed #cbd5e1; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.mt-wan-h { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.mt-cek { margin-bottom: 6px; }
+.mt-vlan input { width: 100%; padding: 3px 4px; font-size: 13px; }
+.mt-vlan td { padding: 3px; }
+.mt-vlan { width: 100%; table-layout: fixed; }
+.mt-vlan th { white-space: normal; font-size: 12px; }
+.mt-vlan select { width: 100%; padding: 3px 4px; font-size: 13px; }
+.mt-vlan input[type=number] { -moz-appearance: textfield; appearance: textfield; text-align: center; padding: 3px 2px; }
+.mt-vport td { overflow-wrap: anywhere; }
+.mt-vport .vl { white-space: normal; }
+.mt-vlan input[type=number]::-webkit-inner-spin-button, .mt-vlan input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.mt-hasil-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0 6px; }
+.mt-st { font-size: 12px; font-weight: 700; border-radius: 10px; padding: 1px 8px; }
+.mt-st.ok { background: #dcfce7; color: #15803d; }
+.mt-st.bad { background: var(--danger-soft); color: var(--danger); }
+.mt-cara { font-size: 13px; margin: 6px 0; }
+.mt-cara summary { cursor: pointer; color: var(--accent); }
+.mt-cara code { font-size: 11.5px; background: #f1f5f9; padding: 1px 4px; border-radius: 4px; word-break: break-all; }
+.mt-script { background: #0f172a; color: #e2e8f0; font: 11.5px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; padding: 10px 12px; border-radius: 8px; max-height: 420px; overflow: auto; white-space: pre; margin: 6px 0 0; }
+/* VLAN: lencana trunk / access, kotak VLAN di port uplink */
+.vl { display: inline-block; font: 700 10.5px/1 ui-monospace, Consolas, monospace; border-radius: 4px; padding: 3px 5px; margin-left: 3px; align-self: center; white-space: nowrap; }
+.vl-trunk { background: #ede9fe; color: #5b21b6; }
+.vl-access { background: #dbeafe; color: #1d4ed8; }
+.vl.manual { outline: 1.5px dashed currentColor; outline-offset: -1px; }
+.vl-box { border: 1px solid #ddd6fe; background: #faf5ff; border-radius: 10px; padding: 8px 10px; margin: 2px 0 10px; }
+.vl-box-h { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+tr.bad-row td { background: #fef2f2; }
+.mt-vport .vp-hasil { margin-top: 3px; }
+.mt-vdef td, .mt-vdef th { padding-left: 2px; padding-right: 2px; }
+.mt-vdef th.center { font-size: 11px; text-align: center; padding-left: 0; padding-right: 0; }
+.mt-vdef .icon { padding: 2px; }
+
+/* Foto bukti pemasangan (panel perangkat) */
+.foto-box h4 { display: flex; align-items: center; gap: 8px; }
+.foto-n { font-size: 12px; font-weight: 700; border-radius: 10px; padding: 1px 8px; background: #eef1f6; color: var(--muted); }
+.foto-n.ok { background: #dcfce7; color: #15803d; }
+.foto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.foto-it { position: relative; margin: 0; min-width: 0; }
+.foto-it img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #f1f4f9; }
+.foto-it figcaption { font-size: 11px; line-height: 1.35; margin-top: 3px; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.foto-it .foto-del { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; padding: 0; border-radius: 50%; background: rgba(15, 23, 42, .65); color: #fff; border: 0; font-size: 13px; line-height: 1; }
+.foto-it .foto-del:hover { background: var(--danger); }
+.foto-ambil { width: 100%; min-height: 44px; font-size: 15px; }
+
+/* Laporan foto pemasangan (cetak) */
+.print .pr-foto { break-inside: avoid; page-break-inside: avoid; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; }
+.print .pr-foto h3 { margin: 0 0 2px; font-size: 14px; }
+.print .pr-foto h3 small { font-weight: 400; color: #475569; margin-left: 6px; }
+.print .pr-foto-meta { margin: 0 0 6px; font-size: 11px; color: #334155; }
+.print .pr-foto-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.print .pr-foto-grid figure { margin: 0; }
+.print .pr-foto-grid img { width: 100%; height: 62mm; object-fit: contain; background: #f1f5f9; border-radius: 4px; border: 1px solid #e2e8f0; display: block; }
+.print .pr-foto-grid figcaption { font-size: 10px; line-height: 1.35; margin-top: 2px; color: #334155; }

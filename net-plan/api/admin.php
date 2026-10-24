@@ -16,6 +16,8 @@
  * POST {"action":"kode_baru","id":N}       -> buat ulang kode link lihat-saja (link lama tidak berlaku)
  * POST multipart action=denah_upload, id=N, denah=<file>, sesuaikan=1|0
  * POST {"action":"denah_hapus","id":N}
+ * POST multipart action=foto_upload, id=N (perangkat), foto=<jpeg>, lat, lng, akurasi, waktu -> {foto:[...]} (maks. 3 per perangkat)
+ * POST {"action":"foto_hapus","id":N (foto),"proyek_id":N} -> {foto:[...]}
  * POST {"action":"perangkat_save", id? | proyek_id, ...isian}  -> isian yang dikirim saja yang diubah
  * POST {"action":"perangkat_delete","ids":[N,...]}
  * POST {"action":"perangkat_rename","items":[{"id":N,"nama":"..."},...]}  -> ganti nama massal (penamaan group)
@@ -183,6 +185,7 @@ switch ($method . ' ' . $action) {
 
     case 'POST proyek_delete':
         $p = find_proyek($id);
+        hapus_foto_proyek($id);
         $pdo->prepare('DELETE FROM np_proyek WHERE id = ?')->execute([$id]);
         hapus_file_denah($p['denah_file']);
         json_out(['ok' => true]);
@@ -198,6 +201,19 @@ switch ($method . ' ' . $action) {
         $pdo->prepare('UPDATE np_proyek SET denah_file = NULL WHERE id = ?')->execute([$id]);
         hapus_file_denah($p['denah_file']);
         json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($id))]);
+
+    case 'POST foto_upload':
+        // Foto bukti pemasangan (multipart: id = perangkat, foto, lat, lng, akurasi, waktu).
+        $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ?');
+        $st->execute([$id]);
+        $d = $st->fetch();
+        if (!$d) {
+            json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+        }
+        json_out(['ok' => true, 'foto' => simpan_foto($d, $req, 'Admin', null)]);
+
+    case 'POST foto_hapus':
+        json_out(['ok' => true, 'foto' => hapus_foto(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0, $id)]);
 
     case 'POST perangkat_save':
         json_out(['ok' => true, 'perangkat' => simpan_perangkat($req)]);
@@ -655,6 +671,9 @@ function izin_admin_event($aksi, $req, $id)
                 return $proyekPerangkat([$id]);
             }
             return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
+        case 'POST foto_upload':
+            return $proyekPerangkat([$id]);
+        case 'POST foto_hapus':
         case 'POST perangkat_import':
         case 'POST perangkat_pulihkan':
             return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
@@ -973,7 +992,7 @@ function atribut_json($atr)
             continue;
         }
         // Daftar sambungan tambahan (JSON berisi port, status kabel & lekukan jalur) boleh lebih panjang.
-        $maks = in_array($k, ['wan_lain', 'uplink_lain', 'ceklis', 'ceklis_x'], true) ? 20000 : 1000;
+        $maks = in_array($k, ['wan_lain', 'uplink_lain', 'ceklis', 'ceklis_x', 'mt'], true) ? 20000 : 1000;
         if (mb_strlen($v) > $maks) {
             json_error('Isian "' . $k . '" maksimal ' . $maks . ' karakter');
         }
@@ -1097,6 +1116,23 @@ function salin_perangkat($proyekId, $list, $idSemula = false)
                 $atr[$kunci] = json_encode(array_map(function ($w) { return array_merge($w, ['id' => (int) $w['id']]); }, $baru), JSON_UNESCAPED_UNICODE);
             } else {
                 unset($atr[$kunci], $atr[$mode]);
+            }
+        }
+        // Konfigurasi MikroTik router: pengaturan WAN disimpan per id Sumber WAN.
+        if (!empty($atr['mt'])) {
+            $mt = json_decode((string) $atr['mt'], true);
+            if (is_array($mt) && !empty($mt['wan']) && is_array($mt['wan'])) {
+                $wanBaru = [];
+                foreach ($mt['wan'] as $wid => $w) {
+                    if (isset($map[(int) $wid])) {
+                        $wanBaru[(string) $map[(int) $wid]] = $w;
+                    } elseif ($idSemula) {
+                        $wanBaru[(string) $wid] = $w;
+                    }
+                }
+                $mt['wan'] = (object) $wanBaru;
+                $atr['mt'] = json_encode($mt, JSON_UNESCAPED_UNICODE);
+                $ubah = true;
             }
         }
         // Titik listrik pemasok (atribut listrik_id) juga menunjuk id perangkat lain.

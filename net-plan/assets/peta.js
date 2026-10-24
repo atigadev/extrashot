@@ -92,19 +92,26 @@
       pwrEls.length = 0;
       // Perangkat terpilih digambar paling akhir agar berada di atas.
       const ordered = m.list.slice().sort((a, b) => (a.id === st.sel) - (b.id === st.sel));
+      // Kabel yang terkena error pemeriksaan desain -> garis merah + pesan error saat disorot.
+      const errLink = new Map();
+      m.checks().filter(c => c.level === 'err').forEach(c => c.links.forEach(id => {
+        if (!errLink.has(id)) errLink.set(id, []);
+        errLink.get(id).push(c.msg);
+      }));
       for (const d of m.list) {
         const p = m.parentOf(d);
         if (!p) continue;
         const media = MEDIA[d.media] || MEDIA.utp;
+        const err = errLink.get(d.id);
         // Garis = tepi putih (kontras di atas denah) + garis berwarna media. Garis yang belum membawa internet
         // diberi kelas k-offline / k-gangguan (warna & pola diatur np.css).
-        const g = el('g', { class: 'link k-' + m.koneksiLink(d) + ' kb-' + (NP.perluKabel(d) ? NP.kabelSt(d) : 'na'), 'data-id': d.id });
+        const g = el('g', { class: 'link k-' + m.koneksiLink(d) + ' kb-' + (NP.perluKabel(d) ? NP.kabelSt(d) : 'na') + (err ? ' err' : ''), 'data-id': d.id });
         g.innerHTML = `<polyline class="hit"/><polyline class="case"/><polyline class="ln" stroke="${media.color || '#0369a1'}" stroke-dasharray="${media.dash || ''}"/>
           <text class="dist"></text>${NP.perluKabel(d) ? (() => {
             // Penanda status kabel di tengah garis (tampil di lapisan Progres kabel; klik = ubah status).
             const kb = NP.KABEL[NP.kabelSt(d)];
             return `<g class="kb-mark"><circle r="9" fill="${kb.color}"/><text dy="0.35em">${kb.icon}</text><title>Kabel ${esc(d.nama)} → ${esc(p.nama)}: ${esc(kb.label)} (klik untuk ubah)</title></g>`;
-          })() : ''}`;
+          })() : ''}${err ? `<title>${esc(d.nama)} → ${esc(p.nama)}: ${esc(err.join('\n'))}</title>` : ''}`;
         gLinks.appendChild(g);
         linkEls.set(d.id, g);
       }

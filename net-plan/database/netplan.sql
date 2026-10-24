@@ -135,3 +135,26 @@ CREATE TABLE IF NOT EXISTS np_katalog (
   PRIMARY KEY (id),
   KEY idx_np_katalog_jenis (jenis)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Foto bukti pemasangan perangkat (1-3 per perangkat), diambil dari kamera ponsel. Gambar sudah diberi cap
+-- (judul event, nama perangkat, koordinat, waktu) di browser; file di uploads/ (foto_<hex>.jpg), dibaca lewat api/foto.php.
+-- perangkat_id tanpa foreign key: foto tetap ada saat perangkat dihapus lalu dipulihkan (Ctrl+Z).
+CREATE TABLE IF NOT EXISTS np_foto (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  proyek_id       INT UNSIGNED NOT NULL,
+  perangkat_id    INT UNSIGNED NOT NULL,
+  file            VARCHAR(60)  NOT NULL,
+  w               SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  h               SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  lat             DECIMAL(10,7) NULL,                -- koordinat lokasi saat foto diambil (GPS ponsel)
+  lng             DECIMAL(10,7) NULL,
+  akurasi_m       DECIMAL(8,1)  NULL,                -- akurasi GPS (meter)
+  diambil_at      DATETIME NULL,                     -- waktu foto menurut ponsel
+  akses_id        INT UNSIGNED NULL,                 -- NULL = admin
+  oleh            VARCHAR(100) NOT NULL DEFAULT '',
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_np_foto_proyek (proyek_id),
+  KEY idx_np_foto_perangkat (perangkat_id),
+  CONSTRAINT fk_np_foto_proyek FOREIGN KEY (proyek_id) REFERENCES np_proyek (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

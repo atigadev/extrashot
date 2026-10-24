@@ -14,6 +14,7 @@
     lihat: lihatKode,
     tim: timToken,
     akses: null, // izin link tim: {nama, peran, status_boleh, jenis_boleh, lihat_password}
+    foto: [], // foto bukti pemasangan event ini: [{id, perangkat_id, lat, lng, akurasi_m, diambil_at, oleh, akses_id}]
     canEdit: !lihatKode,
     proyek: null,
     list: [],
@@ -217,6 +218,7 @@
     S.proyek = res.proyek;
     S.list = res.perangkat;
     S.loadedAt = Date.now();
+    S.foto = res.foto || [];
     NP.setEndpointTipe(res.endpoint_tipe);
     if (S.lihat) {
       S.katalog = res.katalog || [];
@@ -781,10 +783,29 @@
 
   /** Port terkecil yang belum dipakai perangkat lain di uplink tersebut (1, 2, 3, ...). */
   function portKosong(parentId) {
-    const pakai = new Set(S.model.kids(parentId).map(c => parseInt(c.port_uplink, 10)).filter(n => n > 0));
+    const P = S.model.byId.get(parentId);
+    // AP & wireless bridge: klien tersambung lewat radio, tanpa port.
+    if (!P || P.jenis === 'ap' || P.jenis === 'bridge' || P.jenis === 'isp') return '';
+    // Peta port diketahui: port kosong pertama (port WAN router sudah dicadangkan), gaya nama mengikuti (ether3 / 3).
+    if (S.model.portMap(P).ports.length) return portKosong2(P)[0] || '';
+    const pakai = new Set(S.model.kids(parentId).map(c => S.model.kunciPort(c.port_uplink)).filter(Boolean));
+    S.model.portWan(P).forEach(w => pakai.add(S.model.kunciPort(w.port)));
     let n = 1;
-    while (pakai.has(n)) n++;
+    while (pakai.has('e' + n)) n++;
     return String(n);
+  }
+
+  /**
+   * Media yang wajar untuk kabel anak -> uplink (aturan jaringan): klien AP = wireless, bridge ke bridge = wireless,
+   * selain AP/bridge tidak punya radio = kabel. Pilihan fiber/lainnya yang sudah ada tetap dipakai.
+   */
+  function mediaWajar(jenis, P, sekarang) {
+    if (!P) return sekarang || 'utp';
+    const radio = P.jenis === 'ap' || P.jenis === 'bridge';
+    if (P.jenis === 'ap' && !['switch', 'router', 'lan', 'isp', 'ap'].includes(jenis)) return 'wireless';
+    if (P.jenis === 'bridge' && jenis === 'bridge') return 'wireless';
+    if (!radio && sekarang === 'wireless') return 'utp';
+    return sekarang || 'utp';
   }
 
   function renderEpRows() {
@@ -1023,7 +1044,7 @@
       jenis,
       nama: g ? grupNext(g) : nextName(jenis, ep ? ep.prefix : null),
       uplink_id: uplinkId,
-      media: jenis === 'isp' || NP.grupJenis(jenis) === 'support' ? '' : 'utp',
+      media: jenis === 'isp' || NP.grupJenis(jenis) === 'support' ? '' : mediaWajar(jenis, uplinkId != null ? S.model.byId.get(uplinkId) : null, 'utp'),
       status: 'rencana',
       // Endpoint baru memakai tipe yang dipilih di pemilih tipe (Laptop, Printer, ...).
       atribut: ep ? { tipe_endpoint: String(ep.id) } : TYPES[jenis].listrik ? { fase: '1 fase' } : {},
@@ -1098,7 +1119,9 @@
       return;
     }
     const patch = { uplink_id: parentId };
-    if (!c.media) patch.media = 'utp';
+    const md = mediaWajar(c.jenis, p, c.media);
+    if (md !== c.media) patch.media = md;
+    if (md === 'wireless' && (p.jenis === 'ap' || p.jenis === 'bridge') && c.port_uplink) patch.port_uplink = '';
     const lama = c.nama;
     const baru = namaMasukGrup(c, parentId);
     if (baru) patch.nama = baru;
@@ -1791,6 +1814,283 @@
    * Pemilih status kabel bertahap: 4 langkah (Belum → Ditarik → Terminasi → Dites) + tombol "lanjut" ke tahap
    * berikutnya (aksi paling sering, satu klik) + Bermasalah terpisah. ids = perangkat yang diubah.
    */
+  // ------------------------------------------------------------------------ script MikroTik (router)
+
+  const MT = NP.Mikrotik;
+  const ZONA = ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'UTC'];
+
+  /** Tab MikroTik: hanya hasil (validasi, script, salin / unduh); konfigurasinya diisi sekali di tab Router. */
+  function mtPanelHtml(d) {
+    return `<div class="pn-sec mt-panel">
+      <h4>Script MikroTik <span class="small">RouterOS v7 · .rsc</span></h4>
+      <p class="muted small" style="margin:0 0 6px">Script dibuat dari konfigurasi di tab <b>Router</b>. <button type="button" class="small ghost" data-pt-go="jenis">Ubah konfigurasi →</button></p>
+      <div id="mt-hasil">${mtHasilHtml(d)}</div>
+    </div>`;
+  }
+
+  /**
+   * Satu-satunya form konfigurasi router (tab Router): sistem, WAN, LAN & DHCP, VLAN, keamanan, bandwidth.
+   * Isian router lama (subnet LAN, pool, lease, DNS, admin, hotspot) tetap dipakai — tidak ada isian kembar.
+   */
+  function mtFormHtml(d) {
+    const m = S.model;
+    const r = MT.rangkum(d, m);
+    const mt = r.mt;
+    const a = d.atribut || {};
+    const inp = (key, label, ph, extra) => `<label class="field${extra && extra.wide ? ' wide' : ''}"><span>${label}</span><input type="${(extra && extra.type) || 'text'}" data-mt="${key}" value="${esc(mt[key] == null ? '' : mt[key])}" placeholder="${esc(ph || '')}"></label>`;
+    const cek = (key, label, hint) => `<label class="check mt-cek"><input type="checkbox" data-mt="${key}"${mt[key] ? ' checked' : ''}><span>${label}${hint ? `<small>${hint}</small>` : ''}</span></label>`;
+    const fld = (k, label, ph, type) => `<label class="field"><span>${label}</span><input type="${type || 'text'}" data-f="${k}" data-attr="1" value="${esc(a[k] || '')}" placeholder="${esc(ph || '')}"${type === 'password' ? ' autocomplete="new-password"' : ''}></label>`;
+    const sec = (n, judul, isi) => `<details class="mt-sec"${n <= 2 ? ' open' : ''}><summary><span class="mt-no">${n}</span>${judul}</summary><div class="mt-isi">${isi}</div></details>`;
+
+    // 1. Sistem
+    const s1 = `<div class="fgrid">
+        ${inp('identitas', 'Identitas router', d.nama)}
+        <label class="field"><span>Zona waktu</span><select data-mt="tz">${ZONA.map(z => `<option${mt.tz === z ? ' selected' : ''}>${z}</option>`).join('')}</select></label>
+        ${inp('ntp', 'Server NTP', MT.DEF.ntp)}
+        ${inp('jumlah_port', 'Jumlah port ether', String(r.lan.nPort), { type: 'number' })}
+      </div>`;
+
+    // 2. WAN
+    const s2 = r.wans.length ? r.wans.map(w => {
+      const k = w.isp.id;
+      const c = mt.wan[k] || {};
+      const v = key => esc(c[key] == null ? '' : c[key]);
+      return `<div class="mt-wan">
+        <div class="mt-wan-h"><span class="wan-no">WAN${w.no}</span><b>${esc(w.isp.nama)}</b><span class="muted small">${esc((w.isp.atribut || {}).provider || '')}${w.down ? ' · ' + fmtBw(w.down) : ''}${w.lewat ? ' · lewat ' + esc(w.lewat.nama) : ''}</span></div>
+        <div class="fgrid">
+          <label class="field"><span>Port di router${w.otomatis ? ' <span class="bad small">belum diisi</span>' : ''}</span><input type="text" data-mt-wanport="${k}" value="${w.otomatis ? '' : esc(w.iface)}" placeholder="${esc(w.iface)} (otomatis)" title="Sama dengan port di tab Koneksi — peta port & script ikut berubah"></label>
+          <label class="field"><span>Tipe</span><select data-mt-wan="${k}:tipe">${[['dhcp', 'DHCP client'], ['pppoe', 'PPPoE'], ['statis', 'IP statis']].map(([x, l]) => `<option value="${x}"${w.tipe === x ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+          ${w.tipe === 'pppoe' ? `<label class="field"><span>User PPPoE</span><input type="text" data-mt-wan="${k}:user" value="${v('user')}" autocomplete="off"></label>
+            <label class="field"><span>Password PPPoE</span><input type="password" data-mt-wan="${k}:pass" value="${v('pass')}" autocomplete="new-password"></label>` : ''}
+          ${w.tipe === 'statis' ? `<label class="field"><span>IP / prefix</span><input type="text" data-mt-wan="${k}:ip" value="${v('ip')}" placeholder="${esc((w.isp.atribut || {}).ip_publik || '203.0.113.10/29')}"></label>` : ''}
+          ${w.tipe === 'statis' || (r.wans.length > 1 && r.mode === 'loadbalance' && w.tipe === 'dhcp') ? `<label class="field"><span>Gateway</span><input type="text" data-mt-wan="${k}:gw" value="${v('gw')}" placeholder="${esc((w.isp.atribut || {}).gateway || '203.0.113.9')}"></label>` : ''}
+        </div>
+      </div>`;
+    }).join('') + (r.wans.length > 1 ? `<label class="field"><span>Mode multi-WAN</span><select data-mt-mode>
+        <option value="failover"${r.mode === 'failover' ? ' selected' : ''}>Failover (WAN berikutnya cadangan)</option>
+        <option value="loadbalance"${r.mode === 'loadbalance' ? ' selected' : ''}>Load balance PCC</option></select></label>` : '')
+      : '<p class="note">Router belum tersambung ke Sumber WAN/ISP. Sambungkan uplink router ke titik WAN di denah (atau tambah WAN di tab Koneksi).</p>';
+
+    // 3. LAN
+    const s3 = `<div class="fgrid">
+        ${inp('lan_ip', 'IP LAN router (CIDR)', r.lan.ip || '10.10.0.1/22')}
+        ${inp('lan_iface', 'Port LAN (bridge)', r.lan.ifaces.join(', '))}
+        ${fld('dhcp', 'Pool DHCP', r.lan.pool ? MT.ipStr(r.lan.pool[0]) + ' – ' + MT.ipStr(r.lan.pool[1]) : '10.10.1.10 – 10.10.3.250')}
+        ${fld('lease', 'Lease DHCP', '30m')}
+        ${fld('dns', 'DNS upstream', '1.1.1.1, 8.8.8.8')}
+      </div>
+      <p class="muted small">Kosong = otomatis dari IP router & port yang bukan WAN. Event ramai: subnet /22 dan lease pendek (10–30m).</p>`;
+
+    // 4. VLAN
+    const vlanDev = [...new Set(m.list.map(x => parseInt(x.vlan, 10)).filter(v => v >= 2 && v <= 4094))].filter(v => !mt.vlan.some(x => +x.id === v));
+    const s4 = `${mt.vlan.length ? `<table class="mini mt-vlan mt-vdef"><colgroup><col style="width:15%"><col style="width:22%"><col style="width:36%"><col style="width:10%"><col style="width:10%"><col style="width:7%"></colgroup><tr><th>ID</th><th>Nama</th><th>Gateway (CIDR)</th><th class="center" title="DHCP server">DHCP</th><th class="center" title="Isolasi: hanya boleh ke internet, tidak ke LAN/VLAN lain">Iso.</th><th></th></tr>${mt.vlan.map((v, i) => `<tr>
+        <td><input type="number" data-mt-vlan="${i}:id" value="${esc(v.id || '')}" min="2" max="4094"></td>
+        <td><input type="text" data-mt-vlan="${i}:nama" value="${esc(v.nama || '')}" placeholder="TAMU"></td>
+        <td><input type="text" data-mt-vlan="${i}:ip" value="${esc(v.ip || '')}" placeholder="10.10.${esc(v.id || 'X')}.1/24"></td>
+        <td class="center"><input type="checkbox" data-mt-vlan="${i}:dhcp"${v.dhcp !== false ? ' checked' : ''}></td>
+        <td class="center"><input type="checkbox" data-mt-vlan="${i}:isolasi"${v.isolasi ? ' checked' : ''}></td>
+        <td><button type="button" class="icon" data-mt-vlan-hapus="${i}" title="Hapus VLAN">✕</button></td></tr>`).join('')}</table>` : '<p class="muted small">Belum ada VLAN — semua perangkat di satu jaringan LAN.</p>'}
+      <div class="btn-row"><button type="button" class="small" data-mt-vlan-tambah>+ Tambah VLAN</button>
+        ${vlanDev.length ? `<button type="button" class="small" data-mt-vlan-dari="${vlanDev.join(',')}">Ambil dari perangkat (VLAN ${vlanDev.join(', ')})</button>` : ''}</div>
+      ${r.vlan.length ? vlanPortTabel(r) : ''}`;
+
+    // 5. Keamanan
+    const s5 = `${cek('firewall', 'Firewall dasar', 'Tolak akses router dari WAN, buang paket invalid, fasttrack (bila tanpa limit).')}
+      ${cek('layanan', 'Kunci layanan manajemen', 'Matikan telnet/ftp/www/api; winbox & SSH hanya dari LAN.')}
+      <div class="fgrid">${fld('user_admin', 'User admin baru', 'mis. netadmin')}${fld('pass_admin', 'Password admin', 'min. 8 karakter', 'password')}</div>
+      ${cek('matikan_admin', 'Nonaktifkan user "admin" bawaan', 'Setelah user baru dibuat.')}
+      <label class="field"><span>Hotspot / captive portal</span><select data-f="hotspot" data-attr="1">${['', 'Tidak', 'Ya (hotspot router)', 'Ya (controller/cloud)'].map(o => `<option value="${esc(o)}"${(a.hotspot || '') === o ? ' selected' : ''}>${esc(o || '—')}</option>`).join('')}</select></label>`;
+
+    // 6. Bandwidth
+    const s6 = `${cek('bw_aktif', 'Limit bandwidth per user (PCQ)', 'Bandwidth dibagi rata antar pengguna aktif, maksimal per user sesuai isian.')}
+      <div class="fgrid">
+        ${inp('bw_down', 'Per user download (Mbps)', '5', { type: 'number' })}
+        ${inp('bw_up', 'Per user upload (Mbps)', '2', { type: 'number' })}
+        ${inp('bw_tot_down', 'Total download (Mbps)', String(r.bw.totDown || ''), { type: 'number' })}
+        ${inp('bw_tot_up', 'Total upload (Mbps)', String(r.bw.totUp || ''), { type: 'number' })}
+      </div>
+      ${a.qos ? `<p class="muted small">Catatan QoS lama: <i>${esc(a.qos)}</i></p>` : ''}`;
+
+    const nErr = MT.validasi(r).filter(c => c.level === 'err').length;
+    return `<div class="mt-form">
+      ${sec(1, 'Sistem', s1)}${sec(2, `WAN <span class="muted small">${r.wans.length} sumber</span>`, s2)}${sec(3, 'LAN & DHCP', s3)}
+      ${sec(4, `VLAN <span class="muted small">${mt.vlan.length}</span>`, s4)}${sec(5, 'Keamanan & admin', s5)}${sec(6, 'Bandwidth', s6)}
+      <div class="mt-status"><span class="mt-st ${nErr ? 'bad' : 'ok'}">${nErr ? `${nErr} perlu diperbaiki` : '✓ konfigurasi lengkap'}</span>
+        <button type="button" class="small" data-pt-go="mikrotik">Lihat script MikroTik →</button></div>
+    </div>`;
+  }
+
+  /** Validasi + script + tombol salin / unduh. */
+  function mtHasilHtml(d) {
+    const r = MT.rangkum(d, S.model);
+    const cek = MT.validasi(r);
+    const nErr = cek.filter(c => c.level === 'err').length;
+    const script = MT.buat(d, S.model, S.proyek);
+    return `<div class="mt-hasil-h"><b>Hasil</b>
+        <span class="mt-st ${nErr ? 'bad' : 'ok'}">${nErr ? `${nErr} perlu diperbaiki` : '✓ siap dipakai'}</span>
+        <span class="spacer"></span>
+        <button type="button" class="small" data-mt-salin>⧉ Salin script</button>
+        <button type="button" class="small primary" data-mt-unduh>⬇ Unduh .rsc</button></div>
+      ${cek.length ? `<ul class="issues">${cek.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>` : ''}
+      <details class="mt-cara"><summary>Cara memasang di router</summary><ol>
+        <li>Reset router tanpa konfigurasi bawaan: <code>/system reset-configuration no-defaults=yes skip-backup=yes</code></li>
+        <li>Login lewat Winbox → <i>Neighbors</i> (MAC address), seret file <b>${esc(nmFile(r.identitas))}</b> ke menu <i>Files</i>.</li>
+        <li>Di Terminal: <code>/import file-name=${esc(nmFile(r.identitas))} verbose=yes</code></li>
+        <li>Login ulang dengan user admin baru, cek internet dari laptop LAN.</li>
+      </ol><p class="muted small">Alternatif: salin script lalu tempel di Terminal Winbox (router sudah reset).</p></details>
+      <pre class="mt-script">${esc(script)}</pre>`;
+  }
+  const nmFile = s => (String(s || 'router').replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'router') + '.rsc';
+
+  /** Simpan perubahan konfigurasi MikroTik (atribut "mt"), lalu perbarui hasil tanpa merender ulang form. */
+  /**
+   * Tabel VLAN per port LAN router (ether2, ether3, ...): trunk / access / LAN saja. Port yang tersambung ke perangkat
+   * menyimpan pilihan di perangkat itu (sama dengan kotak VLAN di tab Koneksi); port kosong di mt.port.
+   */
+  function vlanPortTabel(r) {
+    const dis = S.canEdit ? '' : ' disabled';
+    const rows = r.portVlan.map(p => {
+      const cfg = p.dev ? { mode: (p.dev.atribut || {}).vlan_mode || '', izin: (p.dev.atribut || {}).vlan_izin || '' } : (r.mt.port[p.iface] || {});
+      const mode = cfg.mode || '';
+      const k = esc(p.iface);
+      const isi = p.lv.mode === 'trunk' ? `<span class="vl vl-trunk">T ${p.lv.tagged.join(',') || '—'}</span>`
+        : p.lv.mode === 'access' ? `<span class="vl vl-access">A ${p.lv.untagged}</span>` : '<span class="muted small">LAN</span>';
+      const ph = p.dev ? (p.lv.butuh.join(',') || 'mis. 10,20') : r.vlanIds.join(',');
+      return `<tr>
+        <td><b class="mono">${k}</b><br>${p.dev ? `<a href="#" class="small" data-sel="${p.dev.id}">${esc(p.dev.nama)}</a>` : '<span class="muted small">kosong</span>'}${p.ganda ? ' <span class="bad small">dobel</span>' : ''}</td>
+        <td><select data-mt-port="${k}:mode" title="Mode port ${k}"${dis}>
+          <option value=""${!mode ? ' selected' : ''}>Otomatis</option>
+          <option value="trunk"${mode === 'trunk' ? ' selected' : ''}>Trunk</option>
+          <option value="access"${mode === 'access' ? ' selected' : ''}>Access</option>
+          <option value="native"${mode === 'native' ? ' selected' : ''}>LAN saja</option></select></td>
+        <td>${mode === 'trunk' || mode === 'access' ? `<input type="text" data-mt-port="${k}:izin" value="${esc(cfg.izin || '')}" placeholder="${esc(mode === 'access' ? ph.split(',')[0] : ph)}" title="${mode === 'trunk' ? 'VLAN diizinkan, dipisah koma' : 'Satu VLAN access'}"${dis}>` : ''}<div class="vp-hasil">${isi}</div></td></tr>`;
+    }).join('');
+    return `<h4 class="mt-sub" style="margin:12px 0 4px">VLAN per port</h4>
+      <table class="mini mt-vlan mt-vport"><colgroup><col style="width:36%"><col style="width:32%"><col style="width:32%"></colgroup><tr><th>Port</th><th>Mode</th><th title="Trunk: VLAN diizinkan (kosong = sesuai kebutuhan). Access: satu VLAN.">VLAN</th></tr>${rows}</table>
+      <p class="muted small">Otomatis = dari VLAN perangkat di port itu & di bawahnya; port kosong = trunk semua VLAN. Trunk: VLAN dipisah koma (10,20). Access: satu VLAN untagged.</p>`;
+  }
+
+  function simpanMt(d, ubah, renderForm) {
+    // ubah = null: hanya render ulang (data sudah disimpan di tempat lain).
+    if (ubah) {
+      const mt = MT.baca(d);
+      ubah(mt);
+      const atr = Object.assign({}, d.atribut, { mt: JSON.stringify(mt) });
+      saveDev(d.id, { atribut: atr }, { keepPanel: true }).catch(() => {});
+    }
+    const form = $('#panel .mt-form');
+    if (renderForm && form) {
+      const buka = $$('details.mt-sec', form).map(x => x.open);
+      form.outerHTML = mtFormHtml(S.model.byId.get(d.id));
+      $$('#panel .mt-form details.mt-sec').forEach((x, i) => { if (buka[i] != null) x.open = buka[i]; });
+    }
+    perbaruiHasilMt();
+  }
+  /** Perbarui hasil script (tab MikroTik) & status form (tab Router) setelah isian berubah. */
+  function perbaruiHasilMt() {
+    if (S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    const h = $('#mt-hasil');
+    if (h) h.innerHTML = mtHasilHtml(d);
+    const st = $('#panel .mt-status .mt-st');
+    if (st) {
+      const nErr = MT.validasi(MT.rangkum(d, S.model)).filter(c => c.level === 'err').length;
+      st.className = 'mt-st ' + (nErr ? 'bad' : 'ok');
+      st.textContent = nErr ? `${nErr} perlu diperbaiki` : '✓ konfigurasi lengkap';
+    }
+  }
+  // Pindah tab panel dari tombol (mis. "Lihat script MikroTik →").
+  $('#panel').addEventListener('click', e => {
+    const b = e.target.closest('[data-pt-go]');
+    if (!b) return;
+    const tab = $(`#panel .pn-tabs [data-pt="${b.dataset.ptGo}"]`);
+    if (tab) tab.click();
+  });
+
+  // Port WAN diubah di tab Koneksi -> form Router (port WAN, VLAN per port) & hasil script ikut diperbarui.
+  $('#panel').addEventListener('change', e => {
+    if (!e.target.matches('[data-f="port_lokal"], [data-wan-port]') || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    if (d && d.jenis === 'router' && $('#panel .mt-form')) setTimeout(() => simpanMt(S.model.byId.get(S.sel), null, true), 60);
+  });
+  $('#panel').addEventListener('change', e => {
+    const box = e.target.closest('.mt-form');
+    if (!box || S.sel == null || !S.canEdit) return;
+    const d = S.model.byId.get(S.sel);
+    const t = e.target;
+    const nilai = t.type === 'checkbox' ? t.checked : t.value.trim();
+    if (t.dataset.mt) return simpanMt(d, mt => { mt[t.dataset.mt] = nilai; });
+    if (t.dataset.mtWan) {
+      const [k, f] = t.dataset.mtWan.split(':');
+      // Ganti tipe WAN mengubah isian yang tampil (PPPoE / statis) -> form dirender ulang.
+      return simpanMt(d, mt => { mt.wan[k] = Object.assign({}, mt.wan[k] || {}, { [f]: nilai }); }, f === 'tipe');
+    }
+    if (t.dataset.mtVlan) {
+      const [i, f] = t.dataset.mtVlan.split(':');
+      return simpanMt(d, mt => { mt.vlan[+i] = Object.assign({}, mt.vlan[+i] || {}, { [f]: f === 'id' ? parseInt(nilai, 10) || '' : nilai }); });
+    }
+    if (t.dataset.mtWanport) {
+      // Port WAN disimpan di topologi (port di perangkat ini / port WAN tambahan), bukan di konfigurasi MikroTik.
+      const id = +t.dataset.mtWanport;
+      const w = MT.rangkum(d, S.model).wans.find(x => x.isp.id === id);
+      if (!w) return;
+      const mt = MT.baca(d);
+      if (mt.wan[id]) delete mt.wan[id].iface;
+      const atr = Object.assign({}, d.atribut, { mt: JSON.stringify(mt) });
+      const patch = { atribut: atr };
+      if (w.utama) patch.port_lokal = nilai;
+      else {
+        let arr = [];
+        try { arr = JSON.parse(atr.wan_lain || '[]') || []; } catch (er) { arr = []; }
+        arr.forEach(x => { if (+x.id === id) x.port = nilai; });
+        atr.wan_lain = JSON.stringify(arr);
+      }
+      // Isian port yang sama di tab Koneksi ikut diperbarui.
+      const kon = $(w.utama ? '#panel [data-f="port_lokal"]' : `#panel [data-wan-port="${id}"]`);
+      if (kon) kon.value = nilai;
+      return saveDev(d.id, patch, { keepPanel: true }).then(() => simpanMt(S.model.byId.get(d.id), null, true)).catch(() => {});
+    }
+    if (t.dataset.mtPort) {
+      const [ifc, f] = t.dataset.mtPort.split(':');
+      const p = MT.rangkum(d, S.model).portVlan.find(x => x.iface === ifc);
+      const ulang = f === 'mode';
+      if (p && p.dev) {
+        // Port tersambung: simpan di perangkatnya, sama dengan kotak VLAN di tab Koneksi perangkat itu.
+        const atr = Object.assign({}, p.dev.atribut, { [f === 'mode' ? 'vlan_mode' : 'vlan_izin']: nilai });
+        return saveDev(p.dev.id, { atribut: atr }, { keepPanel: true }).then(() => simpanMt(S.model.byId.get(d.id), null, ulang)).catch(() => {});
+      }
+      return simpanMt(d, mt => {
+        const cfg = Object.assign({}, mt.port[ifc] || {}, { [f]: nilai });
+        if (!cfg.mode && !cfg.izin) delete mt.port[ifc]; else mt.port[ifc] = cfg;
+      }, ulang);
+    }
+    if (t.hasAttribute('data-mt-mode')) {
+      const atr = Object.assign({}, d.atribut, { wan_mode: t.value });
+      return saveDev(d.id, { atribut: atr }, { keepPanel: true }).then(() => simpanMt(S.model.byId.get(d.id), () => {}, true)).catch(() => {});
+    }
+    // Isian router biasa (pool DHCP, lease, DNS, admin) disimpan oleh handler umum -> perbarui hasil sesudahnya.
+    if (t.dataset.f) setTimeout(perbaruiHasilMt, 30);
+  });
+  $('#panel').addEventListener('click', e => {
+    if (!e.target.closest('.mt-form, [data-pp="mikrotik"]') || S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    if (e.target.closest('[data-mt-vlan-tambah]')) return simpanMt(d, mt => { mt.vlan.push({ id: '', nama: '', ip: '', dhcp: true }); }, true);
+    const hapus = e.target.closest('[data-mt-vlan-hapus]');
+    if (hapus) return simpanMt(d, mt => { mt.vlan.splice(+hapus.dataset.mtVlanHapus, 1); }, true);
+    const dari = e.target.closest('[data-mt-vlan-dari]');
+    if (dari) {
+      return simpanMt(d, mt => {
+        dari.dataset.mtVlanDari.split(',').map(Number).forEach(id => mt.vlan.push({ id, nama: 'VLAN' + id, ip: `10.${Math.floor(id / 256) + 20}.${id % 256}.1/24`, dhcp: true }));
+      }, true);
+    }
+    const r = MT.rangkum(d, S.model);
+    if (e.target.closest('[data-mt-salin]')) return copy(MT.buat(d, S.model, S.proyek)).then(() => toast('Script MikroTik disalin — tempel di Terminal Winbox'));
+    if (e.target.closest('[data-mt-unduh]')) {
+      downloadBlob(new Blob([MT.buat(d, S.model, S.proyek).replace(/\n/g, '\r\n')], { type: 'text/plain' }), nmFile(r.identitas));
+      return toast(`${nmFile(r.identitas)} diunduh`);
+    }
+  });
+
   // ------------------------------------------------------------------------ salin SSID & password WiFi
 
   const SAMAR = '••••••';
@@ -1825,6 +2125,58 @@
     copy(teks).then(() => toast(b.dataset.wifiCopy === 'ssid' ? `SSID "${w.ssid}" disalin` : b.dataset.wifiCopy === 'pass' ? 'Password WiFi disalin' : 'SSID & password disalin'));
   });
 
+  // ------------------------------------------------------------------------ VLAN per port (trunk / access)
+
+  /** Lencana mode VLAN kabel uplink perangkat: T 10,20 (trunk) / A 20 (access); kosong bila native. */
+  function vlanBadge(d) {
+    const lv = S.model.linkVlan(d);
+    if (lv.mode === 'native') return '';
+    const isi = lv.mode === 'trunk' ? 'T ' + (lv.tagged.join(',') || '—') : 'A ' + lv.untagged;
+    return `<span class="vl vl-${lv.mode}${lv.auto ? '' : ' manual'}" title="${lv.mode === 'trunk' ? 'Trunk (tagged): VLAN ' + lv.tagged.join(', ') + ' + LAN untagged' : 'Access (untagged) VLAN ' + lv.untagged}${lv.auto ? ' · otomatis' : ' · diatur manual'}">${isi}</span>`;
+  }
+
+  /** Bagian "VLAN di port uplink" (tab Koneksi): hasil turunan otomatis + pilihan menimpa (trunk / access). */
+  function vlanPortHtml(d, dis) {
+    const m = S.model;
+    const p = m.parentOf(d);
+    const lv = m.linkVlan(d);
+    const a = d.atribut || {};
+    const def = m.vlanDef();
+    if (lv.ujungVlan || (!lv.butuh.length && !a.vlan_mode && !def.size)) return '';
+    const nm = v => (def.get(v) && def.get(v).nama ? `${v} ${def.get(v).nama}` : String(v));
+    const hasil = lv.mode === 'trunk' ? `<b>Trunk</b> — tagged VLAN ${lv.tagged.map(nm).join(', ') || '—'} + LAN untagged`
+      : lv.mode === 'access' ? `<b>Access</b> — untagged VLAN ${nm(lv.untagged)}` : '<b>Native</b> — LAN tanpa VLAN';
+    return `<div class="vl-box">
+      <div class="vl-box-h">VLAN di port ${esc(d.port_uplink || '')} ${esc(p.nama)} ${vlanBadge(d)}</div>
+      <p class="small" style="margin:2px 0 6px">${hasil}${lv.auto ? ' <span class="muted">(otomatis dari VLAN perangkat ini & di bawahnya)</span>' : ''}</p>
+      ${lv.butuh.length ? `<p class="muted small" style="margin:0 0 6px">Dibutuhkan: VLAN ${lv.butuh.map(nm).join(', ')}</p>` : ''}
+      ${(() => {
+        const cek = m.checks().filter(c => c.ids.includes(d.id) && /VLAN/.test(c.msg));
+        return cek.length ? `<ul class="issues" style="margin:0 0 6px">${cek.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>` : '';
+      })()}
+      <div class="fgrid">
+        <label class="field"><span>Mode port</span><select data-f="vlan_mode" data-attr="1"${dis}>
+          <option value=""${!a.vlan_mode ? ' selected' : ''}>Otomatis</option>
+          <option value="trunk"${a.vlan_mode === 'trunk' ? ' selected' : ''}>Trunk (tagged)</option>
+          <option value="access"${a.vlan_mode === 'access' ? ' selected' : ''}>Access (untagged)</option>
+          <option value="native"${a.vlan_mode === 'native' ? ' selected' : ''}>LAN saja (tanpa VLAN)</option></select></label>
+        ${a.vlan_mode === 'trunk' || a.vlan_mode === 'access' ? `<label class="field"><span>${a.vlan_mode === 'trunk' ? 'VLAN diizinkan' : 'VLAN access'}</span><input type="text" data-f="vlan_izin" data-attr="1" value="${esc(a.vlan_izin || '')}" placeholder="${esc(lv.butuh.join(',') || 'mis. 10,20')}"${dis}></label>` : ''}
+      </div>
+    </div>`;
+  }
+
+  /** Kartu "VLAN" di tab Topologi: definisi di router, jumlah perangkat, dan peringatan VLAN. */
+  function vlanSumHtml() {
+    const m = S.model;
+    const rk = m.vlanRingkas();
+    if (!rk.length) return '<p class="muted">Belum ada VLAN. Buat di tab Router → VLAN, lalu isi kolom VLAN perangkat (mis. AP tamu = 20).</p>';
+    const cek = m.checks().filter(c => /VLAN/.test(c.msg));
+    return `<table class="mini"><tr><th>VLAN</th><th>Nama</th><th>Gateway</th><th class="num">Perangkat</th></tr>${rk.map(x => `<tr${x.def ? '' : ' class="bad-row"'}>
+        <td><b>${x.id}</b></td><td>${esc(x.def ? x.def.nama : '')}${x.def ? '' : ' <span class="bad small">belum dibuat di router</span>'}</td>
+        <td class="mono">${esc(x.def ? x.def.ip : '—')}</td><td class="num">${x.perangkat.length}</td></tr>`).join('')}</table>
+      ${cek.length ? `<ul class="issues" style="margin-top:8px">${cek.map(c => `<li class="lv-${c.level}">${esc(c.msg)} ${c.ids.slice(0, 1).map(id => `<a href="#" data-sel="${id}">lihat</a>`).join('')}</li>`).join('')}</ul>` : '<p class="ok-text" style="margin-top:8px">✓ Konfigurasi VLAN konsisten di sepanjang jalur.</p>'}`;
+  }
+
   // ------------------------------------------------------------------------ port switch / router
 
   /** Label port kosong perangkat P, mengikuti gaya penamaan yang sudah dipakai (mis. "ether7", "sfp1"). */
@@ -1837,14 +2189,14 @@
   function terhubungHtml(P, kids, sumKids, chip) {
     const m = S.model;
     const pm = m.portMap(P);
-    const nama = x => `${x.dev.nama}${x.peran === 'uplink' ? ' (uplink)' : x.peran === 'up2' ? ' (uplink kedua)' : ''}`;
+    const nama = x => `${x.dev.nama}${x.peran === 'uplink' ? (P.jenis === 'router' ? ' (WAN utama)' : ' (uplink)') : x.peran === 'wan' ? ' (WAN tambahan)' : x.peran === 'up2' ? ' (uplink kedua)' : ''}${x.otomatis ? ' — port otomatis, belum diisi' : ''}`;
     let h = `<div class="kv col"><span>Terhubung ke sini (${kids.length})${sumKids ? ' · total alokasi ' + fmtBw(sumKids) : ''}</span>`;
     if (pm.ports.length) {
       h += `<div class="port-sum muted small">${pm.eth} port${pm.sfp ? ' + ' + pm.sfp + ' SFP' : ''} · <b>${pm.terpakai}</b> terpakai · <b>${pm.ports.length - pm.terpakai}</b> kosong</div>
         <div class="port-grid">${pm.ports.map(pt => {
           const x = pt.isi[0];
           const warna = x ? NP.tampil(x.dev).color : '';
-          return `<button type="button" class="port${x ? ' isi' : ''}${pt.isi.length > 1 ? ' bentrok' : ''}${pt.sfp ? ' sfp' : ''}${x && x.peran !== 'anak' ? ' up' : ''}"${x ? ` data-sel="${x.dev.id}" style="--c:${warna}"` : ''}
+          return `<button type="button" class="port${x ? ' isi' : ''}${pt.isi.length > 1 ? ' bentrok' : ''}${pt.sfp ? ' sfp' : ''}${x && x.peran !== 'anak' ? ' up' : ''}${x && x.otomatis ? ' oto' : ''}"${x ? ` data-sel="${x.dev.id}" style="--c:${warna}"` : ''}
             title="Port ${esc(pt.label)}: ${x ? esc(pt.isi.map(nama).join(', ')) : 'kosong'}">${esc(pt.sfp ? 'S' + pt.label.slice(3) : pt.label)}</button>`;
         }).join('')}</div>`;
     } else {
@@ -1854,7 +2206,7 @@
     const portLbl = c => {
       const k = m.kunciPort(c.port_uplink);
       const ada = k && pm.ports.some(p => p.key === k);
-      return c.port_uplink ? `<span class="port-tag${pm.ports.length && !ada ? ' bad' : ''}" title="Port di ${esc(P.nama)}">${esc(c.port_uplink)}</span>` : '<span class="port-tag kosong">tanpa port</span>';
+      return vlanBadge(c) + (c.port_uplink ? `<span class="port-tag${pm.ports.length && !ada ? ' bad' : ''}" title="Port di ${esc(P.nama)}">${esc(c.port_uplink)}</span>` : '<span class="port-tag kosong">tanpa port</span>');
     };
     h += `<div class="path wrap">${kids.map(c => `<span class="chip-x">${chip(c)}${portLbl(c)}${S.canEdit ? `<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button>` : ''}</span>`).join('')}</div>`;
     // Belum punya port: pilih langsung dari port yang masih kosong.
@@ -1863,6 +2215,10 @@
       h += `<div class="port-pilih"><span class="muted small">Belum ada port:</span>${pm.tanpa.map(c => `<label class="port-pilih-row"><b>${esc(c.nama)}</b>
         <select data-port-anak="${c.id}"><option value="">pilih port…</option>${kosong.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select></label>`).join('')}
         ${kosong.length >= pm.tanpa.length ? `<button type="button" class="small" data-port-otomatis>Isi otomatis berurutan</button>` : `<span class="small bad">Port kosong kurang ${pm.tanpa.length - kosong.length}</span>`}</div>`;
+    } else if (S.canEdit && pm.tanpa.length) {
+      // Jumlah port belum diketahui: tetap bisa diketik langsung.
+      h += `<div class="port-pilih"><span class="muted small">Belum ada port:</span>${pm.tanpa.map(c => `<label class="port-pilih-row"><b>${esc(c.nama)}</b>
+        <input type="text" data-port-anak="${c.id}" placeholder="mis. ether2 / 5" style="width:9em"></label>`).join('')}</div>`;
     }
     return h + '</div>';
   }
@@ -1871,7 +2227,7 @@
     const s = e.target.closest('[data-port-anak]');
     if (!s || !s.value || !S.canEdit) return;
     const c = S.model.byId.get(+s.dataset.portAnak);
-    if (c) saveDev(c.id, { port_uplink: s.value }).then(() => toast(`${c.nama} → port ${s.value}`)).catch(() => {});
+    if (c) saveDev(c.id, { port_uplink: s.value.trim().slice(0, 50) }).then(() => toast(`${c.nama} → port ${s.value}`)).catch(() => {});
   });
   // Isi otomatis: perangkat tanpa port mendapat port kosong berurutan (satu langkah Ctrl+Z).
   $('#panel').addEventListener('click', async e => {
@@ -2302,6 +2658,7 @@
         ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="koneksi">Koneksi</button>`}
         <button type="button" role="tab" data-pt="jenis">${esc(tabJenis(d))}</button>
         ${NP.isListrik(d) ? "" : `<button type="button" role="tab" data-pt="listrik">⚡ Listrik</button>`}
+        ${d.jenis === "router" && S.canEdit ? `<button type="button" role="tab" data-pt="mikrotik">⚙ MikroTik</button>` : ""}
         <button type="button" role="tab" data-pt="ceklis">✓ Ceklis <span class="pt-n">${(p => p.selesai + "/" + p.total)(NP.ceklisProgres(d))}</span></button>
         ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="grup">Group<span class="pt-n pt-grup" hidden></span></button>`}
       </nav>
@@ -2309,6 +2666,7 @@
       <div data-pp="info">
         <div id="pn-info"></div>
         <div id="pn-tim"></div>
+        <div id="pn-foto"></div>
         ${!S.lihat || S.tim ? '<div class="pn-sec" id="pn-riwayat"><h4>Riwayat status &amp; catatan</h4><p class="muted small">Memuat…</p></div>' : ''}
       </div>
       <form id="dev-form" autocomplete="off" onsubmit="return false">
@@ -2333,6 +2691,7 @@
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
             ${fieldHtml({ k: 'bandwidth_mbps', label: t.bwLabel, type: 'number' }, d.bandwidth_mbps, dis)}
             ${NP.perluKabel(d) ? `<div class="wide field"><span>Status penarikan kabel ke uplink</span>${kabelPicker([d.id], NP.kabelSt(d), bolehKabel(d), '')}</div>` : ''}
+            ${S.model.parentOf(d) && !NP.nonJaringan(d) ? `<div class="wide">${vlanPortHtml(d, dis)}</div>` : ""}
             <div class="wide" id="pn-route"></div>
             ${d.jenis === 'router' || S.model.wanLain(d).length ? `<div class="wide" id="pn-wan">${wanEditor(d)}</div>` : ''}
             ${d.jenis === 'switch' ? `<div class="wide pn-up" id="pn-up">${uplinkEditor(d)}</div>` : ''}
@@ -2341,7 +2700,7 @@
           </div>
         </div>
         <div data-pp="jenis">
-          ${t.fields.length ? `<div class="pn-sec">
+          ${d.jenis === "router" && S.canEdit ? `<div class="pn-sec"><h4>Konfigurasi router <span class="small">sekali isi — dipakai juga untuk script MikroTik</span></h4>${mtFormHtml(d)}</div>` : t.fields.length ? `<div class="pn-sec">
             <h4>Pengaturan ${esc(t.label)}</h4>
             ${["ap", "bridge"].includes(d.jenis) ? wifiCopyHtml(d) : ""}
             ${NP.isListrik(d) ? `<div id="mcb-live">${mcbInfoHtml(d, a)}</div>` : ''}
@@ -2353,6 +2712,7 @@
           </div>
         </div>
       </form>
+      ${d.jenis === "router" && S.canEdit ? `<div data-pp="mikrotik">${mtPanelHtml(d)}</div>` : ""}
       <div data-pp="ceklis">${ceklisPanelHtml(d)}</div>
       ${NP.isListrik(d) ? "" : `<div data-pp="listrik">${dayaSection(d, dis)}</div>`}
       <div data-pp="grup">
@@ -2758,6 +3118,7 @@
     if (NP.nonJaringan(d)) {
       box.innerHTML = NP.isListrik(d) ? infoListrik(d, chip) : infoSupport(d, chip);
       renderTimBox(d);
+      renderFoto(d);
       renderRiwayat(d);
       return;
     }
@@ -2813,6 +3174,7 @@
     box.innerHTML = h;
     renderRoute(d);
     renderTimBox(d);
+    renderFoto(d);
     renderRiwayat(d);
     // Tab Group: group perangkat ini (di uplinknya) + group tiap jenis perangkat yang terhubung ke sini.
     const p = m.parentOf(d);
@@ -2841,6 +3203,193 @@
     const a = S.akses;
     return !!a && a.peran === 'status' && (!a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis));
   }
+
+  // ------------------------------------------------------------------------ foto bukti pemasangan
+
+  const FOTO_MAKS = 3;
+  const fotoOf = id => S.foto.filter(f => f.perangkat_id === id);
+  const fotoUrl = f => `api/foto.php?id=${f.id}${S.tim ? '&t=' + encodeURIComponent(S.tim) : S.lihat ? '&k=' + encodeURIComponent(S.lihat) : ''}`;
+  const petaUrl = f => `https://www.google.com/maps?q=${f.lat},${f.lng}`;
+  const koordinat = f => (f.lat != null ? `${(+f.lat).toFixed(6)}, ${(+f.lng).toFixed(6)}` : '');
+  /** Boleh mengambil foto perangkat ini: admin, atau tim update-status dengan kategori tugasnya. */
+  const bisaFoto = d => (S.tim ? tugasTim(d) : !S.lihat && S.canEdit);
+  /** Boleh menghapus foto: admin semua; tim hanya foto yang diambilnya. */
+  const bisaHapusFoto = (d, f) => (S.tim ? tugasTim(d) && f.akses_id != null && S.akses && f.oleh === S.akses.nama : !S.lihat && S.canEdit);
+
+  /** Waktu lokal "YYYY-MM-DD HH:mm:ss". */
+  function waktuLokal(t) {
+    const p = n => String(n).padStart(2, '0');
+    return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}`;
+  }
+
+  /** Posisi GPS ponsel: {lat, lng, acc} atau {gagal: alasan}. Butuh HTTPS (atau localhost) & izin lokasi. */
+  function lokasiSekarang() {
+    return new Promise(resolve => {
+      if (!navigator.geolocation) return resolve({ gagal: 'perangkat tidak mendukung GPS' });
+      if (!window.isSecureContext) return resolve({ gagal: 'lokasi hanya bisa dibaca lewat HTTPS' });
+      navigator.geolocation.getCurrentPosition(
+        p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+        e => resolve({ gagal: e.code === 1 ? 'izin lokasi ditolak' : e.code === 3 ? 'GPS terlalu lama merespons' : 'lokasi tidak tersedia' }),
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+    });
+  }
+
+  /** Buka kamera belakang ponsel (desktop: pilih file gambar). Resolve File, atau null bila batal. */
+  function bukaKamera() {
+    return new Promise(resolve => {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = 'image/*';
+      inp.setAttribute('capture', 'environment');
+      inp.addEventListener('change', () => resolve(inp.files && inp.files[0] || null), { once: true });
+      inp.addEventListener('cancel', () => resolve(null), { once: true });
+      inp.click();
+    });
+  }
+
+  async function bacaGambar(file) {
+    if (window.createImageBitmap) {
+      try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) { /* pakai <img> */ }
+    }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return img;
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+  }
+
+  /**
+   * Perkecil foto (sisi terpanjang 1600 px) dan beri cap di bawah: judul event, nama perangkat, koordinat, waktu.
+   * Hasil JPEG tanpa metadata EXIF asli.
+   */
+  async function capFoto(file, d, pos, waktu) {
+    const img = await bacaGambar(file);
+    const sw = img.width, sh = img.height;
+    const k = Math.min(1, 1600 / Math.max(sw, sh));
+    const W = Math.round(sw * k), H = Math.round(sh * k);
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    const g = cv.getContext('2d');
+    g.drawImage(img, 0, 0, W, H);
+    if (img.close) img.close();
+    const fs = Math.max(14, Math.round(Math.min(W, H) * 0.034));
+    const pad = Math.round(fs * 0.7);
+    const baris = [
+      { t: S.proyek.nama, b: true },
+      { t: `${d.nama} · ${jenisLabel(d)}`, b: true },
+      { t: pos && pos.lat != null ? `📍 ${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}${pos.acc != null ? ` (±${Math.round(pos.acc)} m)` : ''}` : `📍 Lokasi tidak tersedia${pos && pos.gagal ? ' — ' + pos.gagal : ''}` },
+      { t: `🕒 ${waktu}${S.tim && S.akses ? ' · ' + S.akses.nama : ''}` },
+    ];
+    const lh = Math.round(fs * 1.35);
+    const tinggi = pad * 2 + lh * baris.length;
+    g.fillStyle = 'rgba(0,0,0,.6)';
+    g.fillRect(0, H - tinggi, W, tinggi);
+    g.fillStyle = '#fff';
+    g.textBaseline = 'top';
+    baris.forEach((r, i) => {
+      g.font = `${r.b ? '700 ' : ''}${fs}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+      let t = r.t;
+      while (t.length > 4 && g.measureText(t).width > W - pad * 2) t = t.slice(0, -2) + '…';
+      g.fillText(t, pad, H - tinggi + pad + i * lh);
+    });
+    return new Promise(resolve => cv.toBlob(resolve, 'image/jpeg', 0.85));
+  }
+
+  /** Ambil foto bukti untuk perangkat d: kamera + GPS bersamaan, cap, unggah. */
+  async function ambilFoto(d) {
+    if (fotoOf(d.id).length >= FOTO_MAKS) return toast(`${d.nama} sudah punya ${FOTO_MAKS} foto. Hapus salah satu untuk mengganti.`, true);
+    const posJanji = lokasiSekarang(); // izin & GPS berjalan selama kamera terbuka
+    const file = await bukaKamera();
+    if (!file) return;
+    const btn = $('#pn-foto [data-foto-ambil]');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Membaca lokasi & mengunggah…';
+    }
+    try {
+      const pos = await posJanji;
+      const waktu = waktuLokal(new Date());
+      const blob = await capFoto(file, d, pos, waktu);
+      if (!blob) throw new Error('Foto tidak bisa diproses');
+      const fd = new FormData();
+      if (S.tim) {
+        fd.append('t', S.tim);
+        fd.append('action', 'foto');
+      } else fd.append('action', 'foto_upload');
+      fd.append('id', d.id);
+      fd.append('foto', blob, 'foto.jpg');
+      fd.append('waktu', waktu);
+      if (pos && pos.lat != null) {
+        fd.append('lat', pos.lat);
+        fd.append('lng', pos.lng);
+        if (pos.acc != null) fd.append('akurasi', pos.acc);
+      }
+      const res = await api(S.tim ? 'api/tim.php' : API, fd);
+      S.foto = res.foto;
+      const n = fotoOf(d.id).length;
+      toast(`Foto ${n}/${FOTO_MAKS} ${d.nama} tersimpan${pos && pos.lat != null ? '' : ' — tanpa koordinat (' + ((pos && pos.gagal) || 'lokasi tidak tersedia') + ')'}`, !(pos && pos.lat != null));
+    } catch (e) {
+      toast(e.message, true);
+    }
+    const now = S.model.byId.get(d.id);
+    if (now && S.sel === d.id) renderFoto(now);
+  }
+
+  async function hapusFoto(d, id) {
+    if (!confirm('Hapus foto ini? Foto yang dihapus tidak bisa dikembalikan.')) return;
+    try {
+      const res = S.tim
+        ? await api('api/tim.php', { t: S.tim, action: 'foto_hapus', id })
+        : await api(API, { action: 'foto_hapus', id, proyek_id: S.proyek.id });
+      S.foto = res.foto;
+      toast('Foto dihapus');
+    } catch (e) {
+      toast(e.message, true);
+    }
+    if (S.sel === d.id) renderFoto(d);
+  }
+
+  /** Galeri kecil foto bukti (dipakai di panel & laporan). */
+  function fotoGaleri(d, hapus) {
+    const fs = fotoOf(d.id);
+    return fs.map((f, i) => `<figure class="foto-it">
+        <a href="${fotoUrl(f)}" target="_blank" rel="noopener" title="Buka foto ${i + 1} ukuran penuh"><img src="${fotoUrl(f)}" alt="Foto ${i + 1} ${esc(d.nama)}" loading="lazy"></a>
+        <figcaption>${f.lat != null ? `<a href="${petaUrl(f)}" target="_blank" rel="noopener" title="Buka di Google Maps${f.akurasi_m != null ? ' · akurasi ±' + Math.round(f.akurasi_m) + ' m' : ''}">📍 ${koordinat(f)}</a>` : '<span class="bad">📍 tanpa koordinat</span>'}
+          <span class="muted">${esc((f.diambil_at || '').slice(0, 16))}${f.oleh ? ' · ' + esc(f.oleh) : ''}</span></figcaption>
+        ${hapus && bisaHapusFoto(d, f) ? `<button type="button" class="foto-del" data-foto-hapus="${f.id}" title="Hapus foto" aria-label="Hapus foto ${i + 1}">✕</button>` : ''}
+      </figure>`).join('');
+  }
+
+  function renderFoto(d) {
+    const box = $('#pn-foto');
+    if (!box) return;
+    const n = fotoOf(d.id).length;
+    const boleh = bisaFoto(d);
+    if (!n && !boleh) {
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = `<div class="pn-sec foto-box">
+      <h4>📷 Foto bukti pemasangan <span class="foto-n${n ? ' ok' : ''}">${n}/${FOTO_MAKS}</span></h4>
+      ${n ? `<div class="foto-grid">${fotoGaleri(d, true)}</div>` : ''}
+      ${boleh && n < FOTO_MAKS ? `<button type="button" class="primary foto-ambil" data-foto-ambil>📷 Ambil foto ${n + 1}/${FOTO_MAKS}</button>
+        <p class="muted small">Kamera ponsel terbuka langsung. Judul event, nama perangkat, koordinat GPS, dan waktu dicap di foto. Izinkan akses lokasi.</p>` : ''}
+    </div>`;
+  }
+
+  $('#panel').addEventListener('click', e => {
+    if (S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    if (!d) return;
+    if (e.target.closest('[data-foto-ambil]')) return void ambilFoto(d);
+    const h = e.target.closest('[data-foto-hapus]');
+    if (h) hapusFoto(d, +h.dataset.fotoHapus);
+  });
 
   /** Kotak update status + catatan lapangan untuk link tim (hanya status yang diizinkan PM). */
   function renderTimBox(d) {
@@ -3092,7 +3641,13 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       patch = { atribut: atr };
     } else if (k === 'uplink_id') {
       patch = { uplink_id: v === '' ? null : +v };
-      if (v !== '' && !d.media) patch.media = 'utp';
+      const md = v !== '' ? mediaWajar(d.jenis, S.model.byId.get(+v), d.media) : d.media;
+      if (md !== d.media) {
+        patch.media = md;
+        toast(`Media ke uplink: ${(NP.MEDIA[md] || {}).label || md} (sesuai jenis uplink)`);
+      }
+      const P2 = v !== '' && S.model.byId.get(+v);
+      if (P2 && (P2.jenis === 'ap' || P2.jenis === 'bridge') && md === 'wireless' && d.port_uplink) patch.port_uplink = '';
       const baru = v !== '' && namaMasukGrup(d, +v);
       if (baru) {
         patch.nama = baru;
@@ -3113,7 +3668,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       if (k === 'jenis' && d.katalog_id != null) patch.katalog_id = null;
     }
     // Ganti jenis atau uplink -> isian/opsi lain ikut berubah, gambar ulang panel.
-    const full = k === 'jenis' || k === 'tipe_endpoint' || (k !== 'nama' && !!patch.nama);
+    const full = k === 'jenis' || k === 'tipe_endpoint' || k === 'vlan_mode' || k === 'vlan' || (k !== 'nama' && !!patch.nama) || (k === 'uplink_id' && 'media' in patch);
     saveDev(d.id, patch, { keepPanel: !full }).catch(() => {});
   });
 
@@ -3588,6 +4143,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             ${port ? `<span class="port" title="Port lokal ↔ port di uplink">${esc(port)}${d.media ? ' · ' + esc(MEDIA[d.media].short || d.media) : ''}</span>` : d.media && depth ? `<span class="port">${esc(MEDIA[d.media].short || d.media)}</span>` : ''}
             <span class="st st-${d.status}">${esc((STATUS[d.status] || STATUS.rencana).label)}</span>
             ${konBadge(m.koneksi(d))}
+            ${vlanBadge(d)}
             ${NP.perluKabel(d) && m.parentOf(d) ? `<span title="Status kabel ke ${esc(m.parentOf(d).nama)}">🔌 ${bolehKabel(d) ? kabelBadgeBtn(d) : kabelBadge(d)}</span>` : ''}
             ${lv ? `<span class="lv ${lv}">${lv === 'err' ? 'masalah' : lv === 'warn' ? 'peringatan' : 'catatan'}</span>` : ''}
           </div>
@@ -3622,6 +4178,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       : b.jumlah > b.stok ? `<b class="bad">${b.stok} (kurang ${b.jumlah - b.stok})</b>` : String(b.stok);
     $('#kabel-progres').innerHTML = progresKabelHtml(false);
     $('#listrik-sum').innerHTML = listrikSumHtml();
+    $('#vlan-sum').innerHTML = vlanSumHtml();
     $('#bom').innerHTML = bom.length ? `<table class="mini"><tr><th>Jenis</th><th>Nama alat</th><th class="num">Jumlah</th><th class="num">Stok</th></tr>${bom.map(b =>
       `<tr><td>${esc((TYPES[b.jenis] || TYPES.lainnya).label)}</td><td>${b.model ? esc(b.model) : '<span class="muted">(belum diisi)</span>'}${b.katalog ? ' <span class="tag-kat" title="Dari katalog">katalog</span>' : ''}</td><td class="num"><b>${b.jumlah}</b></td><td class="num">${stokCell(b)}</td></tr>`).join('')}</table>` : '<p class="muted">—</p>';
 
@@ -3819,6 +4376,45 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     printWith('A4 landscape');
   }
 
+  /**
+   * Laporan foto pemasangan: ringkasan kelengkapan, satu kartu per perangkat berfoto (1–3 foto + koordinat, waktu,
+   * pengambil, status, uplink & port), lalu daftar perangkat yang belum difoto. Menunggu semua foto dimuat sebelum cetak.
+   */
+  async function cetakLaporanFoto() {
+    const m = S.model;
+    const semua = NP.Model.sortDev(m.list.filter(d => !NP.isListrik(d)));
+    const ada = semua.filter(d => fotoOf(d.id).length);
+    const belum = semua.filter(d => !fotoOf(d.id).length);
+    const tanpaGps = S.foto.filter(f => f.lat == null && m.byId.get(f.perangkat_id)).length;
+    const st = d => (STATUS[d.status] || STATUS.rencana).label;
+    const lokasi = d => {
+      const p = m.parentOf(d);
+      return p ? `${esc(p.nama)}${d.port_uplink ? ' port ' + esc(d.port_uplink) : ''}` : '—';
+    };
+    const tr = (cells, th) => `<tr>${cells.map(c => `<${th ? 'th' : 'td'}>${c}</${th ? 'th' : 'td'}>`).join('')}</tr>`;
+    $('#print').className = 'print';
+    $('#print').innerHTML = prHead('Laporan foto pemasangan') +
+      `<p>Perangkat: <b>${semua.length}</b> · Sudah difoto: <b>${ada.length}</b> · Belum difoto: <b>${belum.length}</b> · Total foto: <b>${S.foto.filter(f => m.byId.get(f.perangkat_id)).length}</b>` +
+      `${tanpaGps ? ` · Foto tanpa koordinat: <b>${tanpaGps}</b>` : ''} · Terpasang/diuji: <b>${semua.filter(d => d.status === 'terpasang' || d.status === 'diuji').length}</b></p>` +
+      ada.map(d => {
+        const a = d.atribut || {};
+        return `<section class="pr-foto">
+          <h3>${esc(d.nama)} <small>${esc(jenisLabel(d))}${d.model ? ' · ' + esc(d.model) : ''}</small></h3>
+          <p class="pr-foto-meta">Status: <b>${esc(st(d))}</b> · Uplink: ${lokasi(d)}${d.ip ? ' · IP ' + esc(d.ip) : ''}${a.lokasi_rak ? ' · ' + esc(a.lokasi_rak) : ''}${d.pic ? ' · PIC ' + esc(d.pic) : ''}</p>
+          <div class="pr-foto-grid">${fotoOf(d.id).map((f, i) => `<figure>
+            <img src="${fotoUrl(f)}" alt="Foto ${i + 1} ${esc(d.nama)}">
+            <figcaption><b>Foto ${i + 1}</b> · ${esc((f.diambil_at || '').slice(0, 16))}${f.oleh ? ' · ' + esc(f.oleh) : ''}<br>
+              ${f.lat != null ? `📍 ${koordinat(f)}${f.akurasi_m != null ? ` (±${Math.round(f.akurasi_m)} m)` : ''}` : '📍 tanpa koordinat'}</figcaption></figure>`).join('')}</div>
+        </section>`;
+      }).join('') +
+      (belum.length ? `<h2>Belum ada foto (${belum.length})</h2><table class="pr-table">${tr(['Perangkat', 'Jenis', 'Status', 'Uplink / port', 'PIC'], true)}${belum.map(d =>
+        tr([`<b>${esc(d.nama)}</b>`, esc(jenisLabel(d)), esc(st(d)), lokasi(d), esc(d.pic)])).join('')}</table>` : '');
+    toast('Menyiapkan foto…');
+    // Semua foto harus selesai dimuat agar ikut tercetak.
+    await Promise.all($$('#print img').map(img => (img.complete ? null : new Promise(r => { img.onload = img.onerror = r; }))));
+    printWith('A4 portrait');
+  }
+
   /** Isi rekap listrik untuk dicetak: ringkasan, per titik listrik, tanpa pemasok, peralatan support. */
   function htmlRekapListrik() {
     const m = S.model;
@@ -4002,49 +4598,173 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
 
   // ---- halaman Ceklis (semua perangkat)
 
-  const ckF = { grup: '', jenis: '', belum: false, q: '' };
+  // Filter halaman Ceklis. tutup = jenis yang bagiannya dilipat (null = default: bagian > 20 perangkat dilipat).
+  const ckF = { grup: '', jenis: '', belum: false, q: '', tutup: null, buka: new Set() };
+  const mqCk = matchMedia('(max-width: 700px)');
+  mqCk.addEventListener('change', () => { if (S.tab === 'ceklis') renderCeklisPage(); });
+
+  /** Baris perangkat yang tampil sesuai filter: [{d, items (sesuai filter kelompok), pg}]. */
+  function barisCeklis() {
+    const q = ckF.q.trim().toLowerCase();
+    return NP.Model.sortDev(S.model.list)
+      .filter(d => (!ckF.jenis || d.jenis === ckF.jenis) && (!q || d.nama.toLowerCase().includes(q)))
+      .map(d => {
+        const pg = NP.ceklisProgres(d);
+        return { d, pg, items: pg.items.filter(it => !ckF.grup || it.grup === ckF.grup) };
+      })
+      .filter(r => r.items.length && (!ckF.belum || r.items.some(it => !it.ok)));
+  }
+
+  const ckPct = (a, b) => (b ? Math.round(a / b * 100) : 0);
+  const ckDev = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${NP.isListrik(d) ? '⚡' : esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
+  const ckTip = it => `${CKG[it.grup].label}: ${it.label}${it.info ? ' — ' + it.info.o + ', ' + it.info.t : ''}${it.link ? ' (tersinkron ' + (it.link.startsWith('kabel') ? 'status kabel' : 'status pemasangan') + ')' : ''}`;
 
   function renderCeklisPage() {
     const m = S.model;
-    const rows = NP.Model.sortDev(m.list).map(d => ({ d, pg: NP.ceklisProgres(d) }));
-    // Ringkasan per kelompok pekerjaan.
-    const tot = {};
-    Object.keys(CKG).forEach(g => { tot[g] = { selesai: 0, total: 0 }; });
-    let all = 0, done = 0;
-    rows.forEach(r => r.pg.items.forEach(it => { tot[it.grup].total++; all++; if (it.ok) { tot[it.grup].selesai++; done++; } }));
-    const pct = (a, b) => (b ? Math.round(a / b * 100) : 0);
-    const tile = (judul, s, t) => `<div class="sp-tile"><b>${pct(s, t)}%</b><span>${judul} · ${s}/${t}</span>${ckBar(pct(s, t), 6)}</div>`;
+    // Ringkasan per kelompok pekerjaan (seluruh event, tidak terpengaruh filter) — kartu bisa diklik untuk memfilter.
+    const tot = { '': { s: 0, t: 0 } };
+    Object.keys(CKG).forEach(g => { tot[g] = { s: 0, t: 0 }; });
+    let selesaiDev = 0;
+    m.list.forEach(d => {
+      const pg = NP.ceklisProgres(d);
+      if (pg.total && pg.selesai === pg.total) selesaiDev++;
+      pg.items.forEach(it => { tot[it.grup].t++; tot[''].t++; if (it.ok) { tot[it.grup].s++; tot[''].s++; } });
+    });
+    const tile = (g, judul) => `<button type="button" class="sp-tile ck-tile${ckF.grup === g ? ' on' : ''}" data-ck-grupf="${g}">
+        <b>${ckPct(tot[g].s, tot[g].t)}%</b><span>${judul}</span><span class="muted small">${tot[g].s}/${tot[g].t} item</span>${ckBar(ckPct(tot[g].s, tot[g].t), 6)}</button>`;
     let h = `<div class="sp-head">
-        <div><h1>Ceklis pekerjaan</h1><p class="muted">Penarikan kabel, penempatan peralatan, dan konfigurasi tiap perangkat. Klik item untuk mencentang.</p></div>
+        <div><h1>Ceklis pekerjaan</h1><p class="muted">${selesaiDev}/${m.list.length} perangkat selesai semua. Klik kotak untuk mencentang · <b>✓ semua</b> di kepala kolom mencentang satu pekerjaan untuk semua perangkat.</p></div>
         <div class="btn-row"><button type="button" data-ckp="csv">Unduh CSV</button><button type="button" class="primary" data-ckp="cetak">Cetak ceklis</button></div>
       </div>
-      <div class="sp-tiles">${tile('Semua pekerjaan', done, all)}${Object.keys(CKG).filter(g => tot[g].total).map(g => tile(CKG[g].icon + ' ' + CKG[g].label, tot[g].selesai, tot[g].total)).join('')}</div>
-      <div class="list-tools">
+      <div class="sp-tiles ck-tiles">${tile('', 'Semua pekerjaan')}${Object.keys(CKG).filter(g => tot[g].t).map(g => tile(g, CKG[g].icon + ' ' + CKG[g].label)).join('')}</div>
+      <div class="list-tools ck-tools">
         <input type="search" id="ck-q" placeholder="Cari perangkat…" value="${esc(ckF.q)}">
-        <select id="ck-grup"><option value="">Semua pekerjaan</option>${Object.keys(CKG).map(g => `<option value="${g}"${ckF.grup === g ? ' selected' : ''}>${CKG[g].icon} ${esc(CKG[g].label)}</option>`).join('')}</select>
         <select id="ck-jenis"><option value="">Semua jenis</option>${TYPE_ORDER.filter(j => m.list.some(d => d.jenis === j)).map(j => `<option value="${j}"${ckF.jenis === j ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select>
         <label class="check-inline"><input type="checkbox" id="ck-belum"${ckF.belum ? ' checked' : ''}> Hanya yang belum selesai</label>
+        <span class="spacer"></span>
+        <button type="button" class="small ghost" data-ck-lipat="buka">Buka semua</button><button type="button" class="small ghost" data-ck-lipat="tutup">Lipat semua</button>
       </div>`;
-    const q = ckF.q.trim().toLowerCase();
-    const tampil = rows.filter(r => (!ckF.jenis || r.d.jenis === ckF.jenis) && (!q || r.d.nama.toLowerCase().includes(q)))
-      .map(r => Object.assign(r, { items: r.pg.items.filter(it => !ckF.grup || it.grup === ckF.grup) }))
-      .filter(r => r.items.length && (!ckF.belum || r.items.some(it => !it.ok)));
-    h += `<div class="card"><table class="mini ck-table"><tr><th>Perangkat</th><th>Progres</th><th>Item pekerjaan</th></tr>${tampil.map(r => {
-      const s = r.items.filter(it => it.ok).length;
-      const boleh = bolehCeklis(r.d);
-      return `<tr><td><a href="#" class="dev-link" data-sel="${r.d.id}"><i style="background:${NP.tampil(r.d).color}">${NP.isListrik(r.d) ? '⚡' : esc(NP.tampil(r.d).short)}</i>${esc(r.d.nama)}</a></td>
-        <td class="ck-prog"><b>${s}/${r.items.length}</b>${ckBar(pct(s, r.items.length), 6)}</td>
-        <td><div class="ck-chips">${r.items.map(it => `<button type="button" class="ck-chip${it.ok ? ' ok' : ''}" ${boleh ? `data-ck-chip="${r.d.id}:${it.key}"` : 'disabled'} title="${esc(CKG[it.grup].label)}${it.info ? ' · ' + esc(it.info.o + ' ' + it.info.t) : ''}">${it.ok ? '✓' : '○'} ${esc(it.label)}</button>`).join('')}</div></td></tr>`;
-    }).join('') || '<tr><td colspan="3" class="muted center">Tidak ada yang cocok.</td></tr>'}</table></div>`;
+    const rows = barisCeklis();
+    if (!rows.length) {
+      $('#ceklis-pane').innerHTML = h + '<div class="card"><p class="muted center">Tidak ada pekerjaan yang cocok dengan filter.</p></div>';
+      return;
+    }
+    // Dikelompokkan per jenis perangkat; setiap jenis punya kolom pekerjaan sendiri.
+    const perJenis = new Map();
+    rows.forEach(r => {
+      if (!perJenis.has(r.d.jenis)) perJenis.set(r.d.jenis, []);
+      perJenis.get(r.d.jenis).push(r);
+    });
+    if (!ckF.tutup) ckF.tutup = new Set([...perJenis].filter(([, rs]) => rs.length > 20).map(([j]) => j));
+    for (const [j, rs] of perJenis) h += mqCk.matches ? kartuJenis(j, rs) : matriksJenis(j, rs);
     $('#ceklis-pane').innerHTML = h;
+  }
+
+  /** Kepala bagian per jenis: nama, jumlah, progres, lipat. */
+  function kepalaJenis(j, rs) {
+    const s = rs.reduce((n, r) => n + r.items.filter(it => it.ok).length, 0);
+    const t = rs.reduce((n, r) => n + r.items.length, 0);
+    const tutup = ckF.tutup.has(j);
+    return `<button type="button" class="ck-sec-h" data-ck-sec="${j}" aria-expanded="${!tutup}">
+      <span class="twig${tutup ? '' : ' buka'}">▸</span><i class="dotc" style="background:${TYPES[j].color}"></i>
+      <b>${esc(TYPES[j].label)}</b><span class="muted small">${rs.length} perangkat · ${s}/${t} item</span>
+      <span class="spacer"></span><span class="ck-sec-p">${ckPct(s, t)}%</span><span class="ck-sec-bar">${ckBar(ckPct(s, t), 6)}</span></button>`;
+  }
+
+  /** Desktop: matriks perangkat × pekerjaan untuk satu jenis. */
+  function matriksJenis(j, rs) {
+    let h = `<div class="card ck-sec">${kepalaJenis(j, rs)}`;
+    if (ckF.tutup.has(j)) return h + '</div>';
+    // Kolom = gabungan item semua perangkat jenis ini, urut kelompok pekerjaan.
+    const kol = [];
+    const ada = new Set();
+    Object.keys(CKG).forEach(g => rs.forEach(r => r.items.filter(it => it.grup === g).forEach(it => {
+      if (!ada.has(it.key)) { ada.add(it.key); kol.push(it); }
+    })));
+    const boleh = rs.some(r => bolehCeklis(r.d));
+    // Baris judul kelompok pekerjaan di atas kolom-kolomnya.
+    const span = [];
+    kol.forEach(k => { if (span.length && span[span.length - 1].g === k.grup) span[span.length - 1].n++; else span.push({ g: k.grup, n: 1 }); });
+    h += `<div class="ck-scroll"><table class="ck-mx"><thead><tr class="ck-grp-row"><th class="ck-mx-dev"></th>${span.map(s => `<th colspan="${s.n}" class="ck-g-${s.g}">${CKG[s.g].icon} ${esc(CKG[s.g].label)}</th>`).join('')}<th></th></tr>
+      <tr><th class="ck-mx-dev">Perangkat</th>${kol.map(k => {
+      const punya = rs.filter(r => r.items.some(it => it.key === k.key));
+      const s = punya.filter(r => r.items.find(it => it.key === k.key).ok).length;
+      return `<th class="ck-g-${k.grup}" title="${esc(CKG[k.grup].label)}: ${esc(k.label)}"><span class="ck-th-l">${esc(k.label)}</span>
+        <span class="ck-th-n${s === punya.length ? ' ok' : ''}">${s}/${punya.length}</span>
+        ${boleh && s < punya.length ? `<button type="button" class="ck-all" data-ck-all="${j}:${k.key}" title="Centang ${esc(k.label)} untuk semua ${esc(TYPES[j].label)} yang tampil">✓ semua</button>` : ''}</th>`;
+    }).join('')}<th class="ck-mx-p">Progres</th></tr></thead><tbody>`;
+    h += rs.map(r => {
+      const s = r.items.filter(it => it.ok).length;
+      const bol = bolehCeklis(r.d);
+      return `<tr><td class="ck-mx-dev">${ckDev(r.d)}</td>${kol.map(k => {
+        const it = r.items.find(x => x.key === k.key);
+        if (!it) return '<td class="ck-na">—</td>';
+        return `<td><button type="button" class="ck-cell${it.ok ? ' ok' : ''}" ${bol ? `data-ck-chip="${r.d.id}:${it.key}"` : 'disabled'} title="${esc(ckTip(it))}" aria-label="${esc(it.label)}">${it.ok ? '✓' : ''}</button></td>`;
+      }).join('')}<td class="ck-mx-p"><b>${s}/${r.items.length}</b>${ckBar(ckPct(s, r.items.length), 5)}</td></tr>`;
+    }).join('');
+    return h + '</tbody></table></div></div>';
+  }
+
+  /** HP: kartu per perangkat — progres + pekerjaan berikutnya (satu ketuk) + daftar lengkap bisa dibuka. */
+  function kartuJenis(j, rs) {
+    let h = `<div class="card ck-sec">${kepalaJenis(j, rs)}`;
+    if (ckF.tutup.has(j)) return h + '</div>';
+    h += rs.map(r => {
+      const s = r.items.filter(it => it.ok).length;
+      const bol = bolehCeklis(r.d);
+      const next = r.items.find(it => !it.ok);
+      const buka = ckF.buka.has(r.d.id);
+      return `<div class="ck-card">
+        <div class="ck-card-h">${ckDev(r.d)}<span class="spacer"></span><b>${s}/${r.items.length}</b></div>
+        ${ckBar(ckPct(s, r.items.length), 5)}
+        ${next ? `<button type="button" class="ck-next" ${bol ? `data-ck-chip="${r.d.id}:${next.key}"` : 'disabled'}>○ <span class="muted">Berikutnya:</span> ${esc(next.label)}</button>` : '<div class="ck-done">✓ Semua pekerjaan selesai</div>'}
+        <button type="button" class="ck-more" data-ck-buka="${r.d.id}">${buka ? '▾ Tutup daftar' : `▸ Semua item (${r.items.length})`}</button>
+        ${buka ? `<div class="ck-chips">${r.items.map(it => `<button type="button" class="ck-chip${it.ok ? ' ok' : ''}" ${bol ? `data-ck-chip="${r.d.id}:${it.key}"` : 'disabled'} title="${esc(ckTip(it))}">${it.ok ? '✓' : '○'} ${esc(it.label)}</button>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('');
+    return h + '</div>';
+  }
+
+  /**
+   * Centang satu pekerjaan untuk banyak perangkat sekaligus (satu langkah Ctrl+Z untuk admin). Item tersinkron
+   * memakai aksi massal status kabel / status pemasangan.
+   */
+  async function ceklisMassal(ds, key) {
+    const target = ds.map(d => ({ d, it: ckItem(d, key) })).filter(x => x.it && !x.it.ok && bolehCeklis(x.d));
+    if (!target.length) return;
+    const it0 = target[0].it;
+    if (!confirm(`Centang "${it0.label}" untuk ${target.length} perangkat?`)) return;
+    if (it0.link) {
+      const [jenis, st] = it0.link.split(':');
+      const ids = target.map(x => x.d.id);
+      if (jenis === 'kabel') return setKabel(ids, st);
+      if (S.tim) {
+        for (const x of target) await setCeklis(x.d, x.it, true);
+        return;
+      }
+      return statusMassal(ids, st);
+    }
+    if (S.tim) {
+      for (const x of target) await setCeklis(x.d, x.it, true);
+      return toast(`${target.length} perangkat: ${it0.label} ✓`);
+    }
+    await kelompok(`ceklis "${it0.label}" ${target.length} perangkat`, async () => {
+      for (const x of target) {
+        const data = NP.ceklisData(x.d);
+        const n = new Date(), dua = v => String(v).padStart(2, '0');
+        data[key] = { t: `${n.getFullYear()}-${dua(n.getMonth() + 1)}-${dua(n.getDate())} ${dua(n.getHours())}:${dua(n.getMinutes())}`, o: 'Admin' };
+        await saveDev(x.d.id, { atribut: Object.assign({}, x.d.atribut, { ceklis: JSON.stringify(data) }) }, { keepPanel: true }).catch(() => {});
+      }
+    });
+    renderTab();
+    toast(`${target.length} perangkat: ${it0.label} ✓`);
   }
 
   $('[data-pane="ceklis"]').addEventListener('input', e => {
     if (e.target.id === 'ck-q') { ckF.q = e.target.value; renderCeklisPage(); const i = $('#ck-q'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   });
   $('[data-pane="ceklis"]').addEventListener('change', e => {
-    if (e.target.id === 'ck-grup') ckF.grup = e.target.value;
-    else if (e.target.id === 'ck-jenis') ckF.jenis = e.target.value;
+    if (e.target.id === 'ck-jenis') ckF.jenis = e.target.value;
     else if (e.target.id === 'ck-belum') ckF.belum = e.target.checked;
     else return;
     renderCeklisPage();
@@ -4052,6 +4772,35 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   $('[data-pane="ceklis"]').addEventListener('click', e => {
     const b = e.target.closest('[data-ckp]');
     if (b) return b.dataset.ckp === 'csv' ? csvCeklis() : cetakCeklis();
+    const tg = e.target.closest('[data-ck-grupf]');
+    if (tg) {
+      ckF.grup = ckF.grup === tg.dataset.ckGrupf ? '' : tg.dataset.ckGrupf;
+      return renderCeklisPage();
+    }
+    const sec = e.target.closest('[data-ck-sec]');
+    if (sec) {
+      const j = sec.dataset.ckSec;
+      if (ckF.tutup.has(j)) ckF.tutup.delete(j);
+      else ckF.tutup.add(j);
+      return renderCeklisPage();
+    }
+    const lipat = e.target.closest('[data-ck-lipat]');
+    if (lipat) {
+      ckF.tutup = lipat.dataset.ckLipat === 'buka' ? new Set() : new Set(TYPE_ORDER);
+      return renderCeklisPage();
+    }
+    const more = e.target.closest('[data-ck-buka]');
+    if (more) {
+      const id = +more.dataset.ckBuka;
+      if (ckF.buka.has(id)) ckF.buka.delete(id);
+      else ckF.buka.add(id);
+      return renderCeklisPage();
+    }
+    const all = e.target.closest('[data-ck-all]');
+    if (all) {
+      const [j, key] = all.dataset.ckAll.split(':');
+      return ceklisMassal(barisCeklis().filter(r => r.d.jenis === j).map(r => r.d), key);
+    }
     const a = e.target.closest('[data-sel]');
     if (!a) return;
     e.preventDefault();
@@ -4639,6 +5388,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       if (!S.list.some(NP.nonJaringan)) return toast('Belum ada titik listrik / peralatan support di event ini', true);
       dlgPrint.close();
       cetakLaporanSupport();
+    } else if (jenis === 'foto') {
+      if (!S.foto.length) return toast('Belum ada foto bukti. Ambil foto dari panel perangkat (tab Info) lewat ponsel.', true);
+      dlgPrint.close();
+      cetakLaporanFoto();
     } else {
       dlgPrint.close();
       printReport();

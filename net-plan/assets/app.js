@@ -3479,10 +3479,16 @@
   }
 
   /**
-   * Penampil foto (modal geser): foto perangkat d mulai dari foto id. Panah / geser (sentuh) / tombol ← → untuk pindah,
-   * Esc / klik latar untuk menutup. Keterangan: perangkat, urutan, koordinat (Google Maps), waktu, pengambil.
+   * Penampil foto (modal) dengan zoom. Foto perangkat d mulai dari foto id.
+   * - Laptop: scroll roda = zoom di titik kursor, seret = geser, klik 2× = perbesar / kembali, tombol − / 100% / +,
+   *   keyboard + − 0, ← → pindah foto, Esc tutup.
+   * - Ponsel: cubit 2 jari = zoom, 1 jari = geser saat diperbesar, ketuk 2× = perbesar / kembali,
+   *   usap kiri / kanan (saat tidak diperbesar) = pindah foto.
+   * Zoom 1×–6×, posisi dibatasi agar foto tidak lepas dari layar; zoom kembali ke 1× saat pindah foto.
    */
-  const viewer = { d: null, list: [], i: 0, x0: null };
+  const ZOOM_MAKS = 6, ZOOM_KETUK = 2.5;
+  const viewer = { d: null, list: [], i: 0, s: 1, x: 0, y: 0, ptr: new Map(), gest: null, ketuk: null, geser: false, turun: null };
+
   function lihatFoto(d, id) {
     viewer.d = d;
     viewer.list = fotoOf(d.id);
@@ -3493,35 +3499,176 @@
       dlg.id = 'dlg-foto';
       dlg.className = 'dlg-foto';
       dlg.innerHTML = `<div class="fv-top"><b class="fv-judul"></b><span class="fv-n"></span>
+          <div class="fv-zoom" role="group" aria-label="Zoom foto">
+            <button type="button" data-fv="zoom-" title="Perkecil (−)" aria-label="Perkecil">−</button>
+            <button type="button" class="fv-pct" data-fv="pas" title="Kembali ke ukuran layar (0)">100%</button>
+            <button type="button" data-fv="zoom+" title="Perbesar (+)" aria-label="Perbesar">+</button>
+          </div>
           <a class="fv-unduh" title="Unduh foto" aria-label="Unduh foto">⬇</a>
           <button type="button" class="fv-x" data-fv="tutup" title="Tutup (Esc)" aria-label="Tutup">✕</button></div>
         <div class="fv-stage" tabindex="-1" autofocus><button type="button" class="fv-nav prev" data-fv="-1" aria-label="Foto sebelumnya">‹</button>
-          <img class="fv-img" alt=""><button type="button" class="fv-nav next" data-fv="1" aria-label="Foto berikutnya">›</button></div>
-        <div class="fv-cap"></div><div class="fv-dots"></div>`;
+          <img class="fv-img" alt="" draggable="false"><button type="button" class="fv-nav next" data-fv="1" aria-label="Foto berikutnya">›</button></div>
+        <div class="fv-cap"></div>
+        <div class="fv-bawah"><div class="fv-dots"></div><span class="fv-hint"></span></div>`;
       document.body.appendChild(dlg);
+      const st = dlg.querySelector('.fv-stage');
       dlg.addEventListener('click', e => {
         const b = e.target.closest('[data-fv]');
-        if (b) return b.dataset.fv === 'tutup' ? dlg.close() : geserFoto(+b.dataset.fv);
+        if (b) {
+          const a = b.dataset.fv;
+          if (a === 'tutup') return dlg.close();
+          if (a === 'zoom+') return zoomKe(viewer.s * 1.6);
+          if (a === 'zoom-') return zoomKe(viewer.s / 1.6);
+          if (a === 'pas') return zoomKe(1);
+          return geserFoto(+a);
+        }
         const dot = e.target.closest('[data-fv-i]');
         if (dot) return tampilFoto(+dot.dataset.fvI);
-        if (e.target === dlg || e.target.classList.contains('fv-stage')) dlg.close(); // klik latar
+        // Klik latar menutup, kecuali baru saja menggeser / zoom.
+        // (pointer capture membuat target klik = area foto, jadi pakai elemen tempat tekan dimulai).
+        const t0 = viewer.turun || e.target;
+        viewer.turun = null;
+        if (!viewer.geser && viewer.s === 1 && (t0 === dlg || t0 === st)) dlg.close();
       });
       dlg.addEventListener('keydown', e => {
         if (e.key === 'ArrowLeft') geserFoto(-1);
         else if (e.key === 'ArrowRight') geserFoto(1);
+        else if (e.key === '+' || e.key === '=') zoomKe(viewer.s * 1.6);
+        else if (e.key === '-') zoomKe(viewer.s / 1.6);
+        else if (e.key === '0') zoomKe(1);
       });
-      // Geser jari ke kiri / kanan.
-      const st = dlg.querySelector('.fv-stage');
-      st.addEventListener('touchstart', e => { viewer.x0 = e.touches[0].clientX; }, { passive: true });
-      st.addEventListener('touchend', e => {
-        if (viewer.x0 == null) return;
-        const dx = e.changedTouches[0].clientX - viewer.x0;
-        viewer.x0 = null;
-        if (Math.abs(dx) > 40) geserFoto(dx < 0 ? 1 : -1);
+      // Roda mouse / touchpad: zoom di titik kursor.
+      st.addEventListener('wheel', e => {
+        e.preventDefault();
+        zoomKe(viewer.s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0022)), e.clientX, e.clientY);
+      }, { passive: false });
+      st.addEventListener('pointerdown', e => {
+        if (e.target.closest('.fv-nav')) return;
+        if (!viewer.ptr.size) viewer.turun = e.target;
+        try { st.setPointerCapture(e.pointerId); } catch (er) { /* pointer sintetis / tidak didukung */ }
+        viewer.ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        viewer.geser = false;
+        mulaiGestur();
       });
+      st.addEventListener('pointermove', e => {
+        if (!viewer.ptr.has(e.pointerId)) return;
+        viewer.ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const g = viewer.gest;
+        if (!g) return;
+        const ps = [...viewer.ptr.values()];
+        if (ps.length >= 2 && g.d0) {
+          // Cubit: skala mengikuti jarak 2 jari, titik tengah tetap di bawah jari.
+          const mid = { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 };
+          const s = klem(g.s0 * Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) / g.d0, 1, ZOOM_MAKS);
+          const c = pusatStage();
+          const p0 = { x: g.mid.x - c.x, y: g.mid.y - c.y };
+          viewer.s = s;
+          viewer.x = mid.x - c.x - (p0.x - g.x0) * s / g.s0;
+          viewer.y = mid.y - c.y - (p0.y - g.y0) * s / g.s0;
+          viewer.geser = true;
+          terapkanZoom(false);
+        } else if (ps.length === 1) {
+          const dx = ps[0].x - g.p.x, dy = ps[0].y - g.p.y;
+          if (Math.abs(dx) + Math.abs(dy) > 6) viewer.geser = true;
+          if (viewer.s > 1) {
+            viewer.x = g.x0 + dx;
+            viewer.y = g.y0 + dy;
+            terapkanZoom(false);
+          } else if (viewer.list.length > 1) {
+            // Tidak diperbesar: foto ikut usapan sedikit sebagai umpan balik pindah foto.
+            dlg.querySelector('.fv-img').style.transform = `translate(${dx * 0.35}px, 0)`;
+          }
+        }
+      });
+      const lepas = e => {
+        if (!viewer.ptr.has(e.pointerId)) return;
+        const g = viewer.gest;
+        const akhir = viewer.ptr.get(e.pointerId);
+        viewer.ptr.delete(e.pointerId);
+        if (viewer.ptr.size) return mulaiGestur(); // sisa 1 jari: lanjut geser dari posisi sekarang
+        viewer.gest = null;
+        if (!g || g.d0) return terapkanZoom(true);
+        const dx = akhir.x - g.p.x, dy = akhir.y - g.p.y;
+        // Usap (tidak diperbesar): pindah foto.
+        if (viewer.s === 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && viewer.list.length > 1) {
+          viewer.ketuk = null;
+          return geserFoto(dx < 0 ? 1 : -1);
+        }
+        terapkanZoom(true);
+        // Ketuk 2× (sentuh / pena): perbesar di titik itu, atau kembali ke ukuran layar.
+        if (!viewer.geser && e.type === 'pointerup' && e.pointerType !== 'mouse') {
+          const now = Date.now();
+          const k = viewer.ketuk;
+          if (k && now - k.t < 320 && Math.hypot(akhir.x - k.x, akhir.y - k.y) < 30) {
+            viewer.ketuk = null;
+            if (e.target.closest('.fv-img') || viewer.s > 1) zoomKe(viewer.s > 1 ? 1 : ZOOM_KETUK, akhir.x, akhir.y);
+          } else viewer.ketuk = { t: now, x: akhir.x, y: akhir.y };
+        }
+        if (viewer.geser) setTimeout(() => { viewer.geser = false; }, 0);
+      };
+      // Mouse: klik 2× memakai dblclick bawaan browser (jeda klik sesuai setelan sistem).
+      st.addEventListener('dblclick', e => {
+        if (e.target.closest('.fv-nav')) return;
+        if (e.target.closest('.fv-img') || viewer.s > 1) zoomKe(viewer.s > 1 ? 1 : ZOOM_KETUK, e.clientX, e.clientY);
+      });
+      st.addEventListener('pointerup', lepas);
+      st.addEventListener('pointercancel', lepas);
     }
+    // Petunjuk sesuai perangkat saat ini (layar sentuh / mouse).
+    dlg.querySelector('.fv-hint').textContent = matchMedia('(pointer: coarse)').matches
+      ? 'Cubit untuk zoom · ketuk 2× perbesar · usap untuk pindah foto'
+      : 'Scroll untuk zoom · seret untuk geser · klik 2× perbesar';
     tampilFoto(viewer.i);
     if (!dlg.open) dlg.showModal();
+  }
+
+  const klem = (v, a, b) => Math.min(b, Math.max(a, v));
+  function pusatStage() {
+    const r = $('#dlg-foto .fv-stage').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
+  }
+  /** Mulai gestur dari keadaan sekarang (1 jari = geser, 2 jari = cubit). */
+  function mulaiGestur() {
+    const ps = [...viewer.ptr.values()];
+    const g = { s0: viewer.s, x0: viewer.x, y0: viewer.y, p: ps[0] };
+    if (ps.length >= 2) {
+      g.d0 = Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) || 1;
+      g.mid = { x: (ps[0].x + ps[1].x) / 2, y: (ps[0].y + ps[1].y) / 2 };
+    }
+    viewer.gest = g;
+  }
+  /** Zoom ke skala s dengan titik layar (cx, cy) tetap di tempatnya (bawaan: tengah). */
+  function zoomKe(s, cx, cy) {
+    if (!$('#dlg-foto .fv-stage')) return;
+    const c = pusatStage();
+    const s1 = klem(s, 1, ZOOM_MAKS);
+    const px = (cx == null ? c.x : cx) - c.x, py = (cy == null ? c.y : cy) - c.y;
+    viewer.x = px - (px - viewer.x) * s1 / viewer.s;
+    viewer.y = py - (py - viewer.y) * s1 / viewer.s;
+    viewer.s = s1;
+    terapkanZoom(true);
+  }
+  /** Terapkan skala & posisi; geser dibatasi agar tepi foto tidak masuk melewati tepi layar. */
+  function terapkanZoom(halus) {
+    const dlg = $('#dlg-foto');
+    if (!dlg) return;
+    const img = dlg.querySelector('.fv-img');
+    const c = pusatStage();
+    if (viewer.s <= 1.001) {
+      viewer.s = 1;
+      viewer.x = viewer.y = 0;
+    } else {
+      const mx = Math.max(0, (img.offsetWidth * viewer.s - c.w) / 2);
+      const my = Math.max(0, (img.offsetHeight * viewer.s - c.h) / 2);
+      viewer.x = klem(viewer.x, -mx, mx);
+      viewer.y = klem(viewer.y, -my, my);
+    }
+    img.classList.toggle('halus', !!halus);
+    img.style.transform = `translate(${viewer.x}px, ${viewer.y}px) scale(${viewer.s})`;
+    dlg.classList.toggle('zoom', viewer.s > 1);
+    dlg.querySelector('.fv-pct').textContent = Math.round(viewer.s * 100) + '%';
+    dlg.querySelector('[data-fv="zoom-"]').disabled = viewer.s <= 1;
+    dlg.querySelector('[data-fv="zoom+"]').disabled = viewer.s >= ZOOM_MAKS;
   }
   function geserFoto(arah) {
     const n = viewer.list.length;
@@ -3532,10 +3679,13 @@
     const f = viewer.list[i];
     if (!dlg || !f) return;
     viewer.i = i;
+    viewer.s = 1;
+    viewer.x = viewer.y = 0;
     const n = viewer.list.length;
     const img = dlg.querySelector('.fv-img');
     img.src = fotoUrl(f);
     img.alt = `Foto ${i + 1} ${viewer.d.nama}`;
+    terapkanZoom(false);
     dlg.querySelector('.fv-judul').textContent = viewer.d.nama;
     dlg.querySelector('.fv-n').textContent = `Foto ${i + 1}/${n}`;
     dlg.querySelector('.fv-unduh').href = fotoUrl(f) + '&unduh=1';

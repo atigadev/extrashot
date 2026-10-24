@@ -258,6 +258,13 @@ pada kategori tugasnya.
   - keterangan koordinat, waktu, dan pengambil;
   - tombol ⬇ unduh;
   - tutup dengan Esc, ✕, atau klik latar.
+  - **zoom 100–600%** untuk melihat detail (SN, label port, kabel). Posisi foto dibatasi agar tidak lepas dari layar, dan
+    zoom kembali ke 100% saat pindah foto:
+    - **laptop**: scroll roda di titik kursor, seret untuk menggeser, klik 2× untuk perbesar / kembali, tombol − / 100% / +
+      di atas, dan keyboard + − 0;
+    - **ponsel**: cubit 2 jari, geser 1 jari saat diperbesar, ketuk 2× untuk perbesar / kembali. Usap kiri / kanan
+      pindah foto bila tidak diperbesar.
+  - Petunjuk singkat di bawah foto menyesuaikan perangkat (layar sentuh / mouse).
 - **Hapus foto**: admin bisa menghapus semua foto; tim hanya foto yang diambilnya sendiri.
 - **Penyimpanan**: tabel `np_foto` (migrasi otomatis, skema 9) dan file `uploads/foto_*.jpg`. File hanya disajikan lewat
   `api/foto.php`, dengan cek login admin, link tim, atau link lihat-saja event yang sama.

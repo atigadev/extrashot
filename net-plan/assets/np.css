@@ -1100,22 +1100,54 @@ tr.bad-row td { background: #fef2f2; }
   display: none; flex-direction: column; }
 .dlg-foto[open] { display: flex; }
 .dlg-foto::backdrop { background: rgba(8, 12, 20, .6); }
-.fv-top { display: flex; align-items: center; gap: 10px; padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top)); }
-.fv-top .fv-n { color: #cbd5e1; font-size: 13px; }
-.fv-top .fv-unduh { margin-left: auto; color: #fff; text-decoration: none; font-size: 18px; padding: 4px 8px; border-radius: 8px; }
-.fv-top .fv-x { background: none; border: 0; color: #fff; font-size: 22px; padding: 4px 10px; }
+.fv-top { display: flex; align-items: center; gap: 10px; padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top)); min-height: 52px; }
+.fv-top .fv-judul { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fv-top .fv-n { color: #cbd5e1; font-size: 13px; white-space: nowrap; }
+.fv-zoom { display: inline-flex; align-items: center; margin-left: auto; background: rgba(255, 255, 255, .1); border-radius: 10px; padding: 2px; }
+.fv-zoom button { background: none; border: 0; color: #fff; min-width: 38px; height: 36px; padding: 0 8px; border-radius: 8px; font-size: 20px; line-height: 1; }
+.fv-zoom .fv-pct { font-size: 12.5px; font-weight: 600; min-width: 54px; font-variant-numeric: tabular-nums; }
+.fv-zoom button:hover:not(:disabled) { background: rgba(255, 255, 255, .16); }
+.fv-zoom button:disabled { opacity: .35; }
+.fv-top .fv-unduh { color: #fff; text-decoration: none; font-size: 18px; min-width: 38px; height: 36px; display: grid; place-items: center; border-radius: 8px; }
+.fv-top .fv-x { background: none; border: 0; color: #fff; font-size: 22px; min-width: 40px; height: 40px; border-radius: 8px; }
 .fv-top .fv-unduh:hover, .fv-top .fv-x:hover { background: rgba(255, 255, 255, .12); }
-.fv-stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 0 8px; touch-action: pan-y; }
-.fv-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; user-select: none; -webkit-user-drag: none; }
-.fv-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 64px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, .14);
-  color: #fff; font-size: 36px; line-height: 1; padding: 0; }
+/* Area foto: gestur ditangani sendiri (zoom / geser / usap), jadi browser tidak ikut menggulir / zoom halaman. */
+.fv-stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 0 8px;
+  overflow: hidden; touch-action: none; cursor: zoom-in; user-select: none; -webkit-user-select: none; }
+.dlg-foto.zoom .fv-stage { cursor: grab; }
+.dlg-foto.zoom .fv-stage:active { cursor: grabbing; }
+.fv-stage:focus { outline: none; }
+.fv-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; user-select: none; -webkit-user-drag: none;
+  transform-origin: center center; will-change: transform; image-rendering: auto; }
+.fv-img.halus { transition: transform .18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .fv-img.halus { transition: none; } }
+.fv-nav { position: absolute; z-index: 2; top: 50%; transform: translateY(-50%); width: 46px; height: 64px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, .14);
+  color: #fff; font-size: 36px; line-height: 1; padding: 0; transition: opacity .15s; }
 .fv-nav:hover { background: rgba(255, 255, 255, .28); }
 .fv-nav.prev { left: 10px; }
 .fv-nav.next { right: 10px; }
-.fv-cap { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding: 10px 14px 4px; font-size: 13px; color: #e2e8f0; text-align: center; }
+.dlg-foto.zoom .fv-nav { opacity: .35; }
+.dlg-foto.zoom .fv-nav:hover { opacity: 1; }
+.fv-cap { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding: 8px 14px 2px; font-size: 13px; color: #e2e8f0; text-align: center; }
 .fv-cap a { color: #93c5fd; }
-.fv-dots { display: flex; justify-content: center; gap: 8px; padding: 6px 0 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.fv-bawah { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 12px 10px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+.fv-dots { display: flex; justify-content: center; gap: 8px; }
+.fv-dots:empty { display: none; }
 .fv-dots button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .35); }
 .fv-dots button.on { background: #fff; }
-@media (pointer: coarse) { .fv-nav { width: 40px; height: 52px; font-size: 30px; background: rgba(0, 0, 0, .35); } }
-.fv-stage:focus { outline: none; }
+.fv-hint { font-size: 11.5px; color: #94a3b8; text-align: center; }
+.dlg-foto.zoom .fv-hint { visibility: hidden; }
+@media (pointer: coarse) {
+  .fv-nav { width: 40px; height: 52px; font-size: 30px; background: rgba(0, 0, 0, .35); }
+  .fv-dots button { width: 12px; height: 12px; }
+}
+/* Ponsel: judul ringkas, tombol zoom tetap terjangkau jempol, keterangan lebih kecil. */
+@media (max-width: 560px) {
+  .fv-top { gap: 6px; padding-left: 10px; padding-right: 6px; }
+  .fv-top .fv-n { font-size: 12px; }
+  .fv-zoom button { min-width: 34px; font-size: 18px; }
+  .fv-zoom .fv-pct { min-width: 46px; font-size: 11.5px; }
+  .fv-stage { padding: 0; }
+  .fv-img { border-radius: 0; }
+  .fv-cap { font-size: 12px; gap: 2px 10px; }
+}

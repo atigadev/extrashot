@@ -259,6 +259,25 @@ pada kategori tugasnya.
 - **Validasi server**: batas 3 foto dikunci dengan transaksi, hanya JPEG, maks. 8 MB.
 - **Hapus event** ikut menghapus file fotonya. Foto perangkat yang dihapus tetap disimpan agar ikut kembali saat Ctrl+Z.
 
+**Checker penempatan.** Peran akses tim ketiga, selain *Lihat saja* dan *Update status*: **Checker penempatan**. Buat
+di *Proyek → Akses tim*. Kategori tugasnya bisa dibatasi (mis. AP & switch saja). Checker membuka link di ponsel dan
+untuk setiap titik melihat kotak **🔍 Pengecekan penempatan**:
+- **Acuan plan**: potongan denah di sekitar titik, alat (jenis & model), uplink + port + media, posisi pasang
+  (pemasangan / rak), arah, IP/VLAN, dan catatan plan.
+- **Hasil**: tombol **✓ Sesuai plan** / **✕ Tidak sesuai**. Catatan wajib diisi bila tidak sesuai. Ada juga *Kirim
+  catatan saja*.
+- **Foto bukti** 1–3 kali di bawah kotak itu (fitur foto di atas).
+- **Berikutnya belum dicek →** melompat ke titik tugas berikutnya. Header link menampilkan progres, mis. "checker ·
+  12/40 dicek".
+
+Checker **tidak bisa** mengubah status, kabel, ceklis, atau konfigurasi. Hasil pengecekan:
+- disimpan di atribut `verif` beserta pengecek dan waktu (waktu lokal ponsel), dan tercatat di riwayat perangkat;
+- tampil sebagai tanda di titik denah: ✓ biru = sesuai, ! merah = tidak sesuai;
+- "tidak sesuai" masuk *Pemeriksaan desain* sebagai peringatan, lengkap dengan catatannya;
+- ikut di Laporan foto pemasangan.
+
+Admin melihat kotak yang sama, tanpa acuan plan, dan bisa mengisi, mengubah, atau menghapus hasil.
+
 **Laporan foto pemasangan** (menu *Cetak*, A4 tegak) berisi:
 - ringkasan: jumlah perangkat, yang sudah / belum difoto, total foto, dan foto tanpa koordinat;
 - satu kartu per perangkat berfoto: status, uplink & port, IP, PIC, lalu foto utuh dengan capnya, waktu, pengambil,

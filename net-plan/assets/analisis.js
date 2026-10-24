@@ -592,6 +592,9 @@
           const bebas = (Array.isArray(mt.vlan) ? mt.vlan : []).map(v => parseInt(v && v.id, 10)).filter(v => v > 1 && !dipakai.has(v));
           if (bebas.length) add('info', d, `${d.nama}: VLAN ${bebas.join(', ')} dibuat di router tetapi belum dipakai perangkat mana pun — isi kolom VLAN perangkat / SSID AP`);
         }
+        // Hasil checker penempatan: tidak sesuai plan.
+        const vf = NP.verifOf(d);
+        if (vf && vf.h === 'tidak') add('warn', d, `${d.nama}: penempatan TIDAK sesuai plan (dicek ${vf.o || 'checker'} ${vf.t || ''})${vf.c ? ' — ' + vf.c : ''}`);
         if (d.jenis === 'isp' && !d.bandwidth_mbps && pemakaiWan(d.id).length + kids(d.id).length) {
           add('info', d, `${d.nama}: bandwidth ISP belum diisi — bottleneck & pembagian bandwidth tidak bisa dihitung`);
         }

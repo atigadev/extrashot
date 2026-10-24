@@ -303,6 +303,23 @@
   const perluKabel = d => !!d && d.uplink_id != null && d.media !== 'wireless';
   const kabelSt = d => (d && d.atribut && KABEL[d.atribut.kabel] ? d.atribut.kabel : 'belum');
 
+  /** Hasil pengecekan penempatan oleh checker (atribut "verif" JSON {h, c, t, o}). */
+  const VERIF = {
+    sesuai: { label: 'Sesuai plan', short: 'Sesuai', color: '#2563eb', icon: '✓' },
+    tidak: { label: 'Tidak sesuai plan', short: 'Tidak sesuai', color: '#dc2626', icon: '!' },
+  };
+  /** {h: 'sesuai'|'tidak', c: catatan, t: waktu, o: oleh} atau null bila belum dicek. */
+  function verifOf(d) {
+    const raw = d && d.atribut && d.atribut.verif;
+    if (!raw) return null;
+    try {
+      const v = JSON.parse(raw);
+      return v && VERIF[v.h] ? v : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   const MEDIA = {
     '': { label: '—' },
     utp: { label: 'UTP (kabel LAN)', short: 'UTP', color: '#0369a1', dash: '' },
@@ -581,5 +598,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

@@ -615,7 +615,7 @@
     const p = S.proyek;
     c.innerHTML = `${S.lihat ? '' : '<a href="#/" title="Semua event"><span class="hide-phone">Semua event</span><span class="show-phone">←</span></a><span class="sep hide-phone">/</span>'}
       <b>${esc(p.nama)}</b>${p.venue ? `<span class="muted"> · ${esc(p.venue)}</span>` : ''}
-      ${S.tim && S.akses ? `<span class="badge">${esc(S.akses.nama)} · ${S.akses.peran === 'status' ? 'update status' : 'lihat saja'}</span>` : S.lihat ? '<span class="badge">Lihat saja</span>' : ''}`;
+      ${S.tim && S.akses ? `<span class="badge">${esc(S.akses.nama)} · ${S.akses.peran === 'status' ? 'update status' : S.akses.peran === 'cek' ? 'checker' + progresCekTxt() : 'lihat saja'}</span>` : S.lihat ? '<span class="badge">Lihat saja</span>' : ''}`;
     document.title = p.nama + ' — Net Plan';
   }
 
@@ -2666,6 +2666,7 @@
       <div data-pp="info">
         <div id="pn-info"></div>
         <div id="pn-tim"></div>
+        <div id="pn-verif"></div>
         <div id="pn-foto"></div>
         ${!S.lihat || S.tim ? '<div class="pn-sec" id="pn-riwayat"><h4>Riwayat status &amp; catatan</h4><p class="muted small">Memuat…</p></div>' : ''}
       </div>
@@ -3118,6 +3119,7 @@
     if (NP.nonJaringan(d)) {
       box.innerHTML = NP.isListrik(d) ? infoListrik(d, chip) : infoSupport(d, chip);
       renderTimBox(d);
+      renderVerif(d);
       renderFoto(d);
       renderRiwayat(d);
       return;
@@ -3174,6 +3176,7 @@
     box.innerHTML = h;
     renderRoute(d);
     renderTimBox(d);
+    renderVerif(d);
     renderFoto(d);
     renderRiwayat(d);
     // Tab Group: group perangkat ini (di uplinknya) + group tiap jenis perangkat yang terhubung ke sini.
@@ -3204,6 +3207,127 @@
     return !!a && a.peran === 'status' && (!a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis));
   }
 
+  // ------------------------------------------------------------------------ pengecekan penempatan (checker)
+
+  /** Link tim berperan checker penempatan. */
+  const isChecker = () => !!(S.tim && S.akses && S.akses.peran === 'cek');
+  /** Perangkat termasuk tugas checker (kategori diizinkan; kosong = semua). */
+  const tugasCek = d => isChecker() && (!S.akses.jenis_boleh.length || S.akses.jenis_boleh.includes(d.jenis));
+  /** Titik yang dicek di lapangan: semua kecuali Sumber WAN (layanan ISP, bukan alat yang dipasang). */
+  const perluCek = d => d.jenis !== 'isp';
+  /** Daftar perangkat yang harus dicek (checker: kategori tugasnya), urut jenis & nama. */
+  function daftarCek() {
+    return NP.Model.sortDev((S.list || []).filter(d => perluCek(d) && (!isChecker() || tugasCek(d))));
+  }
+  function progresCekTxt() {
+    const ds = daftarCek();
+    return ` · ${ds.filter(d => NP.verifOf(d)).length}/${ds.length} dicek`;
+  }
+
+  /** Kotak pengecekan: acuan plan (khusus checker), hasil, catatan, tombol Sesuai / Tidak sesuai. */
+  function renderVerif(d) {
+    const box = $('#pn-verif');
+    if (!box) return;
+    if (box.querySelector('textarea[data-dirty]')) return; // catatan sedang diketik
+    const v = NP.verifOf(d);
+    const admin = !S.tim && !S.lihat && S.canEdit;
+    const bisa = tugasCek(d) || admin;
+    if (isChecker() && perluCek(d) && !tugasCek(d)) {
+      box.innerHTML = `<div class="pn-sec"><p class="note">${esc(d.nama)} di luar tugas <b>${esc(S.akses.nama)}</b> — hanya bisa dilihat.</p></div>`;
+      return;
+    }
+    if (!perluCek(d) || (!v && !bisa)) {
+      box.innerHTML = '';
+      return;
+    }
+    const m = S.model;
+    const p = m.parentOf(d);
+    const a = d.atribut || {};
+    const V = v && NP.VERIF[v.h];
+    const plan = [
+      ['Alat', jenisLabel(d) + (d.model ? ' · ' + d.model : '')],
+      ['Uplink', p ? `${p.nama}${d.port_uplink ? ' port ' + d.port_uplink : ''}${d.media ? ' · ' + MEDIA[d.media].label : ''}` : ''],
+      ['Posisi pasang', [a.mounting, a.lokasi_rak, a.tinggi].filter(Boolean).join(' · ')],
+      ['Arah', a.arah || ''],
+      ['IP / VLAN', [d.ip, d.vlan ? 'VLAN ' + d.vlan : ''].filter(Boolean).join(' · ')],
+      ['Catatan plan', d.catatan || ''],
+    ].filter(x => x[1]);
+    const nFoto = fotoOf(d.id).length;
+    box.innerHTML = `<div class="pn-sec verif-box${V ? ' vf-' + v.h : ''}">
+      <h4>🔍 Pengecekan penempatan${isChecker() ? ' · ' + esc(S.akses.nama) : ''}</h4>
+      ${isChecker() ? `${S.proyek.denah_v ? `<div class="cek-map" title="Posisi ${esc(d.nama)} di denah plan">${staticMap({ vb: cropAround(d), focus: d.id, cls: 'crop-map' })}</div>` : ''}
+        <dl class="cek-plan">${plan.map(([k, x]) => `<dt>${k}</dt><dd>${esc(x)}</dd>`).join('')}</dl>` : ''}
+      ${V ? `<div class="vf-hasil"><b style="color:${V.color}">${V.icon} ${esc(V.label)}</b> <span class="muted small">${esc(v.o || '')} · ${esc(v.t || '')}</span>${v.c ? `<p>${esc(v.c)}</p>` : ''}</div>`
+        : '<p class="muted small" style="margin:0 0 6px">Belum dicek.</p>'}
+      ${bisa ? `<label class="field"><span>Catatan pengecekan <small class="muted">(wajib bila tidak sesuai)</small></span>
+          <textarea id="vf-catatan" rows="2" maxlength="2000" placeholder="mis. AP bergeser ±2 m dari plan ke dekat pintu, tinggi 3 m, kabel lewat plafon"></textarea></label>
+        <div class="vf-btn"><button type="button" class="vf-ok" data-verif="sesuai">✓ Sesuai plan</button><button type="button" class="vf-no" data-verif="tidak">✕ Tidak sesuai</button></div>
+        <div class="btn-row">${isChecker() ? '<button type="button" class="small" data-cek-catatan>Kirim catatan saja</button>' : ''}
+          ${v ? '<button type="button" class="small ghost" data-verif="">Hapus hasil</button>' : ''}
+          ${isChecker() ? '<button type="button" class="small" data-cek-next>Berikutnya belum dicek →</button>' : ''}</div>
+        ${isChecker() && !nFoto ? '<p class="muted small" style="margin:6px 0 0">Lanjutkan dengan foto bukti di bawah.</p>' : ''}` : ''}
+    </div>`;
+  }
+
+  async function kirimVerif(d, hasil) {
+    const ta = $('#vf-catatan');
+    const catatan = ta ? ta.value.trim() : '';
+    if (hasil === 'tidak' && !catatan) {
+      if (ta) ta.focus();
+      return toast('Tulis catatan: apa yang tidak sesuai dengan plan', true);
+    }
+    if (hasil === '' && !confirm(`Hapus hasil pengecekan ${d.nama}?`)) return;
+    const waktu = waktuLokal(new Date()).slice(0, 16);
+    try {
+      const res = S.tim
+        ? await api('api/tim.php', { t: S.tim, action: 'verif', id: d.id, hasil, catatan, waktu })
+        : await api(API, { action: 'perangkat_verif', id: d.id, hasil, catatan, waktu });
+      if (ta) delete ta.dataset.dirty;
+      const i = S.list.findIndex(x => x.id === d.id);
+      if (i >= 0) S.list[i] = res.perangkat;
+      riwayat.id = null;
+      refreshModel({ keepPanel: true });
+      renderCrumb();
+      const sisa = fotoOf(d.id).length ? '' : ' — ambil foto bukti';
+      toast(hasil ? `${d.nama}: ${NP.VERIF[hasil].label}${sisa}` : 'Hasil pengecekan dihapus', hasil === 'tidak');
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  /** Checker: lompat ke perangkat berikutnya yang belum dicek (urutan daftar tugas). */
+  function cekBerikutnya(d) {
+    const ds = daftarCek();
+    const i = ds.findIndex(x => x.id === d.id);
+    const next = ds.slice(i + 1).concat(ds.slice(0, i + 1)).find(x => !NP.verifOf(x));
+    if (!next) return toast('Semua titik tugas sudah dicek ✓');
+    selectDev(next.id, true);
+  }
+
+  $('#panel').addEventListener('click', e => {
+    if (S.sel == null) return;
+    const d = S.model.byId.get(S.sel);
+    if (!d) return;
+    const b = e.target.closest('[data-verif]');
+    if (b) return void kirimVerif(d, b.dataset.verif);
+    if (e.target.closest('[data-cek-next]')) return cekBerikutnya(d);
+    if (e.target.closest('[data-cek-catatan]')) {
+      const ta = $('#vf-catatan');
+      const catatan = ta ? ta.value.trim() : '';
+      if (!catatan) return toast('Catatan masih kosong', true);
+      api('api/tim.php', { t: S.tim, action: 'catatan', id: d.id, catatan }).then(() => {
+        ta.value = '';
+        delete ta.dataset.dirty;
+        riwayat.id = null;
+        renderRiwayat(d);
+        toast('Catatan terkirim');
+      }).catch(err => toast(err.message, true));
+    }
+  });
+  $('#panel').addEventListener('input', e => {
+    if (e.target.id === 'vf-catatan') e.target.dataset.dirty = '1';
+  });
+
   // ------------------------------------------------------------------------ foto bukti pemasangan
 
   const FOTO_MAKS = 3;
@@ -3212,9 +3336,9 @@
   const petaUrl = f => `https://www.google.com/maps?q=${f.lat},${f.lng}`;
   const koordinat = f => (f.lat != null ? `${(+f.lat).toFixed(6)}, ${(+f.lng).toFixed(6)}` : '');
   /** Boleh mengambil foto perangkat ini: admin, atau tim update-status dengan kategori tugasnya. */
-  const bisaFoto = d => (S.tim ? tugasTim(d) : !S.lihat && S.canEdit);
+  const bisaFoto = d => (S.tim ? tugasTim(d) || tugasCek(d) : !S.lihat && S.canEdit);
   /** Boleh menghapus foto: admin semua; tim hanya foto yang diambilnya. */
-  const bisaHapusFoto = (d, f) => (S.tim ? tugasTim(d) && f.akses_id != null && S.akses && f.oleh === S.akses.nama : !S.lihat && S.canEdit);
+  const bisaHapusFoto = (d, f) => (S.tim ? (tugasTim(d) || tugasCek(d)) && f.akses_id != null && S.akses && f.oleh === S.akses.nama : !S.lihat && S.canEdit);
 
   /** Waktu lokal "YYYY-MM-DD HH:mm:ss". */
   function waktuLokal(t) {
@@ -4387,6 +4511,13 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const belum = semua.filter(d => !fotoOf(d.id).length);
     const tanpaGps = S.foto.filter(f => f.lat == null && m.byId.get(f.perangkat_id)).length;
     const st = d => (STATUS[d.status] || STATUS.rencana).label;
+    // Hasil checker penempatan: "✓ Sesuai plan (Budi · 2026-10-24 10:00) — catatan".
+    const verifTxt = d => {
+      const v = NP.verifOf(d);
+      if (!v) return '';
+      const V = NP.VERIF[v.h];
+      return `<b style="color:${V.color}">${V.icon} ${esc(V.label)}</b> (${esc(v.o || '')} · ${esc(v.t || '')})${v.c ? ' — ' + esc(v.c) : ''}`;
+    };
     const lokasi = d => {
       const p = m.parentOf(d);
       return p ? `${esc(p.nama)}${d.port_uplink ? ' port ' + esc(d.port_uplink) : ''}` : '—';
@@ -4395,20 +4526,20 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     $('#print').className = 'print';
     $('#print').innerHTML = prHead('Laporan foto pemasangan') +
       `<p>Perangkat: <b>${semua.length}</b> · Sudah difoto: <b>${ada.length}</b> · Belum difoto: <b>${belum.length}</b> · Total foto: <b>${S.foto.filter(f => m.byId.get(f.perangkat_id)).length}</b>` +
-      `${tanpaGps ? ` · Foto tanpa koordinat: <b>${tanpaGps}</b>` : ''} · Terpasang/diuji: <b>${semua.filter(d => d.status === 'terpasang' || d.status === 'diuji').length}</b></p>` +
+      `${tanpaGps ? ` · Foto tanpa koordinat: <b>${tanpaGps}</b>` : ''} · Terpasang/diuji: <b>${semua.filter(d => d.status === 'terpasang' || d.status === 'diuji').length}</b> · Dicek checker: <b>${semua.filter(d => NP.verifOf(d)).length}</b> (sesuai <b>${semua.filter(d => (NP.verifOf(d) || {}).h === 'sesuai').length}</b>, tidak sesuai <b>${semua.filter(d => (NP.verifOf(d) || {}).h === 'tidak').length}</b>)</p>` +
       ada.map(d => {
         const a = d.atribut || {};
         return `<section class="pr-foto">
           <h3>${esc(d.nama)} <small>${esc(jenisLabel(d))}${d.model ? ' · ' + esc(d.model) : ''}</small></h3>
-          <p class="pr-foto-meta">Status: <b>${esc(st(d))}</b> · Uplink: ${lokasi(d)}${d.ip ? ' · IP ' + esc(d.ip) : ''}${a.lokasi_rak ? ' · ' + esc(a.lokasi_rak) : ''}${d.pic ? ' · PIC ' + esc(d.pic) : ''}</p>
+          <p class="pr-foto-meta">Status: <b>${esc(st(d))}</b> · Uplink: ${lokasi(d)}${d.ip ? ' · IP ' + esc(d.ip) : ''}${a.lokasi_rak ? ' · ' + esc(a.lokasi_rak) : ''}${d.pic ? ' · PIC ' + esc(d.pic) : ''}</p>${verifTxt(d) ? `<p class="pr-foto-meta pr-vf">${verifTxt(d)}</p>` : ''}
           <div class="pr-foto-grid">${fotoOf(d.id).map((f, i) => `<figure>
             <img src="${fotoUrl(f)}" alt="Foto ${i + 1} ${esc(d.nama)}">
             <figcaption><b>Foto ${i + 1}</b> · ${esc((f.diambil_at || '').slice(0, 16))}${f.oleh ? ' · ' + esc(f.oleh) : ''}<br>
               ${f.lat != null ? `📍 ${koordinat(f)}${f.akurasi_m != null ? ` (±${Math.round(f.akurasi_m)} m)` : ''}` : '📍 tanpa koordinat'}</figcaption></figure>`).join('')}</div>
         </section>`;
       }).join('') +
-      (belum.length ? `<h2>Belum ada foto (${belum.length})</h2><table class="pr-table">${tr(['Perangkat', 'Jenis', 'Status', 'Uplink / port', 'PIC'], true)}${belum.map(d =>
-        tr([`<b>${esc(d.nama)}</b>`, esc(jenisLabel(d)), esc(st(d)), lokasi(d), esc(d.pic)])).join('')}</table>` : '');
+      (belum.length ? `<h2>Belum ada foto (${belum.length})</h2><table class="pr-table">${tr(['Perangkat', 'Jenis', 'Status', 'Uplink / port', 'Pengecekan', 'PIC'], true)}${belum.map(d =>
+        tr([`<b>${esc(d.nama)}</b>`, esc(jenisLabel(d)), esc(st(d)), lokasi(d), verifTxt(d) || '—', esc(d.pic)])).join('')}</table>` : '');
     toast('Menyiapkan foto…');
     // Semua foto harus selesai dimuat agar ikut tercetak.
     await Promise.all($$('#print img').map(img => (img.complete ? null : new Promise(r => { img.onload = img.onerror = r; }))));
@@ -4954,7 +5085,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function aksesRingkas(a) {
     const jenis = a.jenis_boleh.length ? a.jenis_boleh.map(j => (TYPES[j] || TYPES.lainnya).label).join(', ') : 'semua kategori';
     return `<div class="akses-izin">
-      <span class="tag-peran ${a.peran}">${a.peran === 'status' ? 'Update status' : 'Lihat saja'}</span>
+      <span class="tag-peran ${a.peran}">${a.peran === 'status' ? 'Update status' : a.peran === 'cek' ? 'Checker penempatan' : 'Lihat saja'}</span>
       ${a.peran === 'status' ? a.status_boleh.map(k => `<span class="st st-${k}">${esc(STATUS[k].label)}</span>`).join('') : ''}
       <span class="muted small">· ${esc(jenis)}${a.lihat_password ? ' · boleh lihat password' : ''}</span>
     </div>`;

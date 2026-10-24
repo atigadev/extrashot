@@ -5,12 +5,16 @@
  * GET  ?t=TOKEN                       -> {akses, proyek, perangkat, katalog, endpoint_tipe}
  * GET  ?t=TOKEN&action=log[&id=N]     -> riwayat event / perangkat N
  * POST {"t":TOKEN,"action":"status","id":N,"status":"terpasang","catatan":"..."}  (peran "status")
- * POST {"t":TOKEN,"action":"catatan","id":N,"catatan":"..."}                     (peran "status")
+ * POST {"t":TOKEN,"action":"catatan","id":N,"catatan":"..."}                     (peran "status" / "cek")
  * POST {"t":TOKEN,"action":"status_massal","ids":[N,...],"status":"diuji","catatan":"..."} (peran "status")
  * POST {"t":TOKEN,"action":"kabel","ids":[N,...],"kabel":"ditarik","catatan":"..."} (peran "status") -> status penarikan kabel
  * POST {"t":TOKEN,"action":"ceklis","id":N,"item":"k_ssid","cek":true,"label":"SSID & password"} (peran "status") -> ceklis pekerjaan
- * POST multipart t, action=foto, id=N, foto=<jpeg>, lat, lng, akurasi, waktu (peran "status") -> foto bukti (maks. 3 per perangkat)
- * POST {"t":TOKEN,"action":"foto_hapus","id":N} (peran "status") -> hapus foto yang diambil tim ini
+ * POST multipart t, action=foto, id=N, foto=<jpeg>, lat, lng, akurasi, waktu (peran "status" / "cek") -> foto bukti (maks. 3 per perangkat)
+ * POST {"t":TOKEN,"action":"foto_hapus","id":N} (peran "status" / "cek") -> hapus foto yang diambil tim ini
+ * POST {"t":TOKEN,"action":"verif","id":N,"hasil":"sesuai"|"tidak"|"","catatan":"..."} (peran "cek") -> hasil pengecekan penempatan
+ *
+ * Peran: lihat (baca saja) | status (ubah status, kabel, ceklis, foto, catatan) | cek (checker: pengecekan penempatan
+ * sesuai plan, foto bukti, catatan).
  *
  * Tim hanya boleh mengubah status yang diizinkan admin (status_boleh) pada kategori tugasnya (jenis_boleh; kosong = semua).
  * POST wajib header "X-NP: 1" (pengaman CSRF, sama seperti admin).
@@ -103,9 +107,27 @@ if ($method === 'POST' && $action === 'status_massal') {
     json_out(['ok' => true, 'perangkat' => $hasil, 'dilewati' => $dilewati]);
 }
 
+if ($method === 'POST' && $action === 'verif') {
+    // Checker: hasil pengecekan penempatan (sesuai / tidak sesuai plan) + catatan, kategori tugasnya.
+    if ($akses['peran'] !== 'cek') {
+        json_error('Hanya checker yang bisa mengisi hasil pengecekan', 403);
+    }
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ? AND proyek_id = ?');
+    $st->execute([isset($req['id']) ? (int) $req['id'] : 0, $proyek['id']]);
+    $d = $st->fetch();
+    if (!$d) {
+        json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    if ($akses['jenis_boleh'] && !in_array($d['jenis'], $akses['jenis_boleh'], true)) {
+        json_error($d['nama'] . ' di luar tugas "' . $akses['nama'] . '"', 403);
+    }
+    $row = set_verif($d, isset($req['hasil']) ? (string) $req['hasil'] : '', text_field($req, 'catatan', 2000, 'Catatan'), $akses['nama'], $akses['id'], isset($req['waktu']) ? (string) $req['waktu'] : '');
+    json_out(['ok' => true, 'perangkat' => perangkat_row($row, !$akses['lihat_password'])]);
+}
+
 if ($method === 'POST' && ($action === 'foto' || $action === 'foto_hapus')) {
     // Foto bukti pemasangan: perangkat di kategori tugas tim; tim hanya menghapus foto yang diambilnya sendiri.
-    if ($akses['peran'] !== 'status') {
+    if (!in_array($akses['peran'], ['status', 'cek'], true)) {
         json_error('Akses tim ini hanya untuk melihat', 403);
     }
     if ($action === 'foto_hapus') {
@@ -193,7 +215,7 @@ if ($method === 'POST' && $action === 'kabel') {
 }
 
 if ($method === 'POST' && ($action === 'status' || $action === 'catatan')) {
-    if ($akses['peran'] !== 'status') {
+    if ($akses['peran'] !== 'status' && !($akses['peran'] === 'cek' && $action === 'catatan')) {
         json_error('Akses tim ini hanya untuk melihat', 403);
     }
     $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ? AND proyek_id = ?');

@@ -166,6 +166,12 @@
           <circle class="dot" r="${R}" fill="${t.color}"/>
           ${NP.isListrik(d) ? `<path class="bolt" d="M1.8 -8.5 L-5 1.2 H-0.6 L-1.8 8.5 L5 -1.2 H0.6 Z"/>` : `<text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>`}`}
           ${NP.nonJaringan(d) ? "" : `<g class="net" transform="translate(${b},${-b})"><circle r="${BADGE}" fill="${k.color}"/><text dy="0.36em">${k.icon}</text></g>`}
+          ${(() => {
+            // Hasil checker penempatan: ✓ biru = sesuai plan, ! merah = tidak sesuai (kanan bawah).
+            const v = NP.verifOf(d);
+            const V = v && NP.VERIF[v.h];
+            return V ? `<g class="vf vf-${v.h}" transform="translate(${b},${b})"><circle r="${BADGE}" fill="${V.color}"/><text dy="0.36em">${V.icon}</text></g>` : '';
+          })()}
           ${NP.terkunci(d) ? `<g class="lock" transform="translate(${-b},${-b})"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3" /></g>` : ''}
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
           <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;

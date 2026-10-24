@@ -591,6 +591,43 @@ function proyek_lengkap($proyek, $sembunyikanRahasia = false)
         'foto' => foto_list($proyek['id'])];
 }
 
+// ------------------------------------------------------------------------------------------- pengecekan penempatan
+
+/** Hasil pengecekan penempatan oleh checker: sesuai plan | tidak sesuai ('' = hapus hasil). */
+const NP_VERIF = ['sesuai', 'tidak'];
+
+/**
+ * Simpan hasil pengecekan penempatan perangkat $d di atribut "verif" = {"h":hasil,"c":catatan,"t":waktu,"o":oleh},
+ * dan catat di riwayat. "Tidak sesuai" wajib disertai catatan. Mengembalikan baris perangkat terbaru (mentah).
+ */
+function set_verif($d, $hasil, $catatan, $oleh, $aksesId, $waktu = '')
+{
+    if ($hasil !== '' && !in_array($hasil, NP_VERIF, true)) {
+        json_error('Hasil pengecekan tidak dikenal');
+    }
+    if ($hasil === 'tidak' && $catatan === '') {
+        json_error('Tulis catatan: apa yang tidak sesuai dengan plan (posisi, tinggi, arah, port, dll.)');
+    }
+    $atr = json_decode((string) $d['atribut'], true);
+    $atr = is_array($atr) ? $atr : [];
+    if ($hasil === '') {
+        unset($atr['verif']);
+    } else {
+        // Waktu menurut perangkat pengecek (zona waktu lokal lapangan), cadangan: waktu server.
+        $t = preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', (string) $waktu) ? (string) $waktu : date('Y-m-d H:i');
+        $atr['verif'] = json_encode(['h' => $hasil, 'c' => $catatan, 't' => $t, 'o' => $oleh], JSON_UNESCAPED_UNICODE);
+    }
+    $pdo = db();
+    $pdo->prepare('UPDATE np_perangkat SET atribut = ? WHERE id = ?')
+        ->execute([$atr ? json_encode($atr, JSON_UNESCAPED_UNICODE) : null, $d['id']]);
+    $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$d['proyek_id']]);
+    $label = $hasil === 'sesuai' ? '✓ Pengecekan: sesuai plan' : ($hasil === 'tidak' ? '✕ Pengecekan: TIDAK sesuai plan' : 'Hasil pengecekan dihapus');
+    tulis_log((int) $d['proyek_id'], $d, $aksesId, $oleh, $d['status'], $d['status'], $label . ($catatan !== '' ? ' — ' . $catatan : ''));
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ?');
+    $st->execute([$d['id']]);
+    return $st->fetch();
+}
+
 // ------------------------------------------------------------------------------------------- foto bukti pemasangan
 
 /** Batas foto bukti per perangkat. */

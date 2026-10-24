@@ -4795,20 +4795,71 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       });
       s1.addText(`Dibuat ${new Date().toLocaleString('id-ID')} · Net Plan`, { x: 0.7, y: 6.7, w: 12, h: 0.35, fontFace: F, fontSize: 10, color: '64748B' });
 
-      // 2. Tabel semua titik (berlanjut otomatis ke slide berikutnya bila panjang).
+      // 2. Ringkasan per jenis perangkat: rekap angka per jenis, lalu satu slide daftar titik per jenis
+      //    (berlanjut otomatis ke slide berikutnya bila panjang). Urutan jenis mengikuti TYPE_ORDER.
+      const grup = TYPE_ORDER.map(j => ({ j, ds: semua.filter(d => d.jenis === j) })).filter(g => g.ds.length);
+      const sel = (t, o) => ({ text: String(t), options: o || {} });
+      const th = t => sel(t, { bold: true, fill: { color: 'E2E8F0' }, color: GELAP });
+      const angka = (n, warna) => sel(n, { align: 'center', bold: !!n, color: n ? warna : ABU });
+      const rekap = ds => {
+        const difoto = ds.filter(d => fotoOf(d.id).length).length;
+        const h = x => ds.filter(d => (NP.verifOf(d) || {}).h === x).length;
+        return { n: ds.length, difoto, belum: ds.length - difoto, sesuai: h('sesuai'), tidak: h('tidak'), blmCek: ds.filter(d => !NP.verifOf(d)).length };
+      };
       const s2 = ppt.addSlide();
-      s2.addText('Ringkasan per titik', { x: 0.4, y: 0.3, w: 12.5, h: 0.6, fontFace: F, fontSize: 24, bold: true, color: GELAP });
-      const hd = ['Titik', 'Jenis', 'Status', 'Uplink / port', 'Foto', 'Pengecekan'].map(t => ({ text: t, options: { bold: true, fill: { color: 'E2E8F0' }, color: GELAP } }));
-      const rows = [hd].concat(semua.map(d => {
-        const n = fotoOf(d.id).length;
-        const v = NP.verifOf(d);
-        return [{ text: d.nama, options: { bold: true } }, jenisLabel(d), st(d), uplink(d),
-          { text: `${n}/${FOTO_MAKS}`, options: { color: n ? '15803D' : 'B91C1C', bold: true } },
-          { text: vTxt(d) + (v && v.c ? ' — ' + v.c : ''), options: { color: v ? NP.VERIF[v.h].color.slice(1) : ABU } }];
-      }));
-      s2.addTable(rows, {
-        x: 0.4, y: 1.0, w: 12.5, colW: [1.7, 2.3, 1.3, 2.4, 0.8, 4.0], fontFace: F, fontSize: 10, color: '334155',
-        border: { type: 'solid', pt: 0.5, color: GARIS }, autoPage: true, autoPageRepeatHeader: true, autoPageSlideStartY: 0.5, newSlideStartY: 0.5,
+      s2.addText('Ringkasan per jenis perangkat', { x: 0.4, y: 0.3, w: 12.5, h: 0.6, fontFace: F, fontSize: 24, bold: true, color: GELAP });
+      const tot = rekap(semua);
+      const barisRekap = r => [angka(r.n, GELAP), angka(r.difoto, '15803D'), angka(r.belum, 'B91C1C'), angka(r.sesuai, '2563EB'), angka(r.tidak, 'DC2626'), angka(r.blmCek, ABU)];
+      s2.addTable([['Jenis perangkat', 'Titik', 'Sudah difoto', 'Belum difoto', 'Sesuai plan', 'Tidak sesuai', 'Belum dicek'].map(th)]
+        .concat(grup.map(g => [sel((TYPES[g.j] || TYPES.lainnya).label, { bold: true, color: GELAP }), ...barisRekap(rekap(g.ds))]))
+        .concat([[sel('Total', { bold: true, fill: { color: 'F1F5F9' } }), ...barisRekap(tot).map(c => ({ text: c.text, options: Object.assign({}, c.options, { fill: { color: 'F1F5F9' }, bold: true }) }))]]), {
+        x: 0.4, y: 1.0, w: 12.5, colW: [3.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5], fontFace: F, fontSize: 12, color: '334155', rowH: 0.4, valign: 'middle',
+        border: { type: 'solid', pt: 0.5, color: GARIS }, autoPage: true, autoPageRepeatHeader: true, newSlideStartY: 0.5,
+      });
+      // Daftar titik per jenis: tiap jenis jadi satu bagian (garis warna + nama jenis + angka + tabel). Jenis besar
+      // dipecah rata maks. 19 baris (mis. 22 → 11 + 11, berjudul "Switch (1/2)"); bagian kecil digabung dalam satu
+      // slide selama muat (tinggi area 1,0–7,0 in), agar jenis berisi 1–2 titik tidak menghabiskan satu slide.
+      const PER = 19, BARIS = 0.27, KEPALA = 0.5, JARAK = 0.2, BATAS = 6.0;
+      const bagian = [];
+      for (const g of grup) {
+        const hal = Math.ceil(g.ds.length / PER);
+        const per = Math.ceil(g.ds.length / hal);
+        for (let h = 0; h < hal; h++) bagian.push({ g, ds: g.ds.slice(h * per, (h + 1) * per), ke: h + 1, dari: hal });
+      }
+      const tinggiBagian = b => KEPALA + BARIS * (b.ds.length + 1) + JARAK;
+      const halaman = [];
+      bagian.forEach(b => {
+        const akhir = halaman[halaman.length - 1];
+        if (akhir && akhir.pakai + tinggiBagian(b) <= BATAS) {
+          akhir.isi.push(b);
+          akhir.pakai += tinggiBagian(b);
+        } else halaman.push({ isi: [b], pakai: tinggiBagian(b) });
+      });
+      halaman.forEach(hl => {
+        const sg = ppt.addSlide();
+        let y = 0.45;
+        hl.isi.forEach(b => {
+          const T = TYPES[b.g.j] || TYPES.lainnya;
+          const r = rekap(b.g.ds);
+          sg.addShape(ppt.ShapeType.rect, { x: 0.4, y: y + 0.06, w: 0.1, h: 0.34, fill: { color: T.color.slice(1) }, line: { type: 'none' } });
+          sg.addText(T.label + (b.dari > 1 ? ` (${b.ke}/${b.dari})` : ''), { x: 0.58, y, w: 7, h: 0.46, fontFace: F, fontSize: 18, bold: true, color: GELAP, valign: 'middle' });
+          sg.addText(`${r.n} titik · difoto ${r.difoto} · sesuai ${r.sesuai} · tidak sesuai ${r.tidak} · belum dicek ${r.blmCek}`,
+            { x: 6.0, y, w: 6.9, h: 0.46, align: 'right', fontFace: F, fontSize: 11, color: ABU, valign: 'middle' });
+          const rows = [['Titik', b.g.j === 'endpoint' ? 'Tipe' : 'Alat', 'Status', 'Uplink / port', 'Foto', 'Pengecekan'].map(th)].concat(b.ds.map(d => {
+            const n = fotoOf(d.id).length;
+            const v = NP.verifOf(d);
+            const kt = m.kat(d);
+            return [sel(d.nama, { bold: true }), b.g.j === 'endpoint' ? jenisLabel(d).replace(/^[^·]*·\s*/, '') : (kt ? [kt.merek, kt.model].filter(Boolean).join(' ') : d.model) || '—',
+              sel(st(d), { color: (STATUS[d.status] || STATUS.rencana).color.slice(1) }), uplink(d),
+              sel(`${n}/${FOTO_MAKS}`, { color: n ? '15803D' : 'B91C1C', bold: true, align: 'center' }),
+              sel(vTxt(d) + (v && v.c ? ' — ' + (v.c.length > 70 ? v.c.slice(0, 70) + '…' : v.c) : ''), { color: v ? NP.VERIF[v.h].color.slice(1) : ABU })];
+          }));
+          sg.addTable(rows, {
+            x: 0.4, y: y + KEPALA, w: 12.5, colW: [2.1, 2.3, 1.3, 2.5, 0.7, 3.6], rowH: BARIS, fontFace: F, fontSize: 10, color: '334155',
+            border: { type: 'solid', pt: 0.5, color: GARIS }, margin: [0.02, 0.08, 0.02, 0.08],
+          });
+          y += tinggiBagian(b);
+        });
       });
 
       // 3. Satu slide per titik berfoto.

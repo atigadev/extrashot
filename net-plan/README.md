@@ -293,8 +293,13 @@ Admin melihat kotak yang sama, tanpa acuan plan, dan bisa mengisi, mengubah, ata
 `.pptx` (16:9) dibuat langsung di browser, tanpa server tambahan. Isinya:
 - **Sampul**: nama event, venue, tanggal, dan angka ringkas (titik, sudah / belum difoto, total foto, sesuai / tidak
   sesuai plan).
-- **Ringkasan per titik**: tabel titik, jenis, status, uplink / port, jumlah foto, dan hasil pengecekan beserta
-  catatannya. Tabel berlanjut otomatis ke slide berikutnya bila panjang.
+- **Ringkasan per jenis perangkat**: satu tabel rekap per jenis berisi jumlah titik, sudah / belum difoto, sesuai /
+  tidak sesuai plan, belum dicek, dan baris total.
+- **Daftar titik per jenis** (urut WAN → router → switch → AP → …). Tiap jenis punya judul berwarna, angka ringkas, dan
+  tabel: titik, alat (merek/model; endpoint: tipe), status, uplink / port, jumlah foto, dan hasil pengecekan (catatan
+  dipotong 70 karakter). Jenis besar dibagi rata maks. 19 baris per slide (mis. "Switch (1/2)", "Switch (2/2)").
+  Jenis kecil digabung dalam satu slide selama muat.
+- Slide foto per titik juga berurutan per jenis.
 - **Satu slide per titik berfoto**:
   - 1–3 foto bercap, utuh tanpa terpotong, disusun 1 besar / 2 / 3 kolom mengikuti rasio foto;
   - keterangan tiap foto: waktu, pengambil, dan koordinat yang bisa diklik ke Google Maps;

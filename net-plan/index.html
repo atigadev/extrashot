@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=79">
+<link rel="stylesheet" href="assets/np.css?v=81">
 </head>
 <body>
 
@@ -372,7 +372,7 @@
       <label><input type="radio" name="jenis" value="support">
         <span><b>Laporan support &amp; listrik</b><small>Denah khusus titik listrik &amp; peralatan support beserta jalur listriknya, rekap daya per titik listrik (MCB, terpakai, sisa), perangkat tanpa titik pemasok, dan daftar peralatan support. A4 mendatar.</small></span></label>
       <label><input type="radio" name="jenis" value="foto">
-        <span><b>Laporan foto pemasangan</b><small>Bukti pemasangan per perangkat: 1–3 foto dari lapangan dengan koordinat GPS &amp; waktu, status, lokasi uplink/port, ringkasan kelengkapan foto, dan daftar perangkat yang belum difoto. A4 tegak.</small></span></label>
+        <span><b>Laporan foto pemasangan</b><small>Bukti pemasangan per perangkat: 1–3 foto dari lapangan dengan koordinat GPS &amp; waktu, status, lokasi uplink/port, hasil pengecekan, ringkasan kelengkapan foto, dan daftar perangkat yang belum difoto. Cetak A4 tegak, atau <b>Unduh PowerPoint</b> (satu slide per titik + potongan denah).</small></span></label>
     </div>
     <fieldset class="print-opts" id="ap-opts">
       <label class="check"><input type="checkbox" name="password" checked>
@@ -386,6 +386,7 @@
     <div class="btn-row end">
       <button type="button" data-close>Batal</button>
       <button type="button" id="btn-ap-csv">Unduh CSV</button>
+      <button type="button" id="btn-foto-pptx" hidden>⬇ Unduh PowerPoint</button>
       <button type="submit" class="primary">Cetak</button>
     </div>
   </form>
@@ -436,13 +437,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=79"></script>
-<script src="assets/common.js?v=79"></script>
-<script src="assets/analisis.js?v=79"></script>
-<script src="assets/peta.js?v=79"></script>
-<script src="assets/katalog.js?v=79"></script>
-<script src="assets/mikrotik.js?v=79"></script>
-<script src="assets/backup.js?v=79"></script>
-<script src="assets/app.js?v=79"></script>
+<script src="vendor/qrcode.min.js?v=81"></script>
+<script src="assets/common.js?v=81"></script>
+<script src="assets/analisis.js?v=81"></script>
+<script src="assets/peta.js?v=81"></script>
+<script src="assets/katalog.js?v=81"></script>
+<script src="assets/mikrotik.js?v=81"></script>
+<script src="assets/backup.js?v=81"></script>
+<script src="assets/app.js?v=81"></script>
 </body>
 </html>

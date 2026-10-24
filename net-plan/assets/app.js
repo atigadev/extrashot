@@ -4616,6 +4616,228 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     printWith('A4 portrait');
   }
 
+  // ------------------------------------------------------------------------ laporan foto PowerPoint
+
+  const skripDimuat = new Map();
+  /** Muat skrip pustaka sekali saja, saat dibutuhkan (mis. PptxGenJS ±470 KB hanya saat unduh PowerPoint). */
+  function muatSkrip(src) {
+    if (!skripDimuat.has(src)) {
+      skripDimuat.set(src, new Promise((ok, gagal) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = ok;
+        s.onerror = () => {
+          skripDimuat.delete(src);
+          gagal(new Error('Pustaka PowerPoint gagal dimuat — periksa koneksi lalu coba lagi'));
+        };
+        document.head.appendChild(s);
+      }));
+    }
+    return skripDimuat.get(src);
+  }
+
+  async function keDataUrl(url) {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('Gambar tidak bisa dimuat');
+    const blob = await res.blob();
+    return new Promise((ok, gagal) => {
+      const fr = new FileReader();
+      fr.onload = () => ok(fr.result);
+      fr.onerror = gagal;
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  /** Potongan denah di sekitar d (PNG data URL) dengan penanda titik; img = gambar denah yang sudah dimuat. */
+  function potonganDenah(img, d) {
+    const { W, H } = peta.size();
+    const [x, y, w, h] = cropAround(d, 0.5);
+    const kx = img.naturalWidth / W, ky = img.naturalHeight / H;
+    const cw = 900, ch = Math.round(cw * h / w);
+    const cv = document.createElement('canvas');
+    cv.width = cw;
+    cv.height = ch;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, cw, ch);
+    g.drawImage(img, x * kx, y * ky, w * kx, h * ky, 0, 0, cw, ch);
+    const px = (d.x - x) / w * cw, py = (d.y - y) / h * ch;
+    const t = NP.tampil(d);
+    g.lineWidth = 6;
+    g.strokeStyle = '#dc2626';
+    g.beginPath();
+    g.arc(px, py, 26, 0, Math.PI * 2);
+    g.stroke();
+    g.fillStyle = t.color;
+    g.beginPath();
+    g.arc(px, py, 14, 0, Math.PI * 2);
+    g.fill();
+    g.font = 'bold 26px system-ui, sans-serif';
+    g.lineWidth = 6;
+    g.strokeStyle = '#fff';
+    g.strokeText(d.nama, px + 32, py + 9);
+    g.fillStyle = '#111827';
+    g.fillText(d.nama, px + 32, py + 9);
+    return cv.toDataURL('image/png');
+  }
+
+  /** Kotak gambar (contain) di dalam area x, y, w, h sesuai rasio foto. */
+  function pasKotak(fw, fh, x, y, w, h) {
+    const r = fw && fh ? fw / fh : 4 / 3;
+    let iw = w, ih = w / r;
+    if (ih > h) { ih = h; iw = h * r; }
+    return { x: x + (w - iw) / 2, y: y + (h - ih) / 2, w: iw, h: ih };
+  }
+
+  /**
+   * Laporan foto per titik dalam PowerPoint (16:9): sampul + ringkasan, tabel semua titik (status, foto, pengecekan),
+   * lalu satu slide per titik berfoto berisi 1–3 foto bercap, keterangan tiap foto, potongan denah lokasi, dan data
+   * titik (alat, uplink & port, IP/VLAN, posisi pasang, hasil pengecekan).
+   */
+  async function unduhPptFoto() {
+    const m = S.model;
+    const p = S.proyek;
+    const semua = NP.Model.sortDev(m.list.filter(d => !NP.isListrik(d)));
+    const ada = semua.filter(d => fotoOf(d.id).length);
+    if (!ada.length) return toast('Belum ada foto bukti untuk dibuat PowerPoint', true);
+    const btn = $('#btn-foto-pptx');
+    if (btn) btn.disabled = true;
+    try {
+      toast('Menyiapkan PowerPoint…');
+      await muatSkrip('vendor/pptxgenjs.bundle.js?v=3.12.0');
+      let denahImg = null;
+      const du = denahUrl();
+      if (du) {
+        denahImg = new Image();
+        denahImg.src = await keDataUrl(du);
+        await denahImg.decode().catch(() => { denahImg = null; });
+      }
+      const ppt = new window.PptxGenJS();
+      ppt.layout = 'LAYOUT_WIDE'; // 13,33 × 7,5 in
+      ppt.title = `Laporan foto pemasangan — ${p.nama}`;
+      ppt.company = 'Net Plan';
+      const F = 'Calibri';
+      const GELAP = '1F2937', ABU = '64748B', GARIS = 'CBD5E1';
+      const tgl = p.tanggal_mulai ? fmtDate(p.tanggal_mulai) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + fmtDate(p.tanggal_selesai) : '') : '';
+      const st = d => (STATUS[d.status] || STATUS.rencana).label;
+      const uplink = d => {
+        const up = m.parentOf(d);
+        return up ? `${up.nama}${d.port_uplink ? ' port ' + d.port_uplink : ''}` : '—';
+      };
+      const vTxt = d => {
+        const v = NP.verifOf(d);
+        return v ? `${NP.VERIF[v.h].icon} ${NP.VERIF[v.h].label}` : 'Belum dicek';
+      };
+      const nVer = h => semua.filter(d => (NP.verifOf(d) || {}).h === h).length;
+      const kaki = (s, teks) => s.addText(teks, { x: 0.4, y: 7.05, w: 12.5, h: 0.3, fontFace: F, fontSize: 9, color: ABU });
+
+      // 1. Sampul + ringkasan angka.
+      const s1 = ppt.addSlide();
+      s1.background = { color: '0F172A' };
+      s1.addText('LAPORAN FOTO PEMASANGAN', { x: 0.7, y: 1.1, w: 12, h: 0.5, fontFace: F, fontSize: 16, bold: true, color: '93C5FD', charSpacing: 2 });
+      s1.addText(p.nama, { x: 0.7, y: 1.6, w: 12, h: 1.2, fontFace: F, fontSize: 40, bold: true, color: 'FFFFFF', fit: 'shrink' });
+      s1.addText([p.venue, tgl].filter(Boolean).join(' · ') || ' ', { x: 0.7, y: 2.8, w: 12, h: 0.5, fontFace: F, fontSize: 18, color: 'CBD5E1' });
+      const kartu = [
+        ['Titik perangkat', semua.length], ['Sudah difoto', ada.length], ['Belum difoto', semua.length - ada.length],
+        ['Total foto', S.foto.filter(f => m.byId.get(f.perangkat_id)).length], ['Sesuai plan', nVer('sesuai')], ['Tidak sesuai', nVer('tidak')],
+      ];
+      kartu.forEach(([l, n], i) => {
+        const x = 0.7 + i * 2.02;
+        s1.addShape(ppt.ShapeType.roundRect, { x, y: 4.1, w: 1.85, h: 1.35, fill: { color: '1E293B' }, line: { color: '334155' }, rectRadius: 0.08 });
+        s1.addText(String(n), { x, y: 4.2, w: 1.85, h: 0.75, align: 'center', fontFace: F, fontSize: 30, bold: true, color: l === 'Tidak sesuai' && n ? 'F87171' : 'FFFFFF' });
+        s1.addText(l, { x, y: 4.95, w: 1.85, h: 0.4, align: 'center', fontFace: F, fontSize: 11, color: '94A3B8' });
+      });
+      s1.addText(`Dibuat ${new Date().toLocaleString('id-ID')} · Net Plan`, { x: 0.7, y: 6.7, w: 12, h: 0.35, fontFace: F, fontSize: 10, color: '64748B' });
+
+      // 2. Tabel semua titik (berlanjut otomatis ke slide berikutnya bila panjang).
+      const s2 = ppt.addSlide();
+      s2.addText('Ringkasan per titik', { x: 0.4, y: 0.3, w: 12.5, h: 0.6, fontFace: F, fontSize: 24, bold: true, color: GELAP });
+      const hd = ['Titik', 'Jenis', 'Status', 'Uplink / port', 'Foto', 'Pengecekan'].map(t => ({ text: t, options: { bold: true, fill: { color: 'E2E8F0' }, color: GELAP } }));
+      const rows = [hd].concat(semua.map(d => {
+        const n = fotoOf(d.id).length;
+        const v = NP.verifOf(d);
+        return [{ text: d.nama, options: { bold: true } }, jenisLabel(d), st(d), uplink(d),
+          { text: `${n}/${FOTO_MAKS}`, options: { color: n ? '15803D' : 'B91C1C', bold: true } },
+          { text: vTxt(d) + (v && v.c ? ' — ' + v.c : ''), options: { color: v ? NP.VERIF[v.h].color.slice(1) : ABU } }];
+      }));
+      s2.addTable(rows, {
+        x: 0.4, y: 1.0, w: 12.5, colW: [1.7, 2.3, 1.3, 2.4, 0.8, 4.0], fontFace: F, fontSize: 10, color: '334155',
+        border: { type: 'solid', pt: 0.5, color: GARIS }, autoPage: true, autoPageRepeatHeader: true, autoPageSlideStartY: 0.5, newSlideStartY: 0.5,
+      });
+
+      // 3. Satu slide per titik berfoto.
+      for (let k = 0; k < ada.length; k++) {
+        const d = ada[k];
+        toast(`Menyiapkan PowerPoint… ${k + 1}/${ada.length}`);
+        const fs = fotoOf(d.id);
+        const a = d.atribut || {};
+        const v = NP.verifOf(d);
+        const s = ppt.addSlide();
+        s.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.95, fill: { color: GELAP } });
+        s.addText([{ text: d.nama, options: { bold: true, fontSize: 24, color: 'FFFFFF' } },
+          { text: `   ${jenisLabel(d)}${d.model ? ' · ' + d.model : ''}`, options: { fontSize: 14, color: 'CBD5E1' } }],
+        { x: 0.4, y: 0.12, w: 9.6, h: 0.7, fontFace: F, valign: 'middle' });
+        s.addText(st(d), { x: 10.3, y: 0.25, w: 2.6, h: 0.45, align: 'right', fontFace: F, fontSize: 14, bold: true, color: (STATUS[d.status] || STATUS.rencana).color.slice(1) });
+        // Foto (kiri, 9,3 in): 1 besar / 2 berdampingan / 3 kolom; keterangan di bawah tiap foto.
+        const lebar = 9.3, gap = 0.2, n = fs.length;
+        const bw = (lebar - gap * (n - 1)) / n;
+        // Tinggi area foto mengikuti rasio foto paling tinggi (tanpa ruang kosong), maks. per jumlah foto.
+        const bh = Math.min(n === 1 ? 5.2 : n === 2 ? 4.9 : 4.6, Math.max(...fs.map(f => (f.w && f.h ? bw * f.h / f.w : bw * 0.75))));
+        for (let i = 0; i < n; i++) {
+          const f = fs[i];
+          const bx = 0.4 + i * (bw + gap);
+          const kotak = pasKotak(f.w, f.h, bx, 1.15, bw, bh);
+          s.addShape(ppt.ShapeType.rect, { x: bx, y: 1.15, w: bw, h: bh, fill: { color: 'F1F5F9' }, line: { color: 'E2E8F0' } });
+          s.addImage({ data: await keDataUrl(fotoUrl(f)), ...kotak });
+          s.addText([
+            { text: `Foto ${i + 1}`, options: { bold: true } },
+            { text: ` · ${(f.diambil_at || '').slice(0, 16)}${f.oleh ? ' · ' + f.oleh : ''}`, options: { breakLine: true } },
+            f.lat != null
+              ? { text: `📍 ${koordinat(f)}${f.akurasi_m != null ? ` (±${Math.round(f.akurasi_m)} m)` : ''}`, options: { hyperlink: { url: petaUrl(f) }, color: '2563EB' } }
+              : { text: '📍 tanpa koordinat', options: { color: 'B91C1C' } },
+          ], { x: bx, y: 1.2 + bh, w: bw, h: 0.6, fontFace: F, fontSize: 10, color: '334155', valign: 'top' });
+        }
+        // Kolom kanan: lokasi di denah + data titik + hasil pengecekan.
+        const rx = 9.95, rw = 3.0;
+        let ry = 1.15;
+        if (denahImg) {
+          s.addText('Lokasi di denah', { x: rx, y: ry, w: rw, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: GELAP });
+          const [, , cw, ch] = cropAround(d, 0.5);
+          const kotak = pasKotak(cw, ch, rx, ry + 0.32, rw, 2.2);
+          s.addImage({ data: potonganDenah(denahImg, d), ...kotak, line: { color: GARIS } });
+          ry += 0.32 + kotak.h + 0.15;
+        }
+        const data = [
+          ['Uplink', uplink(d) + (d.media ? ' · ' + MEDIA[d.media].short : '')],
+          ['IP / VLAN', [d.ip, d.vlan ? 'VLAN ' + d.vlan : ''].filter(Boolean).join(' · ')],
+          ['Posisi pasang', [a.mounting, a.lokasi_rak].filter(Boolean).join(' · ')],
+          ['SSID', d.jenis === 'ap' ? a.ssid || '' : ''],
+          ['PIC', d.pic || ''],
+        ].filter(x => x[1]);
+        s.addTable(data.map(([l, x]) => [{ text: l, options: { color: ABU } }, { text: x, options: { bold: true, color: GELAP } }]),
+          { x: rx, y: ry, w: rw, colW: [1.0, 2.0], fontFace: F, fontSize: 10, border: { type: 'none' }, margin: 0.03 });
+        ry += data.length * 0.3 + 0.2;
+        const V = v && NP.VERIF[v.h];
+        s.addShape(ppt.ShapeType.roundRect, { x: rx, y: ry, w: rw, h: Math.min(6.85 - ry, v && v.c ? 1.5 : 0.75), fill: { color: V ? (v.h === 'tidak' ? 'FEF2F2' : 'EFF6FF') : 'F8FAFC' }, line: { color: V ? V.color.slice(1) : GARIS }, rectRadius: 0.06 });
+        s.addText([
+          { text: 'Pengecekan penempatan', options: { fontSize: 9, color: ABU, breakLine: true } },
+          { text: vTxt(d), options: { bold: true, fontSize: 13, color: V ? V.color.slice(1) : ABU, breakLine: true } },
+          ...(v ? [{ text: `${v.o || ''} · ${v.t || ''}`, options: { fontSize: 9, color: ABU, breakLine: !!v.c } }] : []),
+          ...(v && v.c ? [{ text: v.c, options: { fontSize: 10, color: '334155' } }] : []),
+        ], { x: rx + 0.08, y: ry + 0.04, w: rw - 0.16, h: Math.min(6.85 - ry, v && v.c ? 1.5 : 0.75) - 0.08, fontFace: F, valign: 'top', fit: 'shrink' });
+        kaki(s, `${p.nama} · Titik ${k + 1}/${ada.length}`);
+      }
+
+      const nama = `laporan-foto-${slug(p.nama)}.pptx`;
+      await ppt.writeFile({ fileName: nama });
+      toast(`${nama} diunduh — ${ada.length} titik, ${ada.reduce((t, d) => t + fotoOf(d.id).length, 0)} foto`);
+    } catch (e) {
+      toast(e.message || 'PowerPoint gagal dibuat', true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   /** Isi rekap listrik untuk dicetak: ringkasan, per titik listrik, tanpa pemasok, peralatan support. */
   function htmlRekapListrik() {
     const m = S.model;
@@ -5538,10 +5760,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     return h + '</svg>';
   }
 
-  /** Potongan denah di sekitar perangkat (rasio 4:3), tetap di dalam batas denah. */
-  function cropAround(d) {
+  /** Potongan denah 4:3 di sekitar titik d; frac = lebar potongan relatif sisi terpanjang denah (bawaan 0,3). */
+  function cropAround(d, frac) {
     const { W, H } = peta.size();
-    let w = Math.max(W, H) * 0.3;
+    let w = Math.max(W, H) * (frac || 0.3);
     let h = w * 0.75;
     if (w > W) { w = W; h = w * 0.75; }
     if (h > H) { h = H; w = h / 0.75; }
@@ -5570,6 +5792,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const ap = formPrint.elements.jenis.value === 'ap';
     $('#ap-opts').hidden = !ap;
     $('#btn-ap-csv').hidden = !ap;
+    $('#btn-foto-pptx').hidden = formPrint.elements.jenis.value !== 'foto';
   }
   $('#form-print [data-close]').addEventListener('click', () => dlgPrint.close());
 
@@ -5598,6 +5821,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       printReport();
     }
   });
+
+  $('#btn-foto-pptx').addEventListener('click', () => unduhPptFoto());
 
   $('#btn-ap-csv').addEventListener('click', () => {
     const o = apOpts();

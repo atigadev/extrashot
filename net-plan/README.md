@@ -289,6 +289,20 @@ Admin melihat kotak yang sama, tanpa acuan plan, dan bisa mengisi, mengubah, ata
   dan koordinat;
 - tabel perangkat yang belum difoto.
 
+**Laporan foto PowerPoint.** Di dialog *Cetak → Laporan foto pemasangan* ada tombol **⬇ Unduh PowerPoint**. File
+`.pptx` (16:9) dibuat langsung di browser, tanpa server tambahan. Isinya:
+- **Sampul**: nama event, venue, tanggal, dan angka ringkas (titik, sudah / belum difoto, total foto, sesuai / tidak
+  sesuai plan).
+- **Ringkasan per titik**: tabel titik, jenis, status, uplink / port, jumlah foto, dan hasil pengecekan beserta
+  catatannya. Tabel berlanjut otomatis ke slide berikutnya bila panjang.
+- **Satu slide per titik berfoto**:
+  - 1–3 foto bercap, utuh tanpa terpotong, disusun 1 besar / 2 / 3 kolom mengikuti rasio foto;
+  - keterangan tiap foto: waktu, pengambil, dan koordinat yang bisa diklik ke Google Maps;
+  - kolom kanan: **potongan denah** dengan penanda lokasi titik, data titik (uplink & port, IP/VLAN, posisi pasang,
+    SSID, PIC), dan kotak hasil pengecekan (sesuai / tidak sesuai + catatan).
+
+Pustaka PptxGenJS 3.12.0 (MIT) ada di `vendor/pptxgenjs.bundle.js` dan hanya dimuat saat tombol diklik.
+
 **Salin SSID & password WiFi.** Di tab *Access Point* (juga *Wireless bridge*) dan tab *Info*, kotak WiFi punya
 tombol **⧉ SSID**, **⧉ Password**, dan **⧉ SSID + password**. Nilai diambil langsung dari isian saat itu, jadi yang
 baru diketik pun ikut. Format salin keduanya: `SSID: …` / `Password: …`. Di link lihat-saja / tim tanpa izin lihat

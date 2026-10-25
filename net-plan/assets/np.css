@@ -1182,3 +1182,16 @@ tr.bad-row td { background: #fef2f2; }
 .print .pr-lp small { font-weight: 400; color: #475569; font-size: 12px; margin-left: 8px; }
 .print .pr-belum { font-size: 13px; margin: 10px 0 6px; }
 .print .pr-rekap-lp { margin: 8px 0 12px; }
+
+/* Laporan penggunaan port (cetak) */
+.print .pr-port { break-inside: avoid; page-break-inside: avoid; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 10px; margin: 12px 0; }
+.print .pr-port h3 { margin: 0 0 2px; font-size: 14px; }
+.print .pr-port h3 small { font-weight: 400; color: #475569; margin-left: 6px; }
+.print .pr-ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 3px; margin: 6px 0 8px; padding: 6px; background: #1e293b; border-radius: 5px; }
+.print .pp { background: var(--c, #fff); color: #fff; border-radius: 3px; padding: 2px 3px; min-height: 30px; display: flex; flex-direction: column; overflow: hidden; }
+.print .pp.kosong { background: #f8fafc; color: #94a3b8; }
+.print .pp.dobel { outline: 2px solid #dc2626; outline-offset: -2px; }
+.print .pp-n { font-size: 9px; font-weight: 700; }
+.print .pp-d { font-size: 8px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.print .pr-port-cat { font-size: 11px; margin: 4px 0 0; }
+.print .pr-port-rekap td:nth-child(n+2) { text-align: center; }

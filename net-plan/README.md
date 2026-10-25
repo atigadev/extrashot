@@ -296,6 +296,21 @@ Admin melihat kotak yang sama, tanpa acuan plan, dan bisa mengisi, mengubah, ata
   dan koordinat;
 - tabel perangkat yang belum difoto.
 
+**Laporan penggunaan port** (menu *Cetak*, A4 tegak, atau *Unduh CSV*). Untuk semua switch & router.
+- **Rekap**: tiap perangkat dengan jumlah port, terpakai, kosong, dan jumlah per kategori sambungan (Uplink, WAN, Antar
+  switch, Router, Access point, Wireless bridge, Titik LAN, Endpoint, CCTV, Server, Lainnya), plus jumlah perangkat
+  tanpa nomor port.
+- **Per perangkat**:
+  - panel port seperti muka switch: kotak berwarna per kategori, putih = kosong, garis merah = port dobel;
+  - tabel port: perangkat terhubung (uplink / uplink kedua / port otomatis), kategori (endpoint + tipenya), media &
+    status kabel, VLAN trunk / access, IP;
+  - daftar perangkat yang tersambung tanpa nomor port, port di luar jumlah port, dan switch lain yang memakainya
+    sebagai uplink kedua.
+- **CSV**: satu baris per port, termasuk port kosong, tanpa nomor, dan di luar jumlah port.
+- **Layer**: mengikuti pilihan layer. Pada laporan gabungan, rekap dikelompokkan per layer dan tiap perangkat diberi
+  label layer.
+- Port yang belum diketahui jumlahnya ditandai "belum diisi". Isi *Jumlah port* di switch, atau di tab Router → Sistem.
+
 **Laporan foto PowerPoint.** Di dialog *Cetak → Laporan foto pemasangan* ada tombol **⬇ Unduh PowerPoint**. File
 `.pptx` (16:9) dibuat langsung di browser, tanpa server tambahan. Isinya:
 - **Sampul**: nama event, venue, tanggal, dan angka ringkas (titik, sudah / belum difoto, total foto, sesuai / tidak

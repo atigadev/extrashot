@@ -5326,6 +5326,128 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     }
   }
 
+  // ------------------------------------------------------------------------ laporan penggunaan port switch / router
+
+  /** Kategori sambungan di port (warna kotak port & kolom rekap). */
+  const KAT_PORT = {
+    uplink: { label: 'Uplink', color: '#1f2937' },
+    wan: { label: 'WAN', color: '#e11d48' },
+    switch: { label: 'Antar switch', color: '#2563eb' },
+    router: { label: 'Router', color: '#7c3aed' },
+    ap: { label: 'Access point', color: '#059669' },
+    bridge: { label: 'Wireless bridge', color: '#0891b2' },
+    lan: { label: 'Titik LAN', color: '#d97706' },
+    endpoint: { label: 'Endpoint', color: '#ea580c' },
+    cctv: { label: 'CCTV', color: '#be185d' },
+    server: { label: 'Server', color: '#475569' },
+    lainnya: { label: 'Lainnya', color: '#64748b' },
+  };
+  /** Kategori sambungan x di port perangkat P (x = isi port dari Model.portMap). */
+  function katPort(P, x) {
+    if (x.peran === 'wan' || (x.peran === 'uplink' && x.dev.jenis === 'isp')) return 'wan';
+    if (x.peran === 'uplink' || x.peran === 'up2') return x.dev.jenis === 'switch' && P.jenis === 'switch' ? 'switch' : 'uplink';
+    return KAT_PORT[x.dev.jenis] ? x.dev.jenis : 'lainnya';
+  }
+
+  /**
+   * Data penggunaan port semua switch & router (mengikuti S.model — terfilter layer bila dicetak per layer):
+   * [{P, pm, baris:[{port, label, isi, kat, ...}], rekap:{kat: n}, tanpa, lain, masuk}].
+   * masuk = switch lain yang memakai P sebagai uplink kedua (port di sisi P tidak tercatat).
+   */
+  function dataPort() {
+    const m = S.model;
+    const lp = kolomLapisan(true);
+    const idx = d => (lp.length ? lp.findIndex(l => l.id === m.lapisanOf(d)) : 0);
+    const alat = NP.Model.sortDev(m.list.filter(d => d.jenis === 'switch' || d.jenis === 'router')).sort((a, b) => idx(a) - idx(b));
+    return alat.map(P => {
+      const pm = m.portMap(P);
+      const nama = pt => (pt.sfp ? pt.label : (pm.prefix || '') + pt.label);
+      const baris = pm.ports.map(pt => {
+        const x = pt.isi[0];
+        if (!x) return { port: nama(pt), kosong: true };
+        const dev = x.dev;
+        const kat = katPort(P, x);
+        // Kabel & VLAN: sambungan ke anak = kabel anak; ke uplink = kabel P sendiri.
+        const kabelDari = x.peran === 'anak' ? dev : x.peran === 'uplink' ? P : null;
+        const lv = kabelDari && !NP.nonJaringan(kabelDari) ? m.linkVlan(kabelDari) : null;
+        return {
+          port: nama(pt), dev, kat, peran: x.peran, otomatis: x.otomatis, dobel: pt.isi.length > 1 ? pt.isi.map(i => i.dev.nama) : null,
+          media: kabelDari && kabelDari.media ? MEDIA[kabelDari.media].short : '',
+          kabel: kabelDari && NP.perluKabel(kabelDari) ? NP.KABEL[NP.kabelSt(kabelDari)].label : '',
+          vlan: lv && lv.mode === 'trunk' ? 'Trunk ' + (lv.tagged.join(',') || '—') : lv && lv.mode === 'access' ? 'Access ' + lv.untagged : '',
+          ip: dev.ip || '',
+        };
+      });
+      const rekap = {};
+      baris.forEach(b => { if (!b.kosong) rekap[b.kat] = (rekap[b.kat] || 0) + 1; });
+      const masuk = m.list.filter(d => d.id !== P.id && m.uplinkLain(d).some(w => w.dev.id === P.id));
+      return { P, pm, baris, rekap, tanpa: pm.tanpa, lain: pm.lain, masuk };
+    });
+  }
+
+  /** Laporan penggunaan port: rekap semua switch/router, lalu per perangkat panel port + tabel port. */
+  function cetakLaporanPort() {
+    const m = S.model;
+    const data = dataPort();
+    const lp = kolomLapisan(true);
+    const katDipakai = Object.keys(KAT_PORT).filter(k => data.some(x => x.rekap[k]));
+    const tr = (cells, th) => `<tr>${cells.map(c => `<${th ? 'th' : 'td'}>${c}</${th ? 'th' : 'td'}>`).join('')}</tr>`;
+    const adaVlan = data.some(x => x.baris.some(b => b.vlan));
+    const totP = data.reduce((s, x) => s + x.pm.ports.length, 0);
+    const totPakai = data.reduce((s, x) => s + x.pm.terpakai, 0);
+    const rekapBaris = x => tr([`<b>${esc(x.P.nama)}</b><br><span class="muted">${esc(x.P.model || jenisLabel(x.P))}</span>`,
+      x.pm.ports.length ? `${x.pm.eth}${x.pm.sfp ? ' + ' + x.pm.sfp + ' SFP' : ''}` : '<span class="muted">belum diisi</span>',
+      x.pm.terpakai, x.pm.ports.length ? x.pm.ports.length - x.pm.terpakai : '—',
+      ...katDipakai.map(k => x.rekap[k] || ''), (x.tanpa.length + x.lain.length) || '']);
+    let h = prHead('Laporan penggunaan port') +
+      `<p>Switch &amp; router: <b>${data.length}</b> · Port tercatat: <b>${totP}</b> · Terpakai: <b>${totPakai}</b> · Kosong: <b>${totP - totPakai}</b>${totP ? ` (${Math.round(totPakai / totP * 100)}% terpakai)` : ''}</p>
+      <div class="pr-legend">${katDipakai.map(k => `<span><i style="background:${KAT_PORT[k].color}"></i>${esc(KAT_PORT[k].label)}</span>`).join('')}<span><i style="background:#fff;border:1px solid #94a3b8"></i>Kosong</span></div>
+      <h2>Rekap per perangkat</h2>
+      <table class="pr-table pr-port-rekap">${tr(['Perangkat', 'Port', 'Terpakai', 'Kosong', ...katDipakai.map(k => esc(KAT_PORT[k].label)), 'Tanpa port / di luar'], true)}${
+        lp.length ? lp.map(L => {
+          const xs = data.filter(x => m.lapisanOf(x.P) === L.id);
+          return xs.length ? `<tr class="pr-grp"><td colspan="${5 + katDipakai.length}" style="border-left:5px solid ${esc(L.warna)}"><b>Layer ${esc(L.nama)}</b> · ${xs.length} perangkat</td></tr>${xs.map(rekapBaris).join('')}` : '';
+        }).join('') : data.map(rekapBaris).join('')}</table>`;
+    data.forEach(x => {
+      const P = x.P;
+      const up = m.parentOf(P);
+      h += `<section class="pr-port">
+        <h3>${esc(P.nama)} <small>${esc(jenisLabel(P))}${P.model ? ' · ' + esc(P.model) : ''}${lapisanLabel(P)}</small></h3>
+        <p class="pr-foto-meta">Uplink: <b>${up ? esc(up.nama) + (P.port_uplink ? ' port ' + esc(P.port_uplink) : '') : '—'}</b>${P.ip ? ' · IP ' + esc(P.ip) : ''}${(P.atribut || {}).managed ? ' · ' + esc(P.atribut.managed) : ''}${(P.atribut || {}).poe ? ' · PoE ' + esc(P.atribut.poe) : ''}
+          · ${x.pm.ports.length ? `<b>${x.pm.terpakai}</b> dari ${x.pm.ports.length} port terpakai` : 'jumlah port belum diisi'}</p>
+        ${x.pm.ports.length ? `<div class="pr-ports">${x.baris.map(b => `<div class="pp${b.kosong ? ' kosong' : ''}${b.dobel ? ' dobel' : ''}" style="${b.kosong ? '' : `--c:${KAT_PORT[b.kat].color}`}">
+            <span class="pp-n">${esc(b.port)}</span><span class="pp-d">${b.kosong ? '' : esc(b.dev.nama)}</span></div>`).join('')}</div>` : ''}
+        <table class="pr-table">${tr(['Port', 'Terhubung ke', 'Kategori', 'Media · kabel', ...(adaVlan ? ['VLAN'] : []), 'IP'], true)}${x.baris.filter(b => !b.kosong).map(b => tr([
+          `<b>${esc(b.port)}</b>`,
+          `${esc(b.dev.nama)}${b.peran === 'uplink' ? ' <span class="muted">(uplink)</span>' : b.peran === 'up2' ? ' <span class="muted">(uplink kedua)</span>' : ''}${b.otomatis ? ' <span class="muted">(port otomatis)</span>' : ''}${b.dobel ? `<br><span class="bad">dobel: ${esc(b.dobel.join(', '))}</span>` : ''}`,
+          `<span style="color:${KAT_PORT[b.kat].color};font-weight:600">${esc(KAT_PORT[b.kat].label)}</span>${b.kat === 'endpoint' && NP.tipeEp(b.dev) ? ' · ' + esc(NP.tipeEp(b.dev).nama) : ''}`,
+          esc([b.media, b.kabel].filter(Boolean).join(' · ')), ...(adaVlan ? [esc(b.vlan)] : []), esc(b.ip)])).join('') || `<tr><td colspan="${adaVlan ? 6 : 5}" class="muted">Belum ada perangkat dengan port tercatat.</td></tr>`}</table>
+        ${x.tanpa.length ? `<p class="pr-port-cat"><b>Tersambung tanpa nomor port (${x.tanpa.length}):</b> ${x.tanpa.map(d => esc(d.nama)).join(', ')}</p>` : ''}
+        ${x.lain.length ? `<p class="pr-port-cat bad"><b>Port di luar jumlah port:</b> ${x.lain.map(l => `${esc(l.dev.nama)} (${esc(l.teks)})`).join(', ')}</p>` : ''}
+        ${x.masuk.length ? `<p class="pr-port-cat"><b>Uplink kedua dari:</b> ${x.masuk.map(d => esc(d.nama)).join(', ')} <span class="muted">(port di ${esc(P.nama)} tidak tercatat)</span></p>` : ''}
+      </section>`;
+    });
+    $('#print').className = 'print';
+    $('#print').innerHTML = h;
+    printWith('A4 portrait');
+  }
+
+  /** CSV penggunaan port: satu baris per port (termasuk port kosong). */
+  function csvLaporanPort() {
+    const data = dataPort();
+    const lp = kolomLapisan(true).length > 0;
+    const rows = [[...(lp ? ['Layer'] : []), 'Switch / router', 'Nama alat', 'Port', 'Status port', 'Terhubung ke', 'Jenis perangkat', 'Kategori', 'Peran', 'Media', 'Status kabel', 'VLAN', 'IP']];
+    data.forEach(x => {
+      const pre = [...(lp ? [S.model.lapisanById(S.model.lapisanOf(x.P)).nama] : []), x.P.nama, x.P.model || ''];
+      x.baris.forEach(b => rows.push(b.kosong ? [...pre, b.port, 'Kosong', '', '', '', '', '', '', '', '']
+        : [...pre, b.port, b.dobel ? 'Dobel' : 'Terpakai', b.dev.nama, jenisLabel(b.dev), KAT_PORT[b.kat].label,
+          b.peran === 'anak' ? 'downlink' : b.peran === 'up2' ? 'uplink kedua' : b.peran, b.media, b.kabel, b.vlan, b.ip]));
+      x.tanpa.forEach(d => rows.push([...pre, '', 'Tanpa nomor port', d.nama, jenisLabel(d), '', 'downlink', '', '', '', d.ip || '']));
+      x.lain.forEach(l => rows.push([...pre, l.teks, 'Di luar jumlah port', l.dev.nama, jenisLabel(l.dev), '', l.peran, '', '', '', l.dev.ip || '']));
+    });
+    downloadCsv(rows, `penggunaan-port-${slug(S.proyek.nama)}.csv`);
+  }
+
   /** Isi rekap listrik untuk dicetak: ringkasan, per titik listrik, tanpa pemasok, peralatan support. */
   function htmlRekapListrik() {
     const m = S.model;
@@ -6410,6 +6532,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     $('#ap-opts').hidden = !ap;
     $('#btn-ap-csv').hidden = !ap;
     $('#btn-foto-pptx').hidden = formPrint.elements.jenis.value !== 'foto';
+    $('#btn-port-csv').hidden = formPrint.elements.jenis.value !== 'port';
   }
   $('#form-print [data-close]').addEventListener('click', () => dlgPrint.close());
 
@@ -6432,6 +6555,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       if (!S.model.list.some(NP.nonJaringan)) return toast('Belum ada titik listrik / peralatan support di event ini', true);
       dlgPrint.close();
       return cetakLaporanSupport();
+    } else if (jenis === 'port') {
+      if (!S.model.list.some(d => d.jenis === 'switch' || d.jenis === 'router')) return toast('Belum ada switch / router di event ini', true);
+      dlgPrint.close();
+      return cetakLaporanPort();
     } else if (jenis === 'foto') {
       if (!S.foto.length) return toast('Belum ada foto bukti. Ambil foto dari panel perangkat (tab Info) lewat ponsel.', true);
       dlgPrint.close();
@@ -6443,6 +6570,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   }
 
   $('#btn-foto-pptx').addEventListener('click', () => denganLapisan(() => unduhPptFoto()));
+  $('#btn-port-csv').addEventListener('click', () => denganLapisan(() => csvLaporanPort()));
 
   $('#btn-ap-csv').addEventListener('click', () => denganLapisan(() => {
     const o = apOpts();

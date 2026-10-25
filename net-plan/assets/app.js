@@ -400,7 +400,7 @@
       return;
     }
     const id = +m[1];
-    const tab = ['denah', 'daftar', 'topologi', 'support', 'ceklis', 'proyek'].includes(m[2]) ? m[2] : 'denah';
+    const tab = ['denah', 'daftar', 'topologi', 'support', 'ceklis', 'port', 'proyek'].includes(m[2]) ? m[2] : 'denah';
     try {
       if (!S.proyek || S.proyek.id !== id) await loadProyek(id);
       else if (S.katalogBasi) await muatKatalog();
@@ -651,6 +651,7 @@
     else if (S.tab === 'topologi') renderTopologi();
     else if (S.tab === 'support') renderSupport();
     else if (S.tab === 'ceklis') renderCeklisPage();
+    else if (S.tab === 'port') renderPortPage();
     else if (S.tab === 'proyek') renderProyek();
   }
 
@@ -1573,9 +1574,9 @@
       return jalankanRiwayat(k === 'y' || e.shiftKey ? 'redo' : 'undo');
     }
     if (ketik) return;
-    if (e.altKey && !mod && /^[1-6]$/.test(e.key)) {
+    if (e.altKey && !mod && /^[1-7]$/.test(e.key)) {
       e.preventDefault();
-      return go(['denah', 'daftar', 'topologi', 'support', 'ceklis', 'proyek'][+e.key - 1]);
+      return go(['denah', 'daftar', 'topologi', 'support', 'ceklis', 'port', 'proyek'][+e.key - 1]);
     }
     if (mod || e.altKey) return;
     if (e.key === '/') {
@@ -5447,6 +5448,161 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     });
     downloadCsv(rows, `penggunaan-port-${slug(S.proyek.nama)}.csv`);
   }
+  // ------------------------------------------------------------------------ halaman Port (rapikan lalu cetak)
+
+  const ptFilter = { q: '', masalah: false };
+  /** Masalah port satu perangkat: tanpa nomor port, port dobel, port di luar jumlah port, jumlah port belum diisi. */
+  const masalahPort = x => x.tanpa.length + x.lain.length + x.baris.filter(b => b.dobel).length + (x.pm.ports.length ? 0 : 1);
+
+  /**
+   * Halaman penggunaan port: isi sama dengan laporan cetak, tetapi bisa dirapikan langsung — nomor port tiap
+   * perangkat, perangkat tanpa nomor port (pilih / isi otomatis), port dobel & di luar jumlah, jumlah port switch.
+   * Setelah benar: Cetak / PDF atau CSV (mengikuti layer aktif).
+   */
+  function renderPortPage() {
+    const box = $('#port-pane');
+    if (!box || !S.model) return;
+    const m = S.model;
+    const edit = S.canEdit;
+    const semua = dataPort().filter(x => masukLapisan(x.P));
+    const q = ptFilter.q.trim().toLowerCase();
+    const data = semua.filter(x => (!ptFilter.masalah || masalahPort(x)) &&
+      (!q || [x.P.nama, x.P.model, ...x.baris.filter(b => !b.kosong).map(b => b.dev.nama), ...x.tanpa.map(d => d.nama)].join(' ').toLowerCase().includes(q)));
+    const totP = semua.reduce((s, x) => s + x.pm.ports.length, 0);
+    const totPakai = semua.reduce((s, x) => s + x.pm.terpakai, 0);
+    const nTanpa = semua.reduce((s, x) => s + x.tanpa.length, 0);
+    const nDobel = semua.reduce((s, x) => s + x.baris.filter(b => b.dobel).length + x.lain.length, 0);
+    const nBelum = semua.filter(x => !x.pm.ports.length).length;
+    const katDipakai = Object.keys(KAT_PORT).filter(k => semua.some(x => x.rekap[k]));
+    const lpNama = multiLapisan() && S.lapisan !== 'semua' ? ' · layer ' + esc(m.lapisanById(S.lapisan).nama) : '';
+    const tile = (n, l, cls) => `<div class="sp-tile${cls && n ? ' ' + cls : ''}"><b>${n}</b><span>${l}</span></div>`;
+    const chipDev = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
+    // Pilihan port: port kosong perangkat P + nilai sekarang (agar bisa dipertahankan / dikosongkan).
+    const pilihPort = (P, sekarang, attrs) => {
+      const kosong = portKosong2(P);
+      const opsi = [...new Set([sekarang, ...kosong].filter(Boolean))];
+      return `<select class="pt-sel" ${attrs}${edit ? '' : ' disabled'}><option value="">${sekarang ? '— kosongkan' : 'pilih port…'}</option>${opsi.map(o => `<option value="${esc(o)}"${o === sekarang ? ' selected' : ''}>${esc(o)}${o === sekarang ? '' : ' (kosong)'}</option>`).join('')}</select>`;
+    };
+    const kartu = x => {
+      const P = x.P;
+      const up = m.parentOf(P);
+      const nM = masalahPort(x);
+      const adaVlan = x.baris.some(b => b.vlan);
+      return `<section class="card pt-card${nM ? ' pt-masalah' : ''}" id="pt-${P.id}">
+        <div class="pt-h">
+          <div class="pt-judul"><h2>${esc(P.nama)} <small>${esc(jenisLabel(P))}${P.model ? ' · ' + esc(P.model) : ''}</small>${lapisanChip(P)}</h2>
+            <p class="muted small">Uplink: <b>${up ? esc(up.nama) + (P.port_uplink ? ' port ' + esc(P.port_uplink) : '') : '—'}</b>${P.ip ? ' · IP ' + esc(P.ip) : ''}${(P.atribut || {}).managed ? ' · ' + esc(P.atribut.managed) : ''}
+              · ${x.pm.ports.length ? `<b>${x.pm.terpakai}</b> dari ${x.pm.ports.length} port terpakai` : '<span class="bad">jumlah port belum diisi</span>'}</p></div>
+          <div class="pt-aksi">
+            <label class="field pt-jml"><span>Jumlah port</span><input type="number" min="0" max="96" value="${x.pm.eth || ''}" placeholder="mis. 8" data-pt-jml="${P.id}"${edit ? '' : ' disabled'}></label>
+            <button type="button" class="small ghost" data-pt-denah="${P.id}" title="Pilih ${esc(P.nama)} di denah">Lihat di denah</button>
+          </div>
+        </div>
+        ${x.pm.ports.length ? `<div class="pt-ports">${x.baris.map(b => `<button type="button" class="pp${b.kosong ? ' kosong' : ''}${b.dobel ? ' dobel' : ''}"${b.kosong ? '' : ` style="--c:${KAT_PORT[b.kat].color}" data-sel="${b.dev.id}"`}
+            title="${esc(b.port)}: ${b.kosong ? 'kosong' : esc((b.dobel || [b.dev.nama]).join(', ')) + ' · ' + esc(KAT_PORT[b.kat].label)}"><span class="pp-n">${esc(b.port)}</span><span class="pp-d">${b.kosong ? '' : esc(b.dev.nama)}</span></button>`).join('')}</div>` : ''}
+        ${x.baris.some(b => !b.kosong) ? `<div class="pt-tbl-wrap"><table class="mini pt-tbl"><tr><th>Port</th><th>Terhubung ke</th><th>Kategori</th><th>Media · kabel</th>${adaVlan ? '<th>VLAN</th>' : ''}<th>IP</th></tr>
+          ${x.baris.filter(b => !b.kosong).map(b => {
+            // Port bisa diubah: sambungan ke anak (port di uplink anak) & ke uplink P sendiri (port lokal P).
+            const ubah = b.peran === 'anak' ? pilihPort(P, b.port, `data-pt-anak="${b.dev.id}"`)
+              : b.peran === 'uplink' && P.jenis !== 'router' ? pilihPort(P, b.port, `data-pt-lokal="${P.id}"`) : `<b>${esc(b.port)}</b>`;
+            return `<tr class="${b.dobel ? 'bad-row' : ''}"><td>${ubah}</td>
+              <td>${chipDev(b.dev)}${b.peran === 'uplink' ? ' <span class="muted small">(uplink)</span>' : b.peran === 'up2' ? ' <span class="muted small">(uplink kedua)</span>' : b.peran === 'wan' ? ' <span class="muted small">(WAN tambahan)</span>' : ''}${b.otomatis ? ' <span class="muted small">(port otomatis)</span>' : ''}${b.dobel ? `<br><span class="bad small">dobel: ${esc(b.dobel.join(', '))}</span>` : ''}</td>
+              <td><span class="pt-kat" style="--c:${KAT_PORT[b.kat].color}">${esc(KAT_PORT[b.kat].label)}</span>${b.kat === 'endpoint' && NP.tipeEp(b.dev) ? ' <span class="muted small">' + esc(NP.tipeEp(b.dev).nama) + '</span>' : ''}</td>
+              <td>${esc([b.media, b.kabel].filter(Boolean).join(' · '))}</td>${adaVlan ? `<td>${esc(b.vlan)}</td>` : ''}<td class="mono">${esc(b.ip)}</td></tr>`;
+          }).join('')}</table></div>` : '<p class="muted small">Belum ada perangkat dengan nomor port tercatat.</p>'}
+        ${x.tanpa.length ? `<div class="pt-perlu"><div class="pt-perlu-h"><b>Tersambung tanpa nomor port (${x.tanpa.length})</b>
+            ${edit && x.pm.ports.length ? `<button type="button" class="small primary" data-pt-oto="${P.id}"${portKosong2(P).length < x.tanpa.length ? ' disabled title="Port kosong tidak cukup"' : ''}>Isi otomatis berurutan</button>` : ''}</div>
+          <div class="pt-perlu-list">${x.tanpa.map(d => `<label class="pt-row">${chipDev(d)}${x.pm.ports.length ? pilihPort(P, '', `data-pt-anak="${d.id}"`) : '<span class="muted small">isi jumlah port dulu</span>'}</label>`).join('')}</div></div>` : ''}
+        ${x.lain.length ? `<div class="pt-perlu bad-box"><b>Port di luar jumlah port (${x.lain.length})</b><div class="pt-perlu-list">${x.lain.map(l => `<label class="pt-row">${chipDev(l.dev)} <span class="mono">${esc(l.teks)}</span>
+            ${l.peran === 'anak' ? pilihPort(P, '', `data-pt-anak="${l.dev.id}"`) : ''}</label>`).join('')}</div></div>` : ''}
+        ${x.masuk.length ? `<p class="muted small">Uplink kedua dari: ${x.masuk.map(chipDev).join(' ')} (port di ${esc(P.nama)} tidak tercatat)</p>` : ''}
+      </section>`;
+    };
+    box.innerHTML = `<div class="sp-head"><div><h1>Penggunaan port</h1>
+        <p class="muted">Rapikan nomor port switch &amp; router di sini, lalu cetak / simpan PDF${lpNama}.</p></div>
+        <div class="btn-row"><button type="button" class="primary" data-pt-cetak>🖨 Cetak / PDF</button><button type="button" data-pt-csv>Unduh CSV</button></div></div>
+      <div class="sp-tiles">${tile(semua.length, 'Switch &amp; router')}${tile(totP, 'Port tercatat')}${tile(totPakai, `Terpakai${totP ? ' (' + Math.round(totPakai / totP * 100) + '%)' : ''}`)}${tile(totP - totPakai, 'Kosong')}
+        ${tile(nTanpa, 'Tanpa nomor port', 'warn')}${tile(nDobel, 'Port dobel / di luar', 'bad')}${tile(nBelum, 'Jumlah port belum diisi', 'warn')}</div>
+      <div class="pt-tools"><input type="search" id="pt-q" placeholder="Cari switch / perangkat…" value="${esc(ptFilter.q)}" aria-label="Cari">
+        <label class="check-inline"><input type="checkbox" id="pt-masalah"${ptFilter.masalah ? ' checked' : ''}> Hanya yang perlu dirapikan</label>
+        <span class="pt-legend">${katDipakai.map(k => `<span><i style="background:${KAT_PORT[k].color}"></i>${esc(KAT_PORT[k].label)}</span>`).join('')}<span><i class="kosong"></i>Kosong</span></span></div>
+      ${semua.length ? `<div class="card"><h2>Rekap</h2><div class="pt-tbl-wrap"><table class="mini pt-rekap"><tr><th>Perangkat</th><th class="num">Port</th><th class="num">Terpakai</th><th class="num">Kosong</th>${katDipakai.map(k => `<th class="num">${esc(KAT_PORT[k].label)}</th>`).join('')}<th class="num">Perlu dirapikan</th></tr>
+        ${data.map(x => `<tr data-pt-ke="${x.P.id}" class="pt-klik"><td><b>${esc(x.P.nama)}</b>${lapisanChip(x.P)}<br><span class="muted small">${esc(x.P.model || jenisLabel(x.P))}</span></td>
+          <td class="num">${x.pm.ports.length || '<span class="muted">—</span>'}</td><td class="num">${x.pm.terpakai}</td><td class="num">${x.pm.ports.length ? x.pm.ports.length - x.pm.terpakai : '—'}</td>
+          ${katDipakai.map(k => `<td class="num">${x.rekap[k] || ''}</td>`).join('')}<td class="num">${masalahPort(x) ? `<b class="bad">${masalahPort(x)}</b>` : '<span class="ok-text">✓</span>'}</td></tr>`).join('')}</table></div></div>` : ''}
+      ${data.length ? data.map(kartu).join('') : `<p class="muted">${semua.length ? 'Tidak ada yang cocok dengan filter.' : 'Belum ada switch / router di event ini.'}</p>`}`;
+  }
+
+  $('#port-pane').addEventListener('input', e => {
+    if (e.target.id !== 'pt-q') return;
+    ptFilter.q = e.target.value;
+    clearTimeout(renderPortPage.t);
+    renderPortPage.t = setTimeout(() => {
+      renderPortPage();
+      const q = $('#pt-q');
+      if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    }, 250);
+  });
+  $('#port-pane').addEventListener('change', async e => {
+    const t = e.target;
+    if (t.id === 'pt-masalah') {
+      ptFilter.masalah = t.checked;
+      return renderPortPage();
+    }
+    if (!S.canEdit) return;
+    if (t.dataset.ptAnak) {
+      const d = S.model.byId.get(+t.dataset.ptAnak);
+      if (d) await saveDev(d.id, { port_uplink: t.value }).then(() => toast(t.value ? `${d.nama} → port ${t.value}` : `Port ${d.nama} dikosongkan`)).catch(() => {});
+    } else if (t.dataset.ptLokal) {
+      const P = S.model.byId.get(+t.dataset.ptLokal);
+      if (P) await saveDev(P.id, { port_lokal: t.value }).then(() => toast(`Port uplink ${P.nama} → ${t.value || 'kosong'}`)).catch(() => {});
+    } else if (t.dataset.ptJml) {
+      const P = S.model.byId.get(+t.dataset.ptJml);
+      const n = parseInt(t.value, 10);
+      if (!P) return;
+      const atr = Object.assign({}, P.atribut);
+      if (n > 0) atr.jumlah_port = String(Math.min(96, n));
+      else delete atr.jumlah_port;
+      await saveDev(P.id, { atribut: atr }).then(() => toast(`Jumlah port ${P.nama}: ${n > 0 ? n : 'belum diisi'}`)).catch(() => {});
+    }
+  });
+  $('#port-pane').addEventListener('click', async e => {
+    const ke = e.target.closest('[data-pt-ke]');
+    if (ke && !e.target.closest('a')) {
+      const el = $('#pt-' + ke.dataset.ptKe);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    const den = e.target.closest('[data-pt-denah]');
+    if (den) {
+      const id = +den.dataset.ptDenah;
+      go('denah');
+      return setTimeout(() => selectDev(id, true), 80);
+    }
+    if (e.target.closest('[data-pt-cetak]')) return denganLapisan(() => cetakLaporanPort(), S.lapisan);
+    if (e.target.closest('[data-pt-csv]')) return denganLapisan(() => csvLaporanPort(), S.lapisan);
+    const oto = e.target.closest('[data-pt-oto]');
+    if (oto && S.canEdit) {
+      const P = S.model.byId.get(+oto.dataset.ptOto);
+      const pm = S.model.portMap(P);
+      const kosong = portKosong2(P);
+      const ds = pm.tanpa.slice(0, kosong.length);
+      await kelompok(`isi ${ds.length} port ${P.nama}`, async () => {
+        for (let i = 0; i < ds.length; i++) await saveDev(ds[i].id, { port_uplink: kosong[i] }, { keepPanel: true }).catch(() => {});
+      });
+      toast(`${ds.length} perangkat di ${P.nama} diberi nomor port berurutan (Ctrl+Z untuk membatalkan)`);
+      return;
+    }
+    // Nama perangkat / kotak port: buka perangkat itu di denah.
+    const a = e.target.closest('[data-sel]');
+    if (!a || e.target.closest('select')) return;
+    e.preventDefault();
+    const id = +a.dataset.sel;
+    S.sel = id;
+    go('denah');
+    setTimeout(() => selectDev(id, true), 60);
+  });
+
 
   /** Isi rekap listrik untuk dicetak: ringkasan, per titik listrik, tanpa pemasok, peralatan support. */
   function htmlRekapListrik() {
@@ -6600,9 +6756,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
    * Jalankan pembuat laporan untuk layer yang dipilih di dialog cetak: S.model sementara hanya berisi perangkat layer
    * itu (denah, tabel, pemeriksaan, foto, PowerPoint ikut tersaring); "semua" = laporan gabungan semua layer.
    */
-  async function denganLapisan(fn) {
+  async function denganLapisan(fn, lidPaksa) {
     const sel = formPrint.elements.lapisan;
-    const lid = sel && !$('#print-lapisan').hidden ? sel.value : 'semua';
+    const lid = lidPaksa || (sel && !$('#print-lapisan').hidden ? sel.value : 'semua');
     if (!multiLapisan() || lid === 'semua') {
       S.labelLapisan = '';
       return fn();

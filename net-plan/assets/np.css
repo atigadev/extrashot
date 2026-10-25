@@ -1195,3 +1195,45 @@ tr.bad-row td { background: #fef2f2; }
 .print .pp-d { font-size: 8px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .print .pr-port-cat { font-size: 11px; margin: 4px 0 0; }
 .print .pr-port-rekap td:nth-child(n+2) { text-align: center; }
+
+/* Warna laporan ikut tercetak (panel port, judul berwarna) walau opsi "Background graphics" browser mati. */
+@media print { .print, .print * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
+
+/* Halaman Port */
+#port-pane .card { margin-bottom: 14px; }
+.pt-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 14px; }
+.pt-tools input[type=search] { flex: 1 1 240px; max-width: 360px; }
+.pt-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+.pt-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.pt-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.pt-legend i.kosong { background: #fff; border: 1px solid #cbd5e1; }
+.pt-klik { cursor: pointer; }
+.pt-klik:hover td { background: #f8fafc; }
+.pt-card.pt-masalah { border-left: 4px solid #f59e0b; }
+.pt-h { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 8px 16px; }
+.pt-judul h2 { margin: 0 0 2px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pt-judul h2 small { font-weight: 400; color: var(--muted); font-size: 13px; }
+.pt-judul p { margin: 0; }
+.pt-aksi { display: flex; align-items: flex-end; gap: 8px; }
+.pt-jml { width: 110px; margin: 0; }
+.pt-ports { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 4px; margin: 10px 0; padding: 7px; background: #1e293b; border-radius: 8px; }
+.pt-ports .pp { all: unset; box-sizing: border-box; background: var(--c, #fff); color: #fff; border-radius: 4px; padding: 3px 5px; min-height: 36px; display: flex; flex-direction: column; overflow: hidden; cursor: pointer; }
+.pt-ports .pp.kosong { background: #f8fafc; color: #94a3b8; cursor: default; }
+.pt-ports .pp.dobel { box-shadow: inset 0 0 0 2px #fca5a5; }
+.pt-ports .pp:not(.kosong):hover { filter: brightness(1.12); }
+.pt-ports .pp-n { font-size: 10.5px; font-weight: 700; }
+.pt-ports .pp-d { font-size: 10px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pt-tbl-wrap { overflow-x: auto; }
+.pt-tbl td { vertical-align: middle; }
+.pt-sel { width: auto; min-width: 104px; max-width: 160px; padding: 3px 6px; font-size: 13px; }
+.pt-kat { color: var(--c); font-weight: 600; }
+.pt-perlu { margin-top: 10px; padding: 8px 10px; border: 1px dashed #f59e0b; border-radius: 8px; background: #fffbeb; }
+.pt-perlu.bad-box { border-color: #fca5a5; background: #fef2f2; }
+.pt-perlu-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.pt-perlu-list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
+.pt-row { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 640px) {
+  .pt-aksi { width: 100%; justify-content: space-between; }
+  .pt-ports { grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); }
+  .pt-perlu-list { flex-direction: column; }
+}

@@ -296,6 +296,21 @@ Admin melihat kotak yang sama, tanpa acuan plan, dan bisa mengisi, mengubah, ata
   dan koordinat;
 - tabel perangkat yang belum difoto.
 
+**Halaman Port** (tab *Port*, `Alt+6`). Tempat merapikan data port sebelum mencetak. Isinya sama dengan laporan, tetapi
+bisa diubah langsung:
+- **Angka ringkas**: switch & router, port tercatat, terpakai (%), kosong, tanpa nomor port, port dobel / di luar
+  jumlah, dan jumlah port belum diisi (kuning / merah bila perlu dirapikan).
+- **Rekap**: klik baris untuk melompat ke perangkatnya. Kolom *Perlu dirapikan* menghitung masalahnya.
+- **Per switch / router**:
+  - *Jumlah port* bisa diisi langsung;
+  - panel port berwarna (klik kotak = buka perangkat di denah);
+  - nomor port tiap sambungan bisa diganti lewat pilihan port kosong, termasuk port uplink switch;
+  - perangkat *tanpa nomor port*: pilih port satu per satu atau **Isi otomatis berurutan**;
+  - port di luar jumlah port bisa dipindah ke port yang ada.
+- **Bantuan**: filter cari dan **Hanya yang perlu dirapikan**. Semua perubahan bisa di-Ctrl+Z.
+- **Cetak / PDF** dan **Unduh CSV** di kanan atas, mengikuti layer aktif.
+- Warna panel port & judul berwarna ikut tercetak walau opsi "Background graphics" browser tidak dicentang.
+
 **Laporan penggunaan port** (menu *Cetak*, A4 tegak, atau *Unduh CSV*). Untuk semua switch & router.
 - **Rekap**: tiap perangkat dengan jumlah port, terpakai, kosong, dan jumlah per kategori sambungan (Uplink, WAN, Antar
   switch, Router, Access point, Wireless bridge, Titik LAN, Endpoint, CCTV, Server, Lainnya), plus jumlah perangkat
@@ -569,7 +584,7 @@ Pintasan di Denah:
 | `P` | Sembunyikan / tampilkan panel kanan (desktop) |
 | `K` | Kunci / buka kunci posisi perangkat terpilih |
 | `Esc` | Batal |
-| `Alt+1`–`6` | Pindah tab (Denah · Daftar · Topologi · Support · Ceklis · Proyek) |
+| `Alt+1`–`7` | Pindah tab (Denah · Daftar · Topologi · Support · Ceklis · Port · Proyek) |
 | `?` | Daftar semua pintasan (juga di menu akun) |
 
 Scroll/pinch untuk zoom, geser latar untuk pan. Saat menghubungkan, Shift+klik menghubungkan beberapa perangkat

@@ -48,6 +48,7 @@
       tool: 'pilih', sel: null, canEdit: true,
       layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true, kabel: false, listrik: false },
       hidden: new Set(), // jenis yang disembunyikan
+      redup: null, // fn(d) -> true: perangkat digambar samar & tidak bisa diklik (mis. layer jaringan lain)
       measure: [], linkSrc: null, cursor: null, flash: null,
       userView: false, // pengguna sudah zoom/pan sendiri
       inset: 0, // tinggi panel bawah yang menutupi peta (px)
@@ -172,6 +173,12 @@
             const V = v && NP.VERIF[v.h];
             return V ? `<g class="vf vf-${v.h}" transform="translate(${b},${b})"><circle r="${BADGE}" fill="${V.color}"/><text dy="0.36em">${V.icon}</text></g>` : '';
           })()}
+          ${(() => {
+            // Layer jaringan (bila event punya > 1 layer): titik warna layer di kiri bawah.
+            if (m.lapisanList().length < 2) return '';
+            const L = m.lapisanById(m.lapisanOf(d));
+            return `<g class="lp" transform="translate(${-b},${b})"><circle r="${BADGE - 0.5}" fill="${esc(L.warna)}"/><title>Layer ${esc(L.nama)}</title></g>`;
+          })()}
           ${NP.terkunci(d) ? `<g class="lock" transform="translate(${-b},${-b})"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3" /></g>` : ''}
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
           <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
@@ -187,7 +194,7 @@
       gCov.textContent = '';
       if (!st.layers.cakupan || !m) return;
       for (const d of m.list) {
-        if (d.jenis !== 'ap' || st.hidden.has(d.jenis)) continue;
+        if (d.jenis !== 'ap' || st.hidden.has(d.jenis) || (st.redup && st.redup(d))) continue;
         const r = m.apRadiusPx(d);
         if (!r) continue;
         const sk = sektor(d);
@@ -202,6 +209,7 @@
     function applyClasses() {
       const m = st.model;
       if (!m) return;
+      const samar = d => !!(st.redup && d && st.redup(d));
       const onPath = new Set();
       if (st.sel != null && m.byId.has(st.sel)) {
         for (const d of m.path(m.byId.get(st.sel))) onPath.add(d.id);
@@ -213,20 +221,24 @@
         g.classList.toggle('on-path', onPath.has(id) && id !== st.sel);
         g.classList.toggle('flash', id === st.flash);
         g.style.display = st.hidden.has(d.jenis) ? 'none' : '';
+        g.classList.toggle('redup', samar(d));
       }
       for (const [id, g] of linkEls) {
         const d = m.byId.get(id);
         const p = m.parentOf(d);
         g.classList.toggle('on-path', onPath.has(id) && p && onPath.has(p.id));
         g.style.display = !st.layers.garis || st.hidden.has(d.jenis) || (p && st.hidden.has(p.jenis)) ? 'none' : '';
+        g.classList.toggle('redup', samar(d) || (!!p && samar(p)));
       }
       for (const w of pwrEls) {
         w.g.classList.toggle('show', !!st.layers.listrik || w.d.id === st.sel || w.L.id === st.sel);
         w.g.style.display = st.hidden.has(w.d.jenis) || st.hidden.has(w.L.jenis) ? 'none' : '';
+        w.g.classList.toggle('redup', samar(w.d));
       }
       for (const w of wanEls) {
         w.g.classList.toggle('on-path', w.d.id === st.sel || w.isp.id === st.sel);
         w.g.style.display = !st.layers.garis || st.hidden.has(w.d.jenis) || st.hidden.has(w.isp.jenis) ? 'none' : '';
+        w.g.classList.toggle('redup', samar(w.d) || samar(w.isp));
       }
       svg.classList.toggle('no-label', !st.layers.label);
       svg.classList.toggle('no-dist', !st.layers.jarak);
@@ -936,9 +948,16 @@
       buildCoverage();
       applyClasses();
     }
+    /** fn(d) -> true: perangkat (dan garisnya) digambar samar & tidak bisa diklik; null = semua normal. */
+    function setRedup(fn) {
+      st.redup = fn || null;
+      buildCoverage();
+      applyClasses();
+    }
+
 
     return {
-      setData, select, setTool, setLayer, setHidden, fit, zoomBy, centerOn, flash,
+      setData, select, setTool, setLayer, setHidden, setRedup, fit, zoomBy, centerOn, flash,
       setEditable(v) { st.canEdit = v; applyClasses(); },
       setOpacity(v) {
         st.opacity = v;

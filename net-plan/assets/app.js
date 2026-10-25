@@ -14,6 +14,7 @@
     lihat: lihatKode,
     tim: timToken,
     akses: null, // izin link tim: {nama, peran, status_boleh, jenis_boleh, lihat_password}
+    lapisan: 'semua', // layer jaringan yang ditampilkan di peta / daftar / topologi ('semua' atau id layer)
     foto: [], // foto bukti pemasangan event ini: [{id, perangkat_id, lat, lng, akurasi_m, diambil_at, oleh, akses_id}]
     canEdit: !lihatKode,
     proyek: null,
@@ -188,6 +189,7 @@
     if (S.sel != null && !S.model.byId.has(S.sel)) S.sel = null;
     if (S.parentCtx != null && !S.model.byId.has(S.parentCtx)) S.parentCtx = null;
     peta.setData(S.model, denahUrl());
+    terapkanLapisan();
     peta.select(S.sel);
     if (S.tab === 'denah') {
       if (opts.keepPanel) renderPanelInfo();
@@ -229,6 +231,8 @@
       S.sel = null;
       S.parentCtx = null;
       resetRiwayat();
+      // Layer jaringan terakhir yang dipilih di event ini.
+      try { S.lapisan = localStorage.getItem(kunciLapisan()) || 'semua'; } catch (err) { S.lapisan = 'semua'; }
     }
     return changed;
   }
@@ -707,6 +711,12 @@
     tutupKabelPop();
     S.sel = id;
     const d = id != null && S.model.byId.get(id);
+    // Perangkat dari layer lain (mis. lewat pencarian): tampilkan layernya agar tidak tetap samar.
+    if (d && !masukLapisan(d)) {
+      S.lapisan = S.model.lapisanOf(d);
+      try { localStorage.setItem(kunciLapisan(), S.lapisan); } catch (err) { /* abaikan */ }
+      terapkanLapisan();
+    }
     if (d && TYPES[d.jenis] && TYPES[d.jenis].parent) S.parentCtx = id;
     peta.select(id);
     if (peta.tool !== 'ukur') renderPanel();
@@ -1050,6 +1060,12 @@
       atribut: ep ? { tipe_endpoint: String(ep.id) } : TYPES[jenis].listrik ? { fase: '1 fase' } : {},
       port_uplink: jenis === 'endpoint' && uplinkId != null ? portKosong(uplinkId) : '',
     }, base || {}, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+    // Layer jaringan: ikut uplink-nya; tanpa uplink = layer yang sedang aktif di peta.
+    if (S.model.lapisanList().length > 1) {
+      const up = uplinkId != null && S.model.byId.get(uplinkId);
+      const lid = up ? S.model.lapisanOf(up) : S.lapisan !== 'semua' ? S.lapisan : (body.atribut && body.atribut.lapisan) || '';
+      if (lid) body.atribut = Object.assign({}, body.atribut, { lapisan: lid });
+    }
     try {
       const res = await enqueue(() => api(API, body));
       S.list.push(res.perangkat);
@@ -1356,6 +1372,82 @@
   $('#view-switch').addEventListener('click', e => {
     const b = e.target.closest('[data-view]');
     if (b) setView(b.dataset.view);
+  });
+
+  // ------------------------------------------------------------------------ layer jaringan
+
+  /** Event punya lebih dari satu layer jaringan (beberapa jaringan terpisah dalam satu denah). */
+  const multiLapisan = () => !!S.model && S.model.lapisanList().length > 1;
+  /** Perangkat termasuk layer yang sedang ditampilkan. */
+  const masukLapisan = d => S.lapisan === 'semua' || !multiLapisan() || S.model.lapisanOf(d) === S.lapisan;
+  const kunciLapisan = () => 'np-lapisan-' + (S.proyek ? S.proyek.id : '');
+
+  /** Terapkan layer aktif ke peta (layer lain samar) & tombol pemilih layer; dipanggil setiap model diperbarui. */
+  function terapkanLapisan() {
+    const box = $('#lapisan-switch');
+    if (!multiLapisan()) {
+      S.lapisan = 'semua';
+      if (box) box.hidden = true;
+      peta.setRedup(null);
+      return;
+    }
+    const daftar = S.model.lapisanList();
+    if (S.lapisan !== 'semua' && !daftar.some(l => l.id === S.lapisan)) S.lapisan = 'semua';
+    peta.setRedup(S.lapisan === 'semua' ? null : d => S.model.lapisanOf(d) !== S.lapisan);
+    if (!box) return;
+    const n = id => S.model.list.filter(d => S.model.lapisanOf(d) === id).length;
+    box.hidden = false;
+    box.innerHTML = `<span class="lp-lbl">Layer</span><button type="button" data-lapisan="semua" class="${S.lapisan === 'semua' ? 'on' : ''}" title="Semua layer jaringan">Semua</button>` +
+      daftar.map(l => `<button type="button" data-lapisan="${esc(l.id)}" class="${S.lapisan === l.id ? 'on' : ''}" title="${esc(l.nama)} · ${n(l.id)} perangkat">
+        <i style="background:${esc(l.warna)}"></i>${esc(l.nama)}</button>`).join('');
+  }
+  /**
+   * Layer yang dijadikan kolom rincian di tabel ringkasan (kebutuhan perangkat, kabel, WAN): semua layer bila event
+   * punya > 1 layer dan yang ditampilkan "Semua". cetak = laporan (pilihan layer dari dialog cetak, bukan peta).
+   */
+  function kolomLapisan(cetak) {
+    if (!multiLapisan()) return [];
+    return (cetak ? !S.labelLapisan : S.lapisan === 'semua') ? S.model.lapisanList() : [];
+  }
+  const thLapisan = (L, cls) => `<th class="${cls || 'num'} th-lp" title="Layer ${esc(L.nama)}"><i style="background:${esc(L.warna)}"></i>${esc(L.nama)}</th>`;
+
+  /** Tabel kebutuhan perangkat; dengan kolom per layer bila cols berisi layer. */
+  function bomTabel(bom, cols, cetak) {
+    const stokCell = b => b.stok == null ? (cetak ? '—' : '<span class="muted">—</span>')
+      : b.jumlah > b.stok ? `<b class="bad">${b.stok} (kurang ${b.jumlah - b.stok})</b>` : String(b.stok);
+    const nol = cetak ? '—' : '<span class="muted">—</span>';
+    return `<table class="${cetak ? 'pr-table' : 'mini'}"><tr><th>Jenis</th><th>Nama alat</th>${cols.map(L => thLapisan(L)).join('')}<th class="num">${cols.length ? 'Total' : 'Jumlah'}</th><th class="num">Stok</th></tr>${bom.map(b =>
+      `<tr><td>${esc((TYPES[b.jenis] || TYPES.lainnya).label)}</td><td>${b.model ? esc(b.model) : cetak ? '(belum diisi)' : '<span class="muted">(belum diisi)</span>'}${b.katalog && !cetak ? ' <span class="tag-kat" title="Dari katalog">katalog</span>' : ''}</td>
+        ${cols.map(L => `<td class="num">${b.lp[L.id] || nol}</td>`).join('')}<td class="num"><b>${b.jumlah}</b></td><td class="num">${stokCell(b)}</td></tr>`).join('')}
+      ${cols.length ? `<tr class="tot"><td colspan="2">Total perangkat</td>${cols.map(L => `<td class="num"><b>${bom.reduce((s, b) => s + (b.lp[L.id] || 0), 0)}</b></td>`).join('')}<td class="num"><b>${bom.reduce((s, b) => s + b.jumlah, 0)}</b></td><td></td></tr>` : ''}</table>`;
+  }
+
+  /** Tabel estimasi kabel per media; dengan kolom per layer (link · meter) bila cols berisi layer. */
+  function kabelTabel(kb, cols, cetak) {
+    const keys = Object.keys(kb.tot);
+    if (!keys.length) return '';
+    const sel = x => (x ? `${x.n} link · ≈ ${esc(fmtM(x.m))}` : cetak ? '—' : '<span class="muted">—</span>');
+    return `<table class="${cetak ? 'pr-table' : 'mini'}"><tr><th>Media</th>${cols.map(L => thLapisan(L)).join('')}<th class="num">Link</th><th class="num">Total</th></tr>${keys.map(k =>
+      `<tr><td>${esc(MEDIA[k] ? MEDIA[k].label : k)}</td>${cols.map(L => `<td class="num">${sel(kb.tot[k].lp[L.id])}</td>`).join('')}<td class="num">${kb.tot[k].n}</td><td class="num"><b>≈ ${esc(fmtM(kb.tot[k].m))}</b></td></tr>`).join('')}</table>`;
+  }
+
+  /** Label kecil layer perangkat (daftar / topologi) bila semua layer ditampilkan. */
+  function lapisanChip(d) {
+    if (!multiLapisan() || S.lapisan !== 'semua') return '';
+    const L = S.model.lapisanById(S.model.lapisanOf(d));
+    return `<span class="lp-chip" style="--c:${esc(L.warna)}" title="Layer ${esc(L.nama)}">${esc(L.nama)}</span>`;
+  }
+  function setLapisan(id) {
+    S.lapisan = id;
+    try { localStorage.setItem(kunciLapisan(), id); } catch (err) { /* abaikan */ }
+    if (S.sel != null && !masukLapisan(S.model.byId.get(S.sel) || {})) selectDev(null);
+    terapkanLapisan();
+    if (S.tab !== 'denah') renderTab();
+    else if (S.sel == null) renderPanel(); // ringkasan ikut layer
+  }
+  $('#lapisan-switch').addEventListener('click', e => {
+    const b = e.target.closest('[data-lapisan]');
+    if (b) setLapisan(b.dataset.lapisan);
   });
 
   document.addEventListener('keydown', e => {
@@ -2479,20 +2571,23 @@
   function panelRingkasan() {
     const m = S.model;
     const p = S.proyek;
+    // Ringkasan mengikuti layer jaringan yang sedang ditampilkan.
+    const ds = m.list.filter(masukLapisan);
+    const dalam = new Set(ds.map(d => d.id));
     const counts = {};
-    m.list.forEach(d => { counts[d.jenis] = (counts[d.jenis] || 0) + 1; });
-    const checks = m.checks();
+    ds.forEach(d => { counts[d.jenis] = (counts[d.jenis] || 0) + 1; });
+    const checks = m.checks().filter(c => !c.ids.length || c.ids.some(id => dalam.has(id)));
     const nErr = checks.filter(c => c.level === 'err').length;
     const nWarn = checks.filter(c => c.level === 'warn').length;
     const st = {};
-    m.list.forEach(d => { st[d.status] = (st[d.status] || 0) + 1; });
+    ds.forEach(d => { st[d.status] = (st[d.status] || 0) + 1; });
     const kon = { online: [], gangguan: [], offline: [] };
-    m.list.forEach(d => { if (!NP.nonJaringan(d)) kon[m.koneksi(d)].push(d); });
+    ds.forEach(d => { if (!NP.nonJaringan(d)) kon[m.koneksi(d)].push(d); });
     return `
       <div class="pn-sec">
         <h3>${esc(p.nama)}</h3>
         ${S.tim && S.akses ? `<div class="tim-info"><b>${esc(S.akses.nama)}</b>${aksesRingkas(S.akses)}${progresTim()}</div>` : ''}
-        <p class="muted small">${m.list.length} perangkat${p.skala ? ` · skala 1 px = ${fmtM(p.skala).replace(' m', '')} m` : ''}</p>
+        <p class="muted small">${ds.length} perangkat${multiLapisan() && S.lapisan !== 'semua' ? ' · layer ' + esc(m.lapisanById(S.lapisan).nama) : ''}${p.skala ? ` · skala 1 px = ${fmtM(p.skala).replace(' m', '')} m` : ''}</p>
         ${!p.denah_v && S.canEdit ? '<p class="note">Belum ada denah. Upload di tab <a href="#" data-go="proyek">Proyek</a>.</p>' : ''}
         ${!p.skala ? `<p class="note">Skala belum dikalibrasi — panjang kabel &amp; cakupan AP belum bisa dihitung. Pakai alat <a href="#" data-tool-go="ukur">Ukur</a> pada garis skala denah (mis. "7000 cm").</p>` : ''}
       </div>
@@ -2679,6 +2774,7 @@
             ${fieldHtml({ k: 'model', label: d.katalog_id != null ? 'Nama alat (dari katalog, bisa disesuaikan)' : 'Nama alat (merek/tipe)', ph: 'mis. MikroTik hAP ax², TP-Link EAP650', wide: true }, d.model, dis)}
             <div class="field wide"><span>Status pemasangan</span>${statusPicker(d, S.canEdit ? 'admin' : '')}</div>
             ${fieldHtml({ k: 'pic', label: 'PIC / teknisi' }, d.pic, dis)}
+            ${multiLapisan() ? `<label class="field"><span>Layer jaringan</span><select data-lapisan-dev${dis}>${S.model.lapisanList().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lapisanOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
           </div>
         </div>
         <div class="pn-sec" data-pp="koneksi">
@@ -2956,6 +3052,32 @@
     });
     toast(L ? `${ds.length > 1 ? ds.length + ' perangkat' : ds[0].nama} ⚡ memakai listrik dari ${L.nama}` : `Sumber listrik ${ds.length > 1 ? ds.length + ' perangkat' : ds[0].nama} dilepas`);
   }
+
+  /**
+   * Pindahkan perangkat ke layer jaringan lid. Dengan bawahnya = semua perangkat di bawahnya ikut (satu jaringan).
+   * Satu langkah Ctrl+Z.
+   */
+  async function pindahLapisan(ids, lid, bawahnya) {
+    const m = S.model;
+    const semua = new Set(ids);
+    if (bawahnya) ids.forEach(id => m.descendants(id).forEach(x => semua.add(x)));
+    const ds = [...semua].map(id => m.byId.get(id)).filter(d => d && m.lapisanOf(d) !== lid);
+    const L = m.lapisanById(lid);
+    if (!ds.length) return toast(`Semua perangkat terpilih sudah di layer ${L.nama}`);
+    await kelompok(`pindah ${ds.length} perangkat ke layer ${L.nama}`, async () => {
+      for (const d of ds) {
+        await saveDev(d.id, { atribut: Object.assign({}, d.atribut, { lapisan: lid }) }, { keepPanel: true }).catch(() => {});
+      }
+    });
+    // Layer aktif tertentu: ikut ke layer tujuan agar perangkat yang dipindah tetap terlihat.
+    if (S.lapisan !== 'semua' && S.lapisan !== lid && ds.some(d => d.id === S.sel)) setLapisan(lid);
+    toast(`${ds.length} perangkat dipindah ke layer ${L.nama} (Ctrl+Z untuk membatalkan)`);
+  }
+  $('#panel').addEventListener('change', e => {
+    const s = e.target.closest('[data-lapisan-dev]');
+    if (!s || S.sel == null || !S.canEdit) return;
+    pindahLapisan([S.sel], s.value, true);
+  });
 
   /** Sel daftar untuk titik listrik: beban / kapasitas. */
   function listrikTitikCell(L) {
@@ -4073,7 +4195,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const kn = $('#list-koneksi').value;
     const kb = $('#list-kabel').value;
     const cocokKabel = d => !kb || (NP.perluKabel(d) && (kb === 'perlu' || NP.kabelSt(d) === kb));
-    return S.list.filter(d => (!j || (j.startsWith('grup:') ? NP.grupJenis(d.jenis) === j.slice(5) : d.jenis === j)) && (!s || d.status === s) && (!kn || S.model.koneksi(d) === kn) && cocokKabel(d) &&
+    return S.list.filter(d => masukLapisan(d) && (!j || (j.startsWith('grup:') ? NP.grupJenis(d.jenis) === j.slice(5) : d.jenis === j)) && (!s || d.status === s) && (!kn || S.model.koneksi(d) === kn) && cocokKabel(d) &&
       (!q || [d.nama, d.model, d.ip, d.vlan, d.pic, d.catatan, d.port_uplink, d.port_lokal, ...Object.values(d.atribut || {})].join(' ').toLowerCase().includes(q)));
   }
 
@@ -4101,7 +4223,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const td = (label, html, cls) => `<td data-label="${label}" class="${cls || ''}${html ? '' : ' empty'}">${html}</td>`;
       return `<tr data-id="${d.id}"${S.pilih.has(d.id) ? ' class="dipilih"' : ''}>
         <td class="c-cek pilih-only"><input type="checkbox" data-cek="${d.id}"${S.pilih.has(d.id) ? ' checked' : ''} aria-label="Pilih ${esc(d.nama)}"></td>
-        ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b>${NP.terkunci(d) ? '<span class="lock-i" title="Posisi terkunci">🔒</span>' : ''}</span>`, 'c-nama')}
+        ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b>${lapisanChip(d)}${NP.terkunci(d) ? '<span class="lock-i" title="Posisi terkunci">🔒</span>' : ''}</span>`, 'c-nama')}
         ${td('Jenis', esc(jenisLabel(d)), 'c-jenis')}
         ${td('Nama alat', esc(d.model))}
         ${td('IP', esc(d.ip), 'mono')}
@@ -4123,7 +4245,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     sembunyikanKolomKosong(rows.length);
     const adaFilter = ['#list-q', '#list-jenis', '#list-status', '#list-koneksi', '#list-kabel'].some(s => $(s).value);
     $('#list-reset').hidden = !adaFilter;
-    $('#list-count').textContent = adaFilter ? `${rows.length} dari ${S.list.length} perangkat` : `${S.list.length} perangkat`;
+    const lpTxt = multiLapisan() && S.lapisan !== 'semua' ? ` · layer ${S.model.lapisanById(S.lapisan).nama}` : '';
+    $('#list-count').textContent = (adaFilter || lpTxt ? `${rows.length} dari ${S.list.length} perangkat` : `${S.list.length} perangkat`) + lpTxt;
     updateBulk();
   }
 
@@ -4260,8 +4383,20 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         const mc = NP.dayaMcb(L.atribut || {});
         return `<option value="${L.id}">→ ${esc(L.nama)}${mc ? ' · MCB ' + mc.a + ' A' : ''}</option>`;
       }).join('') + (titik.length ? '<option value="lepas">— lepas titik listrik</option>' : '<option value="" disabled>(belum ada titik listrik)</option>');
+    // Layer jaringan massal (hanya bila event punya > 1 layer).
+    const lp = $('#bulk-lapisan');
+    lp.hidden = !multiLapisan();
+    lp.innerHTML = '<option value="">◧ Layer…</option>' + (multiLapisan() ? S.model.lapisanList().map(l => `<option value="${esc(l.id)}">→ ${esc(l.nama)}</option>`).join('') : '');
   }
 
+  $('#bulk-lapisan').addEventListener('change', e => {
+    const v = e.target.value;
+    e.target.value = '';
+    if (!v || !S.pilih.size) return;
+    const L = S.model.lapisanById(v);
+    if (!confirm(`Pindahkan ${S.pilih.size} perangkat terpilih ke layer ${L.nama}?`)) return;
+    pindahLapisan([...S.pilih], v, false);
+  });
   $('#bulk-listrik').addEventListener('change', e => {
     const v = e.target.value;
     e.target.value = '';
@@ -4362,13 +4497,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   });
 
   $('#btn-csv').addEventListener('click', () => {
-    const rows = [['Nama', 'Jenis', 'Nama alat', 'IP', 'VLAN', 'Uplink', 'Group', 'Port uplink', 'Port lokal', 'Media', 'Bandwidth (Mbps)',
+    // Event dengan beberapa layer: kolom Layer di depan, baris diurutkan per layer.
+    const lp = multiLapisan();
+    const rows = [[...(lp ? ['Layer'] : []), 'Nama', 'Jenis', 'Nama alat', 'IP', 'VLAN', 'Uplink', 'Group', 'Port uplink', 'Port lokal', 'Media', 'Bandwidth (Mbps)',
       'Bandwidth maks. (Mbps)', 'Sumber WAN', 'Internet', 'Kabel (m)', 'Status kabel', 'Status', 'PIC', 'Isian khusus', 'Keterangan konfigurasi']];
-    for (const d of NP.Model.sortDev(filteredList())) {
+    const urut = NP.Model.sortDev(filteredList());
+    if (lp) { const idx = S.model.lapisanList().map(l => l.id); urut.sort((a, b) => idx.indexOf(S.model.lapisanOf(a)) - idx.indexOf(S.model.lapisanOf(b))); }
+    for (const d of urut) {
       const p = S.model.parentOf(d);
       const w = S.model.wanOf(d);
       const k = S.model.kabelM(d);
-      rows.push([d.nama, jenisLabel(d), d.model, d.ip, d.vlan, p ? p.nama : '', p ? grupNama(p.id, d.jenis) : '', d.port_uplink, d.port_lokal,
+      rows.push([...(lp ? [S.model.lapisanById(S.model.lapisanOf(d)).nama] : []), d.nama, jenisLabel(d), d.model, d.ip, d.vlan, p ? p.nama : '', p ? grupNama(p.id, d.jenis) : '', d.port_uplink, d.port_lokal,
         d.media ? MEDIA[d.media].label : '', d.bandwidth_mbps == null ? '' : d.bandwidth_mbps, S.model.bwEfektif(d).mbps == null ? '' : S.model.bwEfektif(d).mbps,
         w ? w.nama : '', KONEKSI[S.model.koneksi(d)].label, k == null ? '' : Math.round(k), NP.perluKabel(d) ? NP.KABEL[NP.kabelSt(d)].label : '', (STATUS[d.status] || STATUS.rencana).label, d.pic, attrSummary(d, false), d.catatan]);
     }
@@ -4496,40 +4635,51 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         </div>` + (tutup ? '' : kids.map(c => node(c, depth + 1)).join(''));
     }
     muatTreeTutup();
-    const roots = m.roots();
-    $('#tree').innerHTML = roots.length ? roots.map(r => node(r, 0)).join('') : '<p class="muted">Belum ada perangkat.</p>';
-    $('#topo-count').textContent = `${m.list.length} perangkat · ${roots.length} akar`;
+    // Layer jaringan: satu layer dipilih = hanya pohonnya; semua layer = pohon dikelompokkan per layer.
+    const roots = m.roots().filter(masukLapisan);
+    const nTampil = m.list.filter(masukLapisan).length;
+    if (multiLapisan() && S.lapisan === 'semua') {
+      $('#tree').innerHTML = m.lapisanList().map(L => {
+        const rs = roots.filter(r => m.lapisanOf(r) === L.id);
+        const n = m.list.filter(d => m.lapisanOf(d) === L.id).length;
+        return `<div class="tree-lp"><div class="tree-lp-h"><i style="background:${esc(L.warna)}"></i><b>${esc(L.nama)}</b><span class="muted small">${n} perangkat · ${rs.length} akar</span>
+          <button type="button" class="small ghost" data-lapisan-pilih="${esc(L.id)}">Tampilkan layer ini</button></div>
+          ${rs.length ? rs.map(r => node(r, 0)).join('') : '<p class="muted small">Belum ada perangkat di layer ini.</p>'}</div>`;
+      }).join('');
+    } else {
+      $('#tree').innerHTML = roots.length ? roots.map(r => node(r, 0)).join('') : '<p class="muted">Belum ada perangkat.</p>';
+    }
+    $('#topo-count').textContent = `${nTampil} perangkat · ${roots.length} akar${multiLapisan() && S.lapisan !== 'semua' ? ' · layer ' + m.lapisanById(S.lapisan).nama : ''}`;
 
     $('#checks').innerHTML = checks.length
       ? `<ul class="issues">${checks.map(c => `<li class="lv-${c.level}">${esc(c.msg)} ${c.ids.slice(0, 1).map(id => `<a href="#" data-sel="${id}">lihat</a>`).join('')}</li>`).join('')}</ul>`
       : '<p class="ok-text">✓ Tidak ada masalah terdeteksi.</p>';
 
-    const wans = m.list.filter(d => d.jenis === 'isp');
+    // Ringkasan (WAN, SSID, kebutuhan perangkat, kabel): satu layer dipilih = layer itu saja; "Semua" = rincian per layer.
+    const mS = multiLapisan() && S.lapisan !== 'semua' ? NP.Model.create(S.proyek, S.list.filter(masukLapisan), S.katalog) : m;
+    const cols = kolomLapisan(false);
+    const wans = mS.list.filter(d => d.jenis === 'isp');
     const totalWan = wans.reduce((s, d) => s + (d.bandwidth_mbps || 0), 0);
     $('#wan-sum').innerHTML = wans.length ? `<table class="mini">${wans.map(w => {
       const n = m.descendants(w.id).size;
       const pakai = m.pemakaiWan(w.id);
-      return `<tr><td>${chip(w)}</td><td>${esc([w.atribut.provider, w.atribut.jenis_koneksi].filter(Boolean).join(' · '))}</td><td class="num">${esc(fmtBw(w.bandwidth_mbps))}</td><td class="num muted">${n ? n + ' perangkat' : ''}${pakai.length ? `${n ? '<br>' : ''}WAN tambahan ${esc(pakai.map(x => x.nama).join(', '))}` : n ? '' : '0 perangkat'}</td></tr>`;
-    }).join('')}${wans.length > 1 ? `<tr class="tot"><td colspan="2">Total kapasitas</td><td class="num">${esc(fmtBw(totalWan))}</td><td></td></tr>` : ''}</table>` : '<p class="muted">Belum ada Sumber WAN/ISP.</p>';
+      return `<tr><td>${chip(w)}${lapisanChip(w)}</td><td>${esc([w.atribut.provider, w.atribut.jenis_koneksi].filter(Boolean).join(' · '))}</td><td class="num">${esc(fmtBw(w.bandwidth_mbps))}</td><td class="num muted">${n ? n + ' perangkat' : ''}${pakai.length ? `${n ? '<br>' : ''}WAN tambahan ${esc(pakai.map(x => x.nama).join(', '))}` : n ? '' : '0 perangkat'}</td></tr>`;
+    }).join('')}${cols.map(L => { const ws = wans.filter(w => m.lapisanOf(w) === L.id); return ws.length ? `<tr class="tot"><td colspan="2"><i class="lp-dot" style="background:${esc(L.warna)}"></i>Kapasitas ${esc(L.nama)}</td><td class="num">${esc(fmtBw(ws.reduce((s, d) => s + (d.bandwidth_mbps || 0), 0)))}</td><td class="num muted">${ws.length} WAN</td></tr>` : ''; }).join('')}${wans.length > 1 ? `<tr class="tot"><td colspan="2">Total kapasitas</td><td class="num">${esc(fmtBw(totalWan))}</td><td></td></tr>` : ''}</table>` : '<p class="muted">Belum ada Sumber WAN/ISP.</p>';
 
-    const ss = m.ssids();
+    const ss = mS.ssids();
     $('#ssid-sum').innerHTML = ss.length ? `<table class="mini"><tr><th>SSID</th><th>Keamanan</th><th>VLAN</th><th class="num">AP</th></tr>${ss.map(s =>
       `<tr><td><b>${esc(s.ssid)}</b></td><td>${esc([...s.keamanan].join(', '))}</td><td>${esc([...s.vlan].join(', '))}</td><td class="num">${s.ap.length}</td></tr>`).join('')}</table>` : '<p class="muted">Belum ada AP dengan SSID.</p>';
 
-    const bom = m.bom();
-    // Stok: hanya untuk alat dari katalog; merah bila kebutuhan event melebihi stok.
-    const stokCell = b => b.stok == null ? '<span class="muted">—</span>'
-      : b.jumlah > b.stok ? `<b class="bad">${b.stok} (kurang ${b.jumlah - b.stok})</b>` : String(b.stok);
+    const bom = mS.bom();
     $('#kabel-progres').innerHTML = progresKabelHtml(false);
     $('#listrik-sum').innerHTML = listrikSumHtml();
     $('#vlan-sum').innerHTML = vlanSumHtml();
-    $('#bom').innerHTML = bom.length ? `<table class="mini"><tr><th>Jenis</th><th>Nama alat</th><th class="num">Jumlah</th><th class="num">Stok</th></tr>${bom.map(b =>
-      `<tr><td>${esc((TYPES[b.jenis] || TYPES.lainnya).label)}</td><td>${b.model ? esc(b.model) : '<span class="muted">(belum diisi)</span>'}${b.katalog ? ' <span class="tag-kat" title="Dari katalog">katalog</span>' : ''}</td><td class="num"><b>${b.jumlah}</b></td><td class="num">${stokCell(b)}</td></tr>`).join('')}</table>` : '<p class="muted">—</p>';
+    // Stok: hanya untuk alat dari katalog; merah bila kebutuhan event melebihi stok. "Semua" layer: kolom per layer.
+    $('#bom').innerHTML = bom.length ? bomTabel(bom, cols, false) : '<p class="muted">—</p>';
 
-    const kb = m.kabel();
+    const kb = mS.kabel();
     const keys = Object.keys(kb.tot);
-    $('#kabel-sum').innerHTML = (keys.length ? `<table class="mini"><tr><th>Media</th><th class="num">Link</th><th class="num">Total</th></tr>${keys.map(k =>
-      `<tr><td>${esc(MEDIA[k] ? MEDIA[k].label : k)}</td><td class="num">${kb.tot[k].n}</td><td class="num"><b>≈ ${esc(fmtM(kb.tot[k].m))}</b></td></tr>`).join('')}</table>
+    $('#kabel-sum').innerHTML = (keys.length ? `${kabelTabel(kb, cols, false)}
       <p class="muted small">Jarak lurus antartitik + ${S.proyek.slack_kabel}% (belokan, naik-turun, sisa). Tambahkan patch cord di rak.</p>` : '') +
       (kb.tanpaSkala ? `<p class="muted small">${kb.tanpaSkala} link belum bisa dihitung — kalibrasi skala denah dengan alat Ukur.</p>` : '') +
       (!keys.length && !kb.tanpaSkala ? '<p class="muted">Belum ada link kabel.</p>' : '');
@@ -4548,6 +4698,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   }
 
   $('[data-pane="topologi"]').addEventListener('click', e => {
+    const lpb = e.target.closest('[data-lapisan-pilih]');
+    if (lpb) return setLapisan(lpb.dataset.lapisanPilih);
     const tw = e.target.closest('[data-twig]');
     if (tw) {
       const id = +tw.dataset.twig;
@@ -4691,7 +4843,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   /** Kepala laporan cetak. */
   function prHead(judul) {
     const p = S.proyek;
-    return `<div class="pr-head"><h1>${esc(judul)} — ${esc(p.nama)}</h1><p>${esc(p.venue || '')} · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>`;
+    return `<div class="pr-head"><h1>${esc(judul)}${S.labelLapisan ? ' · Layer ' + esc(S.labelLapisan) : ''} — ${esc(p.nama)}</h1><p>${esc(p.venue || '')} · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>`;
   }
 
   /** Rekap listrik saja (tabel), A4 tegak. */
@@ -4932,7 +5084,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       s1.background = { color: '0F172A' };
       s1.addText('LAPORAN FOTO PEMASANGAN', { x: 0.7, y: 1.1, w: 12, h: 0.5, fontFace: F, fontSize: 16, bold: true, color: '93C5FD', charSpacing: 2 });
       s1.addText(p.nama, { x: 0.7, y: 1.6, w: 12, h: 1.2, fontFace: F, fontSize: 40, bold: true, color: 'FFFFFF', fit: 'shrink' });
-      s1.addText([p.venue, tgl].filter(Boolean).join(' · ') || ' ', { x: 0.7, y: 2.8, w: 12, h: 0.5, fontFace: F, fontSize: 18, color: 'CBD5E1' });
+      s1.addText([p.venue, tgl, S.labelLapisan ? 'Layer ' + S.labelLapisan : ''].filter(Boolean).join(' · ') || ' ', { x: 0.7, y: 2.8, w: 12, h: 0.5, fontFace: F, fontSize: 18, color: 'CBD5E1' });
       const kartu = [
         ['Titik perangkat', semua.length], ['Sudah difoto', ada.length], ['Belum difoto', semua.length - ada.length],
         ['Total foto', S.foto.filter(f => m.byId.get(f.perangkat_id)).length], ['Sesuai plan', nVer('sesuai')], ['Tidak sesuai', nVer('tidak')],
@@ -5021,7 +5173,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         const s = ppt.addSlide();
         s.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.95, fill: { color: GELAP } });
         s.addText([{ text: d.nama, options: { bold: true, fontSize: 24, color: 'FFFFFF' } },
-          { text: `   ${jenisLabel(d)}${d.model ? ' · ' + d.model : ''}`, options: { fontSize: 14, color: 'CBD5E1' } }],
+          { text: `   ${jenisLabel(d)}${d.model ? ' · ' + d.model : ''}${!S.labelLapisan && m.lapisanList().length > 1 ? ' · Layer ' + m.lapisanById(m.lapisanOf(d)).nama : ''}`, options: { fontSize: 14, color: 'CBD5E1' } }],
         { x: 0.4, y: 0.12, w: 9.6, h: 0.7, fontFace: F, valign: 'middle' });
         s.addText(st(d), { x: 10.3, y: 0.25, w: 2.6, h: 0.45, align: 'right', fontFace: F, fontSize: 14, bold: true, color: (STATUS[d.status] || STATUS.rencana).color.slice(1) });
         // Spesifikasi & data titik: alat (katalog), spesifikasi katalog, isian jenis (tanpa password / setelan jaringan
@@ -5600,6 +5752,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             ${p.ada_password ? '<button type="button" class="small danger super-only" data-p="pw-hapus">Hapus password</button>' : ''}</div>
         </form>
       </div>
+      <div class="card" id="card-lapisan"></div>
       <div class="card" id="card-akses"><h2>Akses tim</h2><p class="muted small">Memuat…</p></div>
       <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>
       <div class="card">
@@ -5621,6 +5774,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           </div>
         </div>
       </div>`;
+    renderLapisanCard();
     muatAkses();
     muatAktivitas();
   }
@@ -5652,6 +5806,123 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       <div class="progres"><i style="width:${Math.round(selesai / ds.length * 100)}%"></i></div>
       <div class="akses-izin">${Object.keys(STATUS).map(k => `<span class="st st-${k}">${esc(STATUS[k].label)} ${n[k] || 0}</span>`).join('')}</div>`;
   }
+
+  // ------------------------------------------------------------------------ kartu layer jaringan (tab Proyek)
+
+  const WARNA_LAPISAN = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777', '#475569', '#65a30d', '#7c3aed', '#be123c'];
+
+  /** Daftar layer untuk disimpan (layer bawaan "Jaringan utama" ikut ditulis eksplisit). */
+  const lapisanSekarang = () => S.model.lapisanList().map(l => ({ id: l.id, nama: l.nama, warna: l.warna }));
+  function lapisanBaru(arr, nama) {
+    const n = Math.max(0, ...arr.map(l => parseInt(l.id.slice(1), 10) || 0)) + 1;
+    return { id: 'L' + n, nama: nama || 'Layer ' + n, warna: WARNA_LAPISAN[arr.length % WARNA_LAPISAN.length] };
+  }
+
+  async function simpanLapisan(arr) {
+    try {
+      const res = await api(API, { action: 'proyek_lapisan', id: S.proyek.id, lapisan: arr });
+      S.proyek = res.proyek;
+      refreshModel();
+      renderLapisanCard();
+    } catch (e) {
+      toast(e.message, true);
+      renderLapisanCard();
+    }
+  }
+
+  function renderLapisanCard() {
+    const box = $('#card-lapisan');
+    if (!box) return;
+    const m = S.model;
+    const daftar = m.lapisanList();
+    const n = id => m.list.filter(d => m.lapisanOf(d) === id).length;
+    box.innerHTML = `<h2>Layer jaringan</h2>
+      <p class="muted small">Beberapa jaringan terpisah dalam satu denah — mis. sumber WAN &amp; tarikan kabel ke endpoint berbeda (EXPO LINE, BSI LINE).
+        Tiap layer punya pohon topologi, pemeriksaan (IP ganda, kabel lintas layer) dan laporan sendiri; di denah layer lain tampil samar.</p>
+      <table class="mini lp-tbl"><tr><th>Warna</th><th>Nama layer</th><th class="num">Perangkat</th><th></th></tr>
+        ${daftar.map(l => `<tr>
+          <td><input type="color" value="${esc(l.warna)}" data-lp-warna="${esc(l.id)}" aria-label="Warna layer ${esc(l.nama)}"></td>
+          <td><input type="text" value="${esc(l.nama)}" maxlength="60" data-lp-nama="${esc(l.id)}" aria-label="Nama layer"></td>
+          <td class="num">${n(l.id)}</td>
+          <td class="lp-aksi">${daftar.length > 1 ? `<button type="button" class="small ghost" data-lapisan-pilih="${esc(l.id)}">Tampilkan</button>` : ''}
+            ${daftar.length > 1 ? `<button type="button" class="icon" data-lp-hapus="${esc(l.id)}" title="${n(l.id) ? 'Pindahkan / hapus perangkatnya dulu' : 'Hapus layer'}"${n(l.id) ? ' disabled' : ''} aria-label="Hapus layer ${esc(l.nama)}">✕</button>` : ''}</td></tr>`).join('')}
+      </table>
+      <div class="btn-row"><button type="button" class="small" data-lp-tambah>+ Tambah layer</button></div>
+      <h3 style="margin:14px 0 4px;font-size:14px">Impor event lain sebagai layer</h3>
+      <p class="muted small" style="margin:0 0 6px">Semua perangkat event itu (posisi, uplink &amp; port, konfigurasi, status, foto bukti) disalin menjadi layer baru di event ini.
+        Posisi disesuaikan bila ukuran denah berbeda. Event asal tidak berubah.</p>
+      <div class="inline lp-impor"><select id="lp-sumber" aria-label="Event sumber"><option value="">Memuat daftar event…</option></select>
+        <button type="button" class="small primary" data-lp-impor>Impor sebagai layer</button></div>`;
+    api(API + '?action=list').then(res => {
+      const s = $('#lp-sumber');
+      if (!s) return;
+      const lain = res.proyek.filter(x => x.id !== S.proyek.id);
+      s.innerHTML = lain.length ? '<option value="">Pilih event…</option>' + lain.map(x => `<option value="${x.id}">${esc(x.nama)}${x.venue ? ' · ' + esc(x.venue) : ''}</option>`).join('')
+        : '<option value="">(tidak ada event lain)</option>';
+    }).catch(() => {});
+  }
+
+  $('#proyek-pane').addEventListener('change', e => {
+    const t = e.target;
+    if (!t.matches('[data-lp-nama], [data-lp-warna]')) return;
+    const arr = lapisanSekarang();
+    const l = arr.find(x => x.id === (t.dataset.lpNama || t.dataset.lpWarna));
+    if (!l) return;
+    if (t.dataset.lpNama) {
+      if (!t.value.trim()) return toast('Nama layer wajib diisi', true);
+      l.nama = t.value.trim();
+    } else l.warna = t.value;
+    simpanLapisan(arr);
+  });
+  $('#proyek-pane').addEventListener('click', async e => {
+    if (e.target.closest('[data-lp-tambah]')) {
+      const arr = lapisanSekarang();
+      if (arr.length >= 12) return toast('Maksimal 12 layer', true);
+      arr.push(lapisanBaru(arr));
+      return simpanLapisan(arr);
+    }
+    const h = e.target.closest('[data-lp-hapus]');
+    if (h) {
+      const arr = lapisanSekarang().filter(l => l.id !== h.dataset.lpHapus);
+      return simpanLapisan(arr.length > 1 ? arr : []);
+    }
+    const pl = e.target.closest('[data-lapisan-pilih]');
+    if (pl && e.target.closest('#card-lapisan')) {
+      setLapisan(pl.dataset.lapisanPilih);
+      return go('denah');
+    }
+    if (e.target.closest('[data-lp-impor]')) {
+      const s = $('#lp-sumber');
+      const sumber = s && +s.value;
+      if (!sumber) return toast('Pilih event sumber terlebih dahulu', true);
+      const namaSumber = s.options[s.selectedIndex].textContent.replace(/ · .*$/, '');
+      const arr = lapisanSekarang();
+      if (arr.length >= 12) return toast('Maksimal 12 layer', true);
+      const baru = lapisanBaru(arr, namaSumber.slice(0, 60));
+      // Sudah ada layer bernama sama: kemungkinan event ini sudah pernah diimpor (perangkat akan dobel).
+      const kembar = arr.find(l => l.nama.trim().toLowerCase() === namaSumber.trim().toLowerCase());
+      if (kembar && !confirm(`Layer "${kembar.nama}" sudah ada — event ini kemungkinan sudah pernah diimpor, perangkatnya akan menjadi dobel.\nTetap impor lagi sebagai layer baru?`)) return;
+      if (!kembar && !confirm(`Salin semua perangkat "${namaSumber}" menjadi layer baru "${baru.nama}" di event ini?\nEvent asal tidak berubah.`)) return;
+      arr.push(baru);
+      const btn = e.target.closest('[data-lp-impor]');
+      btn.disabled = true;
+      btn.textContent = 'Mengimpor…';
+      try {
+        const res = await api(API, { action: 'lapisan_impor', id: S.proyek.id, sumber_id: sumber, lapisan: arr, lapisan_id: baru.id });
+        S.proyek = res.proyek;
+        S.list = res.perangkat;
+        S.foto = res.foto || [];
+        resetRiwayat();
+        refreshModel();
+        renderLapisanCard();
+        toast(`${res.jumlah} perangkat diimpor sebagai layer "${baru.nama}"`);
+      } catch (err) {
+        toast(err.message, true);
+        btn.disabled = false;
+        btn.textContent = 'Impor sebagai layer';
+      }
+    }
+  });
 
   async function muatAkses() {
     const card = $('#card-akses');
@@ -6041,6 +6312,13 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     $('#print-info').textContent = `${nAp} access point${nBr ? ` · ${nBr} wireless bridge` : ''} · ${S.list.length} perangkat total` +
       (S.lihat ? ' · password disamarkan di link lihat-saja' : '');
     if (!nAp && !nBr) formPrint.elements.jenis.value = 'lengkap';
+    // Layer jaringan: bawaan = layer yang sedang aktif di peta.
+    $('#print-lapisan').hidden = !multiLapisan();
+    if (multiLapisan()) {
+      formPrint.elements.lapisan.innerHTML = '<option value="semua">Semua layer (laporan gabungan)</option>' +
+        S.model.lapisanList().map(l => `<option value="${esc(l.id)}">${esc(l.nama)}</option>`).join('');
+      formPrint.elements.lapisan.value = S.lapisan;
+    }
     syncPrintOpts();
     dlgPrint.showModal();
   });
@@ -6060,28 +6338,31 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
 
   formPrint.addEventListener('submit', e => {
     e.preventDefault();
+    denganLapisan(() => cetakSesuaiJenis());
+  });
+  function cetakSesuaiJenis() {
     const jenis = formPrint.elements.jenis.value;
     if (jenis === 'ap') {
       if (!apList(apOpts()).length) return toast('Belum ada access point di event ini', true);
       dlgPrint.close();
-      printApSheet(apOpts());
+      return printApSheet(apOpts());
     } else if (jenis === 'support') {
-      if (!S.list.some(NP.nonJaringan)) return toast('Belum ada titik listrik / peralatan support di event ini', true);
+      if (!S.model.list.some(NP.nonJaringan)) return toast('Belum ada titik listrik / peralatan support di event ini', true);
       dlgPrint.close();
-      cetakLaporanSupport();
+      return cetakLaporanSupport();
     } else if (jenis === 'foto') {
       if (!S.foto.length) return toast('Belum ada foto bukti. Ambil foto dari panel perangkat (tab Info) lewat ponsel.', true);
       dlgPrint.close();
-      cetakLaporanFoto();
+      return cetakLaporanFoto();
     } else {
       dlgPrint.close();
-      printReport();
+      return printReport();
     }
-  });
+  }
 
-  $('#btn-foto-pptx').addEventListener('click', () => unduhPptFoto());
+  $('#btn-foto-pptx').addEventListener('click', () => denganLapisan(() => unduhPptFoto()));
 
-  $('#btn-ap-csv').addEventListener('click', () => {
+  $('#btn-ap-csv').addEventListener('click', () => denganLapisan(() => {
     const o = apOpts();
     const list = apList(o);
     if (!list.length) return toast('Belum ada access point di event ini', true);
@@ -6099,13 +6380,35 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         d.bandwidth_mbps == null ? '' : d.bandwidth_mbps, S.model.bwEfektif(d).mbps == null ? '' : S.model.bwEfektif(d).mbps, d.pic, d.catatan]);
     }
     downloadCsv(rows, `sheet-ap-${slug(S.proyek.nama)}.csv`);
-  });
+  }));
 
   // ------------------------------------------------------------------------ sheet konfigurasi AP
 
   /** AP (dan bridge bila dipilih), urut nama alami. */
+  /**
+   * Jalankan pembuat laporan untuk layer yang dipilih di dialog cetak: S.model sementara hanya berisi perangkat layer
+   * itu (denah, tabel, pemeriksaan, foto, PowerPoint ikut tersaring); "semua" = laporan gabungan semua layer.
+   */
+  async function denganLapisan(fn) {
+    const sel = formPrint.elements.lapisan;
+    const lid = sel && !$('#print-lapisan').hidden ? sel.value : 'semua';
+    if (!multiLapisan() || lid === 'semua') {
+      S.labelLapisan = '';
+      return fn();
+    }
+    const asli = S.model;
+    S.model = NP.Model.create(S.proyek, S.list.filter(d => asli.lapisanOf(d) === lid), S.katalog);
+    S.labelLapisan = asli.lapisanById(lid).nama;
+    try {
+      return await fn();
+    } finally {
+      S.model = asli;
+      S.labelLapisan = '';
+    }
+  }
+
   function apList(o) {
-    return S.list.filter(d => d.jenis === 'ap' || (o.bridge && d.jenis === 'bridge'))
+    return S.model.list.filter(d => d.jenis === 'ap' || (o.bridge && d.jenis === 'bridge'))
       .sort((a, b) => (a.jenis === b.jenis ? 0 : a.jenis === 'ap' ? -1 : 1) || a.nama.localeCompare(b.nama, 'id', { numeric: true }));
   }
 
@@ -6257,7 +6560,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const p = S.proyek;
     const tgl = p.tanggal_mulai ? fmtDate(p.tanggal_mulai) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + fmtDate(p.tanggal_selesai) : '') : '';
     const checks = m.checks();
-    const rows = NP.Model.sortDev(m.list).map(d => {
+    const baris = d => {
       const t = TYPES[d.jenis] || TYPES.lainnya;
       const par = m.parentOf(d);
       const k = m.kabelM(d);
@@ -6271,11 +6574,19 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         <td>${esc((STATUS[d.status] || STATUS.rencana).label)}<br>${konBadge(m.koneksi(d))}${d.pic ? '<br>' + esc(d.pic) : ''}</td>
         <td class="cfg">${esc(attrSummary(d, true))}${d.catatan ? `<div class="pre">${esc(d.catatan)}</div>` : ''}</td>
       </tr>`;
-    }).join('');
+    };
+    // Laporan gabungan beberapa layer: daftar dikelompokkan per layer (baris judul berwarna layer).
+    const colsLp = kolomLapisan(true);
+    const rows = colsLp.length
+      ? colsLp.map(L => {
+        const ds = NP.Model.sortDev(m.list.filter(d => m.lapisanOf(d) === L.id));
+        return ds.length ? `<tr class="pr-grp"><td colspan="8" style="border-left:5px solid ${esc(L.warna)}"><b>Layer ${esc(L.nama)}</b> · ${ds.length} perangkat</td></tr>${ds.map(baris).join('')}` : '';
+      }).join('')
+      : NP.Model.sortDev(m.list).map(baris).join('');
     const bom = m.bom();
     const kb = m.kabel();
     $('#print').innerHTML = `
-      <div class="pr-head"><h1>${esc(p.nama)}</h1><p>${esc([p.venue, tgl].filter(Boolean).join(' · '))} · ${m.list.length} perangkat · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>
+      <div class="pr-head"><h1>${esc(p.nama)}${S.labelLapisan ? ' — Layer ' + esc(S.labelLapisan) : ''}</h1><p>${esc([p.venue, tgl].filter(Boolean).join(' · '))} · ${m.list.length} perangkat · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>
       <div class="pr-map">${staticMap()}</div>
       <div class="pr-legend">${TYPE_ORDER.filter(j => m.list.some(d => d.jenis === j)).map(j => `<span><i style="background:${TYPES[j].color}">${esc(TYPES[j].short)}</i>${esc(TYPES[j].label)}</span>`).join('')}
         ${lineLegend().map(x => `<span>${x.svg}${esc(x.label)}</span>`).join('')}
@@ -6284,8 +6595,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       <h2>Daftar perangkat &amp; konfigurasi</h2>
       <table class="pr-table"><thead><tr><th>Perangkat</th><th>Nama alat</th><th>IP / VLAN</th><th>Uplink : port</th><th>Media / kabel</th><th>Bandwidth</th><th>Status / internet / PIC</th><th>Konfigurasi</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="pr-cols">
-        <div><h2>Kebutuhan perangkat</h2><table class="pr-table"><tr><th>Jenis</th><th>Nama alat</th><th>Jml</th><th>Stok</th></tr>${bom.map(b => `<tr><td>${esc(TYPES[b.jenis].label)}</td><td>${esc(b.model || '(belum diisi)')}</td><td>${b.jumlah}</td><td>${b.stok == null ? '—' : b.stok + (b.jumlah > b.stok ? ' (kurang ' + (b.jumlah - b.stok) + ')' : '')}</td></tr>`).join('')}</table>
-          ${Object.keys(kb.tot).length ? `<h2>Estimasi kabel</h2><table class="pr-table">${Object.keys(kb.tot).map(k => `<tr><td>${esc(MEDIA[k].label)}</td><td>${kb.tot[k].n} link</td><td>≈ ${esc(fmtM(kb.tot[k].m))}</td></tr>`).join('')}</table>` : ''}</div>
+        <div><h2>Kebutuhan perangkat</h2>${bomTabel(bom, kolomLapisan(true), true)}
+          ${Object.keys(kb.tot).length ? `<h2>Estimasi kabel</h2>${kabelTabel(kb, kolomLapisan(true), true)}` : ''}</div>
         <div><h2>Pemeriksaan desain</h2>${checks.length ? `<ul>${checks.map(c => `<li class="lv-${c.level}">${esc(c.msg)}</li>`).join('')}</ul>` : '<p>Tidak ada masalah terdeteksi.</p>'}</div>
       </div>`;
     $('#print').className = 'print';

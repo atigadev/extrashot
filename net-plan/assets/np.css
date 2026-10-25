@@ -219,6 +219,10 @@ button.danger:not(:disabled):hover { background: var(--danger-soft); border-colo
 .map .lock path { fill-rule: evenodd; }
 .map .vf circle { stroke: #fff; stroke-width: 1.5; }
 .map .vf text { fill: #fff; font: 900 8px/1 system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
+.map .lp circle { stroke: #fff; stroke-width: 1.5; }
+/* Layer jaringan lain saat satu layer dipilih: tetap terlihat (posisi fisik) tetapi samar & tidak bisa diklik. */
+.map .node.redup, .map .link.redup, .map .pwr.redup { opacity: .14; pointer-events: none; }
+.map .node.redup .lbl { display: none; }
 .lock-i { display: inline-block; font-size: 12px; margin-left: 4px; opacity: .75; }
 .pn-actions .kunci-on { background: #334155; color: #fff; border-color: #334155; }
 .map .handles .mid { fill: #fff; stroke: var(--accent); stroke-width: 2; cursor: copy; }
@@ -903,6 +907,15 @@ td .bad, b.bad { color: var(--danger); }
 .sp-angka { display: flex; gap: 4px 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .sp-angka b { color: var(--text); }
 @media (max-width: 640px) { .view-switch { top: 6px; left: 6px; } .view-switch button { padding: 5px 8px; } .map-hint { top: 44px !important; } }
+.lapisan-switch { position: absolute; left: 10px; top: 52px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; max-width: calc(100% - 80px);
+  background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow); padding: 2px; }
+.lapisan-switch .lp-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 6px 0 8px; }
+.lapisan-switch button { border: 0; background: none; padding: 5px 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); border-radius: 7px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lapisan-switch button i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0,0,0,.15); }
+.lapisan-switch button:hover { background: #f1f4f9; color: var(--text); }
+.lapisan-switch button.on { background: #1f2937; color: #fff; }
+@media (max-width: 640px) { .lapisan-switch { top: 44px; left: 6px; max-width: calc(100% - 64px); } .lapisan-switch button { padding: 5px 8px; } .lapisan-switch .lp-lbl { display: none; } }
+@media print { .lapisan-switch { display: none !important; } }
 @media print { .view-switch { display: none !important; } }
 /* Menu Listrik perangkat: ringkasan titik listrik pemasok */
 .lst-src { border: 1px solid #fde68a; background: #fffbeb; border-radius: 10px; padding: 8px 10px; margin: 0 0 10px; }
@@ -1151,3 +1164,17 @@ tr.bad-row td { background: #fef2f2; }
   .fv-img { border-radius: 0; }
   .fv-cap { font-size: 12px; gap: 2px 10px; }
 }
+.lp-chip { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--c); background: color-mix(in srgb, var(--c) 12%, #fff); border: 1px solid color-mix(in srgb, var(--c) 35%, #fff); white-space: nowrap; vertical-align: middle; }
+.tree-lp { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 4px; margin-bottom: 12px; }
+.tree-lp-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.tree-lp-h i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.tree-lp-h button { margin-left: auto; }
+.lp-tbl input[type=text] { width: 100%; }
+.lp-tbl input[type=color] { width: 36px; height: 28px; padding: 1px; border-radius: 6px; }
+.lp-tbl .lp-aksi { white-space: nowrap; text-align: right; }
+.lp-impor { gap: 8px; flex-wrap: wrap; }
+.lp-impor select { flex: 1 1 220px; min-width: 0; }
+/* Kolom rincian per layer jaringan di tabel ringkasan */
+.th-lp { white-space: nowrap; }
+.th-lp i, .lp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.print .pr-grp td { background: #f1f5f9; font-size: 12px; padding-top: 6px; padding-bottom: 6px; }

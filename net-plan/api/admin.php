@@ -16,6 +16,8 @@
  * POST {"action":"kode_baru","id":N}       -> buat ulang kode link lihat-saja (link lama tidak berlaku)
  * POST multipart action=denah_upload, id=N, denah=<file>, sesuaikan=1|0
  * POST {"action":"denah_hapus","id":N}
+ * POST {"action":"proyek_lapisan","id":N,"lapisan":[{id:"L1",nama,warna}]}  -> layer jaringan event
+ * POST {"action":"lapisan_impor","id":N,"sumber_id":M,"lapisan":[...],"lapisan_id":"L2"} -> salin perangkat event M jadi layer L2
  * POST multipart action=foto_upload, id=N (perangkat), foto=<jpeg>, lat, lng, akurasi, waktu -> {foto:[...]} (maks. 3 per perangkat)
  * POST {"action":"foto_hapus","id":N (foto),"proyek_id":N} -> {foto:[...]}
  * POST {"action":"perangkat_verif","id":N,"hasil":"sesuai"|"tidak"|"","catatan":"..."} -> hasil pengecekan penempatan
@@ -529,6 +531,80 @@ switch ($method . ' ' . $action) {
         $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$id]);
         json_out(['ok' => true, 'jumlah' => $st->rowCount()] + proyek_lengkap(find_proyek($id)));
 
+    case 'POST proyek_lapisan':
+        // Daftar layer jaringan event (beberapa jaringan terpisah dalam satu denah).
+        find_proyek($id);
+        $pdo->prepare('UPDATE np_proyek SET lapisan = ? WHERE id = ?')->execute([lapisan_json(isset($req['lapisan']) ? $req['lapisan'] : []), $id]);
+        json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($id))]);
+
+    case 'POST lapisan_impor':
+        // Salin semua perangkat event lain (sumber_id) ke event ini sebagai layer lapisan_id. Posisi & jalur kabel
+        // diskalakan mengikuti ukuran denah; foto bukti ikut disalin (file baru). Event sumber tidak diubah.
+        $p = find_proyek($id);
+        $src = find_proyek(isset($req['sumber_id']) ? (int) $req['sumber_id'] : 0);
+        if ((int) $src['id'] === (int) $p['id']) {
+            json_error('Pilih event lain sebagai sumber layer');
+        }
+        $lapisan = lapisan_json(isset($req['lapisan']) ? $req['lapisan'] : []);
+        $lid = isset($req['lapisan_id']) ? (string) $req['lapisan_id'] : '';
+        if (!$lapisan || !in_array($lid, array_column(json_decode($lapisan, true), 'id'), true)) {
+            json_error('Layer tujuan tidak dikenal');
+        }
+        $fx = $p['denah_w'] && $src['denah_w'] ? $p['denah_w'] / $src['denah_w'] : 1;
+        $fy = $p['denah_h'] && $src['denah_h'] ? $p['denah_h'] / $src['denah_h'] : 1;
+        $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE proyek_id = ? ORDER BY id');
+        $st->execute([$src['id']]);
+        $list = [];
+        foreach ($st->fetchAll() as $r) {
+            $atr = json_decode((string) $r['atribut'], true);
+            $atr = is_array($atr) ? $atr : [];
+            $atr['lapisan'] = $lid;
+            // Jalur kabel sambungan tambahan (WAN tambahan / uplink kedua) ikut diskalakan.
+            foreach (['wan_lain', 'uplink_lain'] as $k) {
+                $arr = isset($atr[$k]) ? json_decode((string) $atr[$k], true) : null;
+                if (is_array($arr)) {
+                    foreach ($arr as &$w) {
+                        if (is_array($w) && isset($w['jalur'])) {
+                            $w['jalur'] = jalur_json($w['jalur'], $fx, $fy);
+                        }
+                    }
+                    unset($w);
+                    $atr[$k] = json_encode($arr, JSON_UNESCAPED_UNICODE);
+                }
+            }
+            $r['atribut'] = $atr;
+            $r['jalur'] = jalur_json(json_decode((string) $r['jalur'], true), $fx, $fy);
+            $r['x'] = $r['x'] * $fx;
+            $r['y'] = $r['y'] * $fy;
+            $list[] = $r;
+        }
+        if (!$list) {
+            json_error('Event sumber belum punya perangkat');
+        }
+        $peta = [];
+        $n = salin_perangkat((int) $p['id'], $list, false, $peta);
+        $pdo->prepare('UPDATE np_proyek SET lapisan = ? WHERE id = ?')->execute([$lapisan, $p['id']]);
+        // Foto bukti: salin file & baris (file tetap milik masing-masing event; hapus event tidak saling memengaruhi).
+        try {
+            $st = $pdo->prepare('SELECT * FROM np_foto WHERE proyek_id = ?');
+            $st->execute([$src['id']]);
+            $insF = $pdo->prepare('INSERT INTO np_foto (proyek_id, perangkat_id, file, w, h, lat, lng, akurasi_m, diambil_at, akses_id, oleh)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)');
+            foreach ($st->fetchAll() as $f) {
+                if (!isset($peta[(int) $f['perangkat_id']]) || !is_file(NP_UPLOAD_DIR . '/' . $f['file'])) {
+                    continue;
+                }
+                $baru = 'foto_' . rand_hex(12) . '.jpg';
+                if (@copy(NP_UPLOAD_DIR . '/' . $f['file'], NP_UPLOAD_DIR . '/' . $baru)) {
+                    $insF->execute([$p['id'], $peta[(int) $f['perangkat_id']], $baru, $f['w'], $f['h'], $f['lat'], $f['lng'],
+                        $f['akurasi_m'], $f['diambil_at'], $f['oleh']]);
+                }
+            }
+        } catch (PDOException $e) {
+            // tabel foto belum ada: perangkat tetap tersalin
+        }
+        json_out(['ok' => true, 'jumlah' => $n] + proyek_lengkap(find_proyek((int) $p['id'])));
+
     case 'POST perangkat_import':
         $p = find_proyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
         $list = isset($req['perangkat']) && is_array($req['perangkat']) ? $req['perangkat'] : [];
@@ -665,7 +741,11 @@ function izin_admin_event($aksi, $req, $id)
         case 'POST kode_baru':
         case 'POST denah_upload':
         case 'POST denah_hapus':
+        case 'POST proyek_lapisan':
         case 'POST perangkat_hapus_semua':
+            return $cekProyek($id);
+        case 'POST lapisan_impor':
+            $cekProyek(isset($req['sumber_id']) ? (int) $req['sumber_id'] : 0); // sumber juga harus event milik login ini
             return $cekProyek($id);
         case 'POST proyek_save':
             if (!$id) {
@@ -990,6 +1070,33 @@ function cek_uplink($proyekId, $selfId, $uplinkId)
     }
 }
 
+/**
+ * Daftar layer jaringan -> JSON tervalidasi atau NULL (kosong = satu jaringan). Tiap layer {id: "L1".., nama, warna #rrggbb};
+ * maks. 12 layer, id unik, nama wajib.
+ */
+function lapisan_json($arr)
+{
+    if (!is_array($arr) || !$arr) {
+        return null;
+    }
+    if (count($arr) > 12) {
+        json_error('Maksimal 12 layer jaringan per event');
+    }
+    $out = [];
+    $ids = [];
+    foreach ($arr as $l) {
+        $lid = is_array($l) && isset($l['id']) ? (string) $l['id'] : '';
+        if (!preg_match('/^L\d{1,3}$/', $lid) || isset($ids[$lid])) {
+            json_error('ID layer tidak valid');
+        }
+        $ids[$lid] = true;
+        $nama = str_field($l, 'nama', 60, true, 'Nama layer');
+        $warna = isset($l['warna']) && preg_match('/^#[0-9a-fA-F]{6}$/', (string) $l['warna']) ? strtolower($l['warna']) : '#2563eb';
+        $out[] = ['id' => $lid, 'nama' => $nama, 'warna' => $warna];
+    }
+    return json_encode($out, JSON_UNESCAPED_UNICODE);
+}
+
 function atribut_json($atr)
 {
     if (!is_array($atr)) {
@@ -1042,8 +1149,8 @@ function jalur_json($j, $fx = 1, $fy = 1)
     return json_encode($out);
 }
 
-/** Tambahkan daftar perangkat (dari ekspor/duplikat) ke proyek; relasi uplink dipetakan ke id baru. */
-function salin_perangkat($proyekId, $list, $idSemula = false)
+/** Tambahkan daftar perangkat (dari ekspor/duplikat) ke proyek; relasi uplink dipetakan ke id baru. $petaId: id lama -> baru. */
+function salin_perangkat($proyekId, $list, $idSemula = false, &$petaId = null)
 {
     $pdo = db();
     $pdo->beginTransaction();
@@ -1164,6 +1271,7 @@ function salin_perangkat($proyekId, $list, $idSemula = false)
     }
     $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$proyekId]);
     $pdo->commit();
+    $petaId = $map; // id lama -> id baru (mis. untuk menyalin foto bukti)
     return count($map) ?: count($list);
 }
 
@@ -1179,9 +1287,9 @@ function duplikat_proyek($p)
     }
     $nama = mb_substr($p['nama'], 0, 138) . ' (salinan)';
     $pdo->prepare('INSERT INTO np_proyek (nama, venue, tanggal_mulai, tanggal_selesai, catatan, denah_file, denah_w, denah_h,
-            skala, slack_kabel, kode_lihat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            skala, slack_kabel, lapisan, kode_lihat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         ->execute([$nama, $p['venue'], $p['tanggal_mulai'], $p['tanggal_selesai'], $p['catatan'], $file,
-            $p['denah_w'], $p['denah_h'], $p['skala'], $p['slack_kabel'], rand_hex(12)]);
+            $p['denah_w'], $p['denah_h'], $p['skala'], $p['slack_kabel'], isset($p['lapisan']) ? $p['lapisan'] : null, rand_hex(12)]);
     $newId = (int) $pdo->lastInsertId();
     $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE proyek_id = ? ORDER BY id');
     $st->execute([$p['id']]);

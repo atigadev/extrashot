@@ -560,6 +560,41 @@ Pintasan di Denah:
 Scroll/pinch untuk zoom, geser latar untuk pan. Saat menghubungkan, Shift+klik menghubungkan beberapa perangkat
 sekaligus.
 
+**Layer jaringan (beberapa jaringan dalam satu denah).** Untuk venue yang sama dengan jaringan terpisah, mis. EXPO LINE dan
+BSI LINE: sumber WAN berbeda dan tarikan kabel ke endpoint yang berbeda pula.
+- **Kelola** di *Proyek → Layer jaringan*: tambah layer, ganti nama & warna, hapus layer kosong.
+- **Impor event lain sebagai layer**: semua perangkat event itu disalin menjadi layer baru, termasuk posisi, uplink &
+  port, konfigurasi, status, ceklis, hasil pengecekan, dan foto bukti (file disalin).
+  - Posisi & jalur kabel diskalakan bila ukuran denah berbeda.
+  - Event asal tidak berubah.
+  - Contoh: buka event EXPO LINE → impor "BSI LINE".
+  - Bila sudah ada layer bernama sama dengan event sumber, aplikasi meminta konfirmasi (mencegah impor dobel).
+- **Denah**: pemilih **Layer** (Semua / per layer) di bawah pemilih tampilan.
+  - Layer lain tampil samar dan tidak bisa diklik, sehingga posisi fisiknya tetap terlihat.
+  - Titik berwarna di kiri bawah tiap perangkat menunjukkan layer-nya.
+  - Perangkat baru masuk layer uplink-nya, atau layer yang sedang aktif.
+  - Memilih perangkat dari layer lain (mis. lewat pencarian) otomatis menampilkan layer itu.
+- **Pindah layer**: di tab *Identitas* (perangkat di bawahnya ikut), atau lewat aksi massal *◧ Layer…* di daftar.
+  Bisa di-Ctrl+Z.
+- **Daftar, topologi, ringkasan panel** mengikuti layer aktif.
+  - Pada "Semua", pohon topologi dikelompokkan per layer.
+  - Daftar memberi label layer pada tiap perangkat.
+  - Pada "Semua", tabel **Kebutuhan perangkat** dan **Estimasi kabel** di Topologi punya kolom per layer (berwarna) + Total.
+    Ringkasan Sumber WAN memberi label layer dan kapasitas per layer.
+  - Satu layer dipilih: ringkasan Topologi (WAN, SSID, kebutuhan perangkat, kabel) hanya untuk layer itu.
+  - Ekspor CSV daftar perangkat diberi kolom **Layer** dan diurutkan per layer.
+- **Pemeriksaan**: IP ganda dihitung per layer, karena jaringan terpisah boleh memakai IP yang sama. Ada peringatan bila
+  uplink menyeberang ke layer lain.
+- **Laporan**: dialog *Cetak* punya pilihan **Layer jaringan**.
+  - *Semua layer*: laporan gabungan. Daftar perangkat dikelompokkan per layer (baris judul berwarna + jumlah), dan
+    tabel kebutuhan perangkat & estimasi kabel dirinci per layer.
+  - Satu layer: denah, tabel, kebutuhan perangkat, kabel, pemeriksaan, foto, dan PowerPoint hanya untuk jaringan itu,
+    dengan judul "— Layer …".
+  - Berlaku juga untuk sheet AP, CSV, laporan support, dan laporan foto.
+- **Penyimpanan**: kolom `np_proyek.lapisan` (JSON, migrasi otomatis skema 11) dan atribut perangkat `lapisan`.
+  - Ikut duplikat event dan backup / pulihkan.
+  - Event tanpa layer tetap satu jaringan seperti biasa; pemilih layer tidak tampil.
+
 ## Logika jaringan
 
 - **Jalur ke internet**: dari perangkat yang dipilih, uplink ditelusuri sampai ke Sumber WAN, misalnya

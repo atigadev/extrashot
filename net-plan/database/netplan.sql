@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS np_proyek (
   denah_h         INT UNSIGNED NULL,
   skala           DOUBLE NULL,                       -- meter per piksel denah (hasil kalibrasi)
   slack_kabel     SMALLINT UNSIGNED NOT NULL DEFAULT 20, -- tambahan panjang kabel (%) dari jarak lurus
+  lapisan         TEXT NULL,                         -- JSON layer jaringan: [{"id":"L1","nama":"EXPO LINE","warna":"#2563eb"}, ...]
   kode_lihat      VARCHAR(32)  NOT NULL,             -- kode link lihat-saja untuk teknisi lapangan
   admin_hash      VARCHAR(255) NULL,                 -- password admin event (bcrypt); NULL = hanya admin utama
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

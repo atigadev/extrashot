@@ -36,7 +36,7 @@
     return {
       proyek: {
         nama: p.nama, venue: p.venue, tanggal_mulai: p.tanggal_mulai, tanggal_selesai: p.tanggal_selesai, catatan: p.catatan,
-        skala: p.skala, slack_kabel: p.slack_kabel, denah_w: p.denah_w, denah_h: p.denah_h,
+        skala: p.skala, slack_kabel: p.slack_kabel, denah_w: p.denah_w, denah_h: p.denah_h, lapisan: p.lapisan || [],
       },
       denah,
       perangkat: res.perangkat.map(d => {
@@ -161,6 +161,7 @@
         await api(API, fd);
       }
       if (p.skala) await api(API, { action: 'proyek_skala', id: baru.id, skala: p.skala });
+      if (Array.isArray(p.lapisan) && p.lapisan.length) await api(API, { action: 'proyek_lapisan', id: baru.id, lapisan: p.lapisan });
       const perangkat = (a.perangkat || []).map(d => {
         const atr = Object.assign({}, d.atribut);
         if (atr.tipe_endpoint != null) atr.tipe_endpoint = tipeMap.get(String(atr.tipe_endpoint)) || '';

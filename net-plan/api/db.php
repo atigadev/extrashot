@@ -34,7 +34,7 @@ const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 10;
+const NP_SCHEMA = 11;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -297,6 +297,8 @@ function np_install_schema()
     np_tambah_kolom('np_perangkat', 'jalur', 'TEXT NULL AFTER atribut');
     np_tambah_kolom('np_perangkat', 'katalog_id', 'INT UNSIGNED NULL AFTER jalur');
     np_tambah_kolom('np_proyek', 'admin_hash', 'VARCHAR(255) NULL AFTER kode_lihat');
+    // Skema 11: layer jaringan per event (beberapa jaringan terpisah dalam satu denah).
+    np_tambah_kolom('np_proyek', 'lapisan', 'TEXT NULL AFTER slack_kabel');
     np_tambah_index('np_perangkat', 'idx_np_perangkat_katalog', 'katalog_id');
     // Tipe endpoint bawaan: hanya saat tabelnya baru dibuat (tipe yang sengaja dihapus tidak muncul lagi).
     // INSERT IGNORE + UNIQUE(nama) -> tidak dobel walau dua request menjalankan migrasi bersamaan.
@@ -372,6 +374,8 @@ function proyek_row($r)
         $r[$k] = $r[$k] === null ? null : (int) $r[$k];
     }
     $r['skala'] = $r['skala'] === null ? null : (float) $r['skala'];
+    $lp = isset($r['lapisan']) ? json_decode((string) $r['lapisan'], true) : null;
+    $r['lapisan'] = is_array($lp) ? $lp : [];
     // Versi denah (berubah tiap upload) untuk URL gambar; nama file aslinya tidak dikirim ke browser.
     $r['denah_v'] = $r['denah_file'] ? substr(md5($r['denah_file']), 0, 10) : null;
     // Password admin event: hanya status "sudah diatur", hash-nya tidak pernah dikirim ke browser.

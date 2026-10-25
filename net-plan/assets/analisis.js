@@ -556,6 +556,10 @@
         const p = parentOf(d);
         if (!p || NP.nonJaringan(d)) continue;
         if (d.jenis === 'isp') add('warn', [d, p], `${d.nama}: Sumber WAN seharusnya di puncak jalur — sekarang ber-uplink ke ${p.nama}`);
+        // Satu kabel = satu jaringan: uplink ke perangkat di layer lain biasanya salah pilih titik.
+        if (lapisanList().length > 1 && lapisanOf(d) !== lapisanOf(p)) {
+          add('warn', [d, p], `${d.nama} (${lapisanById(lapisanOf(d)).nama}) ber-uplink ke ${p.nama} di layer lain (${lapisanById(lapisanOf(p)).nama}) — pastikan memang satu jaringan, atau pindahkan ke layer yang sama`);
+        }
         if (d.jenis === 'lan' && !['switch', 'router', 'bridge', 'lan'].includes(p.jenis) && !UJUNG.includes(p.jenis)) {
           add('warn', [d, p], `${d.nama}: titik LAN seharusnya ditarik dari switch / router (sekarang dari ${p.nama})`);
         }
@@ -604,6 +608,32 @@
           if (bawaVlan) add('warn', d, `${d.nama}: membawa VLAN, tetapi tipe switch belum diisi — trunk/access VLAN butuh switch managed (isi Tipe di tab Switch)`);
         }
       }
+    }
+
+    // ---- Layer jaringan: beberapa jaringan terpisah (sumber WAN & tarikan berbeda) dalam satu denah. Definisi di
+    // proyek.lapisan [{id, nama, warna}]; perangkat memilih layer di atribut "lapisan" (kosong = layer pertama).
+    // Tanpa definisi = satu layer bawaan. Id layer yang dipakai perangkat tetapi belum didefinisikan ikut muncul.
+    const lapisanMemo = { v: null };
+    function lapisanList() {
+      if (lapisanMemo.v) return lapisanMemo.v;
+      const def = Array.isArray(proyek && proyek.lapisan) && proyek.lapisan.length ? proyek.lapisan.slice()
+        : [{ id: 'L1', nama: (proyek && proyek.nama) || 'Jaringan utama', warna: '#2563eb' }];
+      const ada = new Set(def.map(l => l.id));
+      for (const d of list) {
+        const lid = d.atribut && d.atribut.lapisan;
+        if (lid && !ada.has(lid)) {
+          ada.add(lid);
+          def.push({ id: lid, nama: 'Layer ' + lid.slice(1), warna: '#64748b' });
+        }
+      }
+      return (lapisanMemo.v = def);
+    }
+    /** Id layer perangkat (kosong = layer pertama). */
+    function lapisanOf(d) {
+      return (d && d.atribut && d.atribut.lapisan) || lapisanList()[0].id;
+    }
+    function lapisanById(id) {
+      return lapisanList().find(l => l.id === id) || lapisanList()[0];
     }
 
     /** Akar pohon topologi jaringan (titik listrik tidak termasuk jaringan). */
@@ -684,16 +714,19 @@
       // links = id perangkat anak yang kabel uplink-nya bermasalah (digambar merah di denah). Kosong = diturunkan otomatis.
       const add = (level, d, msg, links) => out.push({ level, ids: [].concat(d || []).map(x => x.id), msg, links: links ? [].concat(links).map(x => x.id) : null });
 
-      // IP ganda
+      // IP ganda (per layer jaringan: jaringan terpisah boleh memakai IP yang sama).
       const ipMap = new Map();
+      const multiLp = lapisanList().length > 1;
       for (const d of list) {
         const ip = (d.ip || '').trim().replace(/\/\d+$/, '');
         if (!ip || /dhcp|dinamis/i.test(ip)) continue;
-        if (!ipMap.has(ip)) ipMap.set(ip, []);
-        ipMap.get(ip).push(d);
+        const kunci = multiLp ? lapisanOf(d) + '|' + ip : ip;
+        if (!ipMap.has(kunci)) ipMap.set(kunci, []);
+        ipMap.get(kunci).push(d);
       }
-      for (const [ip, ds] of ipMap) {
-        if (ds.length > 1) add('err', ds, `IP ${ip} dipakai ${ds.length} perangkat: ${ds.map(d => d.nama).join(', ')}`, []);
+      for (const [kunci, ds] of ipMap) {
+        const ip = kunci.replace(/^L\d+\|/, '');
+        if (ds.length > 1) add('err', ds, `IP ${ip} dipakai ${ds.length} perangkat${multiLp ? ' di layer ' + lapisanById(lapisanOf(ds[0])).nama : ''}: ${ds.map(d => d.nama).join(', ')}`, []);
       }
 
       for (const d of list) {
@@ -882,10 +915,12 @@
         if (!m.has(key)) {
           const model = (d.model || '').trim();
           m.set(key, { jenis: d.jenis, model: k ? [k.merek, k.model].filter(Boolean).join(' ') : e ? e.nama + (model ? ' · ' + model : '') : model,
-            jumlah: 0, nama: [], katalog: k, stok: k ? k.stok : null });
+            jumlah: 0, nama: [], katalog: k, stok: k ? k.stok : null, lp: {} });
         }
         const r = m.get(key);
         r.jumlah++;
+        const lid = lapisanOf(d); // rincian per layer jaringan
+        r.lp[lid] = (r.lp[lid] || 0) + 1;
         r.nama.push(d.nama);
       }
       return [...m.values()].sort((a, b) => TYPE_ORDER.indexOf(a.jenis) - TYPE_ORDER.indexOf(b.jenis) || a.model.localeCompare(b.model));
@@ -893,6 +928,13 @@
 
     /** Total estimasi kabel per media + jumlah link yang belum bisa dihitung. */
     function kabel() {
+      // Rincian per layer jaringan: lp[id] = {m, n}.
+      const tambahLp = (t, d, k) => {
+        const lid = lapisanOf(d);
+        t.lp[lid] = t.lp[lid] || { m: 0, n: 0 };
+        t.lp[lid].m += k;
+        t.lp[lid].n++;
+      };
       const tot = {};
       let tanpaSkala = 0;
       for (const d of list) {
@@ -903,9 +945,10 @@
           continue;
         }
         const key = d.media || 'utp';
-        tot[key] = tot[key] || { m: 0, n: 0 };
+        tot[key] = tot[key] || { m: 0, n: 0, lp: {} };
         tot[key].m += k;
         tot[key].n++;
+        tambahLp(tot[key], d, k);
       }
       // Kabel sambungan tambahan (WAN tambahan / uplink kedua): garis lurus + tambahan, media per sambungan.
       for (const d of list) {
@@ -915,9 +958,10 @@
             tanpaSkala++;
             continue;
           }
-          tot[w.media] = tot[w.media] || { m: 0, n: 0 };
+          tot[w.media] = tot[w.media] || { m: 0, n: 0, lp: {} };
           tot[w.media].m += k;
           tot[w.media].n++;
+          tambahLp(tot[w.media], d, k);
         }
       }
       return { tot, tanpaSkala };
@@ -978,7 +1022,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, portMap, portWan, jumlahPort, kunciPort, vlanDef, vlanDev, vlanButuh, linkVlan, vlanRingkas, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, portMap, portWan, jumlahPort, kunciPort, lapisanList, lapisanOf, lapisanById, vlanDef, vlanDev, vlanButuh, linkVlan, vlanRingkas, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

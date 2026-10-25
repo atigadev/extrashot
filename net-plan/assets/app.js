@@ -1409,6 +1409,12 @@
     if (!multiLapisan()) return [];
     return (cetak ? !S.labelLapisan : S.lapisan === 'semua') ? S.model.lapisanList() : [];
   }
+  /** Label layer berwarna di laporan gabungan beberapa layer (kosong bila satu layer / satu jaringan). */
+  function lapisanLabel(d) {
+    if (!kolomLapisan(true).length) return '';
+    const L = S.model.lapisanById(S.model.lapisanOf(d));
+    return ` · <b style="color:${esc(L.warna)}">● ${esc(L.nama)}</b>`;
+  }
   const thLapisan = (L, cls) => `<th class="${cls || 'num'} th-lp" title="Layer ${esc(L.nama)}"><i style="background:${esc(L.warna)}"></i>${esc(L.nama)}</th>`;
 
   /** Tabel kebutuhan perangkat; dengan kolom per layer bila cols berisi layer. */
@@ -4898,10 +4904,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     $('#print').className = 'print';
     $('#print').innerHTML = prHead('Laporan foto pemasangan') +
       `<p>Perangkat: <b>${semua.length}</b> · Sudah difoto: <b>${ada.length}</b> · Belum difoto: <b>${belum.length}</b> · Total foto: <b>${S.foto.filter(f => m.byId.get(f.perangkat_id)).length}</b>` +
-      `${tanpaGps ? ` · Foto tanpa koordinat: <b>${tanpaGps}</b>` : ''} · Terpasang/diuji: <b>${semua.filter(d => d.status === 'terpasang' || d.status === 'diuji').length}</b> · Dicek checker: <b>${semua.filter(d => NP.verifOf(d)).length}</b> (sesuai <b>${semua.filter(d => (NP.verifOf(d) || {}).h === 'sesuai').length}</b>, tidak sesuai <b>${semua.filter(d => (NP.verifOf(d) || {}).h === 'tidak').length}</b>)</p>` +
-      ada.map(d => {
-        const a = d.atribut || {};
-        return `<section class="pr-foto">
+      `${tanpaGps ? ` · Foto tanpa koordinat: <b>${tanpaGps}</b>` : ''} · Terpasang/diuji: <b>${semua.filter(d => d.status === 'terpasang' || d.status === 'diuji').length}</b> · Dicek checker: <b>${semua.filter(d => NP.verifOf(d)).length}</b> (sesuai <b>${semua.filter(d => (NP.verifOf(d) || {}).h === 'sesuai').length}</b>, tidak sesuai <b>${semua.filter(d => (NP.verifOf(d) || {}).h === 'tidak').length}</b>)</p>`;
+    isiFoto();
+    toast('Menyiapkan foto…');
+    // Semua foto harus selesai dimuat agar ikut tercetak.
+    await Promise.all($$('#print img').map(img => (img.complete ? null : new Promise(r => { img.onload = img.onerror = r; }))));
+    printWith('A4 portrait');
+
+    /** Kartu foto satu perangkat. */
+    function kartuFoto(d) {
+      const a = d.atribut || {};
+      return `<section class="pr-foto">
           <h3>${esc(d.nama)} <small>${esc(jenisLabel(d))}${d.model ? ' · ' + esc(d.model) : ''}</small></h3>
           <p class="pr-foto-meta">Status: <b>${esc(st(d))}</b> · Uplink: ${lokasi(d)}${d.ip ? ' · IP ' + esc(d.ip) : ''}${a.lokasi_rak ? ' · ' + esc(a.lokasi_rak) : ''}${d.pic ? ' · PIC ' + esc(d.pic) : ''}</p>${verifTxt(d) ? `<p class="pr-foto-meta pr-vf">${verifTxt(d)}</p>` : ''}
           <div class="pr-foto-grid">${fotoOf(d.id).map((f, i) => `<figure>
@@ -4909,13 +4922,37 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             <figcaption><b>Foto ${i + 1}</b> · ${esc((f.diambil_at || '').slice(0, 16))}${f.oleh ? ' · ' + esc(f.oleh) : ''}<br>
               ${f.lat != null ? `📍 ${koordinat(f)}${f.akurasi_m != null ? ` (±${Math.round(f.akurasi_m)} m)` : ''}` : '📍 tanpa koordinat'}</figcaption></figure>`).join('')}</div>
         </section>`;
-      }).join('') +
-      (belum.length ? `<h2>Belum ada foto (${belum.length})</h2><table class="pr-table">${tr(['Perangkat', 'Jenis', 'Status', 'Uplink / port', 'Pengecekan', 'PIC'], true)}${belum.map(d =>
-        tr([`<b>${esc(d.nama)}</b>`, esc(jenisLabel(d)), esc(st(d)), lokasi(d), verifTxt(d) || '—', esc(d.pic)])).join('')}</table>` : '');
-    toast('Menyiapkan foto…');
-    // Semua foto harus selesai dimuat agar ikut tercetak.
-    await Promise.all($$('#print img').map(img => (img.complete ? null : new Promise(r => { img.onload = img.onerror = r; }))));
-    printWith('A4 portrait');
+    }
+    /** Tabel perangkat yang belum difoto. */
+    function tabelBelum(ds, judul) {
+      return ds.length ? `<h3 class="pr-belum">${judul} (${ds.length})</h3><table class="pr-table">${tr(['Perangkat', 'Jenis', 'Status', 'Uplink / port', 'Pengecekan', 'PIC'], true)}${ds.map(d =>
+        tr([`<b>${esc(d.nama)}</b>`, esc(jenisLabel(d)), esc(st(d)), lokasi(d), verifTxt(d) || '—', esc(d.pic)])).join('')}</table>` : '';
+    }
+    /**
+     * Isi laporan. Gabungan beberapa layer: rekap per layer, lalu per layer judul berwarna + kartu foto + tabel belum
+     * difoto; satu layer / satu jaringan: kartu foto lalu tabel belum difoto.
+     */
+    function isiFoto() {
+      const colsLp = kolomLapisan(true);
+      let h = '';
+      if (colsLp.length) {
+        h += `<table class="pr-table pr-rekap-lp">${tr(['Layer', 'Perangkat', 'Sudah difoto', 'Belum difoto', 'Sesuai plan', 'Tidak sesuai'], true)}${colsLp.map(L => {
+          const ds = semua.filter(d => m.lapisanOf(d) === L.id);
+          const n = h2 => ds.filter(d => (NP.verifOf(d) || {}).h === h2).length;
+          return tr([`<b style="color:${esc(L.warna)}">● ${esc(L.nama)}</b>`, ds.length, ds.filter(d => fotoOf(d.id).length).length, ds.filter(d => !fotoOf(d.id).length).length, n('sesuai'), n('tidak')]);
+        }).join('')}</table>`;
+        colsLp.forEach(L => {
+          const dsA = ada.filter(d => m.lapisanOf(d) === L.id);
+          const dsB = belum.filter(d => m.lapisanOf(d) === L.id);
+          if (!dsA.length && !dsB.length) return;
+          h += `<h2 class="pr-lp" style="border-left-color:${esc(L.warna)}">Layer ${esc(L.nama)} <small>${dsA.length} perangkat berfoto · ${dsB.length} belum difoto</small></h2>` +
+            dsA.map(kartuFoto).join('') + tabelBelum(dsB, `Belum ada foto — ${esc(L.nama)}`);
+        });
+      } else {
+        h += ada.map(kartuFoto).join('') + tabelBelum(belum, 'Belum ada foto');
+      }
+      $('#print').insertAdjacentHTML('beforeend', h);
+    }
   }
 
   // ------------------------------------------------------------------------ laporan foto PowerPoint
@@ -5045,7 +5082,12 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   async function unduhPptFoto() {
     const m = S.model;
     const p = S.proyek;
+    // Laporan gabungan beberapa layer: urut per layer lalu jenis; tiap bagian diberi tanda layer.
+    const colsLp = kolomLapisan(true);
+    const idxLp = id => m.lapisanList().findIndex(l => l.id === id);
     const semua = NP.Model.sortDev(m.list.filter(d => !NP.isListrik(d)));
+    if (colsLp.length) semua.sort((a, b) => idxLp(m.lapisanOf(a)) - idxLp(m.lapisanOf(b)));
+    const Lof = d => m.lapisanById(m.lapisanOf(d));
     const ada = semua.filter(d => fotoOf(d.id).length);
     if (!ada.length) return toast('Belum ada foto bukti untuk dibuat PowerPoint', true);
     const btn = $('#btn-foto-pptx');
@@ -5095,11 +5137,23 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         s1.addText(String(n), { x, y: 4.2, w: 1.85, h: 0.75, align: 'center', fontFace: F, fontSize: 30, bold: true, color: l === 'Tidak sesuai' && n ? 'F87171' : 'FFFFFF' });
         s1.addText(l, { x, y: 4.95, w: 1.85, h: 0.4, align: 'center', fontFace: F, fontSize: 11, color: '94A3B8' });
       });
+      // Gabungan beberapa layer: angka per layer di bawah kartu ringkasan.
+      if (colsLp.length) {
+        s1.addText(colsLp.map(L => {
+          const ds = semua.filter(d => m.lapisanOf(d) === L.id);
+          return [{ text: '● ', options: { color: L.warna.slice(1), fontSize: 16 } },
+            { text: `${L.nama}  `, options: { bold: true, color: 'FFFFFF' } },
+            { text: `${ds.length} titik · difoto ${ds.filter(d => fotoOf(d.id).length).length}`, options: { color: '94A3B8', breakLine: true } }];
+        }).flat(), { x: 0.7, y: 5.65, w: 12, h: 0.95, fontFace: F, fontSize: 13, valign: 'top' });
+      }
       s1.addText(`Dibuat ${new Date().toLocaleString('id-ID')} · Net Plan`, { x: 0.7, y: 6.7, w: 12, h: 0.35, fontFace: F, fontSize: 10, color: '64748B' });
 
       // 2. Ringkasan per jenis perangkat: rekap angka per jenis, lalu satu slide daftar titik per jenis
       //    (berlanjut otomatis ke slide berikutnya bila panjang). Urutan jenis mengikuti TYPE_ORDER.
-      const grup = TYPE_ORDER.map(j => ({ j, ds: semua.filter(d => d.jenis === j) })).filter(g => g.ds.length);
+      //    Gabungan beberapa layer: kelompok = layer + jenis (mis. "EXPO LINE · Switch").
+      const grup = (colsLp.length ? colsLp : [null]).flatMap(L => TYPE_ORDER.map(j => ({
+        j, L, ds: semua.filter(d => d.jenis === j && (!L || m.lapisanOf(d) === L.id)),
+      }))).filter(g => g.ds.length);
       const sel = (t, o) => ({ text: String(t), options: o || {} });
       const th = t => sel(t, { bold: true, fill: { color: 'E2E8F0' }, color: GELAP });
       const angka = (n, warna) => sel(n, { align: 'center', bold: !!n, color: n ? warna : ABU });
@@ -5109,11 +5163,21 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         return { n: ds.length, difoto, belum: ds.length - difoto, sesuai: h('sesuai'), tidak: h('tidak'), blmCek: ds.filter(d => !NP.verifOf(d)).length };
       };
       const s2 = ppt.addSlide();
-      s2.addText('Ringkasan per jenis perangkat', { x: 0.4, y: 0.3, w: 12.5, h: 0.6, fontFace: F, fontSize: 24, bold: true, color: GELAP });
+      s2.addText(colsLp.length ? 'Ringkasan per layer & jenis perangkat' : 'Ringkasan per jenis perangkat', { x: 0.4, y: 0.3, w: 12.5, h: 0.6, fontFace: F, fontSize: 24, bold: true, color: GELAP });
       const tot = rekap(semua);
       const barisRekap = r => [angka(r.n, GELAP), angka(r.difoto, '15803D'), angka(r.belum, 'B91C1C'), angka(r.sesuai, '2563EB'), angka(r.tidak, 'DC2626'), angka(r.blmCek, ABU)];
+      // Gabungan beberapa layer: baris judul per layer (rekap layer, berwarna) lalu jenis-jenis di layer itu.
+      const barisJenis = colsLp.length
+        ? colsLp.flatMap(L => {
+          const gs = grup.filter(g => g.L === L);
+          if (!gs.length) return [];
+          const isi = { fill: { color: 'F8FAFC' }, bold: true };
+          const judul = [sel(`● Layer ${L.nama}`, Object.assign({ color: L.warna.slice(1) }, isi)), ...barisRekap(rekap(gs.flatMap(g => g.ds))).map(c => ({ text: c.text, options: Object.assign({}, c.options, isi) }))];
+          return [judul, ...gs.map(g => [sel('    ' + (TYPES[g.j] || TYPES.lainnya).label, { color: GELAP }), ...barisRekap(rekap(g.ds))])];
+        })
+        : grup.map(g => [sel((TYPES[g.j] || TYPES.lainnya).label, { bold: true, color: GELAP }), ...barisRekap(rekap(g.ds))]);
       s2.addTable([['Jenis perangkat', 'Titik', 'Sudah difoto', 'Belum difoto', 'Sesuai plan', 'Tidak sesuai', 'Belum dicek'].map(th)]
-        .concat(grup.map(g => [sel((TYPES[g.j] || TYPES.lainnya).label, { bold: true, color: GELAP }), ...barisRekap(rekap(g.ds))]))
+        .concat(barisJenis)
         .concat([[sel('Total', { bold: true, fill: { color: 'F1F5F9' } }), ...barisRekap(tot).map(c => ({ text: c.text, options: Object.assign({}, c.options, { fill: { color: 'F1F5F9' }, bold: true }) }))]]), {
         x: 0.4, y: 1.0, w: 12.5, colW: [3.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5], fontFace: F, fontSize: 12, color: '334155', rowH: 0.4, valign: 'middle',
         border: { type: 'solid', pt: 0.5, color: GARIS }, autoPage: true, autoPageRepeatHeader: true, newSlideStartY: 0.5,
@@ -5143,8 +5207,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         hl.isi.forEach(b => {
           const T = TYPES[b.g.j] || TYPES.lainnya;
           const r = rekap(b.g.ds);
-          sg.addShape(ppt.ShapeType.rect, { x: 0.4, y: y + 0.06, w: 0.1, h: 0.34, fill: { color: T.color.slice(1) }, line: { type: 'none' } });
-          sg.addText(T.label + (b.dari > 1 ? ` (${b.ke}/${b.dari})` : ''), { x: 0.58, y, w: 7, h: 0.46, fontFace: F, fontSize: 18, bold: true, color: GELAP, valign: 'middle' });
+          sg.addShape(ppt.ShapeType.rect, { x: 0.4, y: y + 0.06, w: 0.1, h: 0.34, fill: { color: (b.g.L ? b.g.L.warna : T.color).slice(1) }, line: { type: 'none' } });
+          sg.addText([...(b.g.L ? [{ text: b.g.L.nama + ' · ', options: { color: b.g.L.warna.slice(1) } }] : []), { text: T.label + (b.dari > 1 ? ` (${b.ke}/${b.dari})` : '') }],
+            { x: 0.58, y, w: 7, h: 0.46, fontFace: F, fontSize: 18, bold: true, color: GELAP, valign: 'middle', fit: 'shrink' });
           sg.addText(`${r.n} titik · difoto ${r.difoto} · sesuai ${r.sesuai} · tidak sesuai ${r.tidak} · belum dicek ${r.blmCek}`,
             { x: 6.0, y, w: 6.9, h: 0.46, align: 'right', fontFace: F, fontSize: 11, color: ABU, valign: 'middle' });
           const rows = [['Titik', b.g.j === 'endpoint' ? 'Tipe' : 'Alat', 'Status', 'Uplink / port', 'Foto', 'Pengecekan'].map(th)].concat(b.ds.map(d => {
@@ -5170,8 +5235,22 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         toast(`Menyiapkan PowerPoint… ${k + 1}/${ada.length}`);
         const fs = fotoOf(d.id);
         const v = NP.verifOf(d);
+        // Gabungan beberapa layer: slide pembatas di awal tiap layer.
+        if (colsLp.length && (k === 0 || m.lapisanOf(ada[k - 1]) !== m.lapisanOf(d))) {
+          const L = Lof(d);
+          const dsL = semua.filter(x => m.lapisanOf(x) === L.id);
+          const fotoL = ada.filter(x => m.lapisanOf(x) === L.id);
+          const sp = ppt.addSlide();
+          sp.background = { color: '0F172A' };
+          sp.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 0.35, h: 7.5, fill: { color: L.warna.slice(1) }, line: { type: 'none' } });
+          sp.addText('LAYER JARINGAN', { x: 0.9, y: 2.3, w: 11.5, h: 0.5, fontFace: F, fontSize: 16, bold: true, color: '93C5FD', charSpacing: 2 });
+          sp.addText(L.nama, { x: 0.9, y: 2.8, w: 11.5, h: 1.2, fontFace: F, fontSize: 40, bold: true, color: 'FFFFFF', fit: 'shrink' });
+          sp.addText(`${dsL.length} titik · ${fotoL.length} titik berfoto · sesuai plan ${dsL.filter(x => (NP.verifOf(x) || {}).h === 'sesuai').length} · tidak sesuai ${dsL.filter(x => (NP.verifOf(x) || {}).h === 'tidak').length}`,
+            { x: 0.9, y: 4.0, w: 11.5, h: 0.5, fontFace: F, fontSize: 16, color: 'CBD5E1' });
+        }
         const s = ppt.addSlide();
         s.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 13.33, h: 0.95, fill: { color: GELAP } });
+        if (colsLp.length) s.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 0.18, h: 0.95, fill: { color: Lof(d).warna.slice(1) }, line: { type: 'none' } });
         s.addText([{ text: d.nama, options: { bold: true, fontSize: 24, color: 'FFFFFF' } },
           { text: `   ${jenisLabel(d)}${d.model ? ' · ' + d.model : ''}${!S.labelLapisan && m.lapisanList().length > 1 ? ' · Layer ' + m.lapisanById(m.lapisanOf(d)).nama : ''}`, options: { fontSize: 14, color: 'CBD5E1' } }],
         { x: 0.4, y: 0.12, w: 9.6, h: 0.7, fontFace: F, valign: 'middle' });
@@ -5234,7 +5313,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           ...(v ? [{ text: `${v.o || ''} · ${v.t || ''}`, options: { fontSize: 9, color: ABU, breakLine: !!v.c } }] : []),
           ...(v && v.c ? [{ text: v.c, options: { fontSize: 10, color: '334155' } }] : []),
         ], { x: rx + 0.08, y: ry + 0.04, w: rw - 0.16, h: vh - 0.08, fontFace: F, valign: 'top', fit: 'shrink' });
-        kaki(s, `${p.nama} · Titik ${k + 1}/${ada.length}`);
+        kaki(s, `${p.nama}${colsLp.length ? ' · Layer ' + Lof(d).nama : ''} · Titik ${k + 1}/${ada.length}`);
       }
 
       const nama = `laporan-foto-${slug(p.nama)}.pptx`;
@@ -5258,7 +5337,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       <h2>Per titik listrik</h2>
       <table class="pr-table">${tr(['Titik listrik', 'Sumber / panel', 'MCB', 'Kapasitas', 'Aman 80%', 'Terpakai', 'Sisa', 'Soket', 'Perangkat (daya)'], true)}${r.titik.map(b => {
         const a = b.L.atribut || {};
-        return tr([`<b>${esc(b.L.nama)}</b>`, esc([a.sumber_listrik, a.lokasi_panel].filter(Boolean).join(' · ')),
+        return tr([`<b>${esc(b.L.nama)}</b>${lapisanLabel(b.L)}`, esc([a.sumber_listrik, a.lokasi_panel].filter(Boolean).join(' · ')),
           b.mcb ? `${b.mcb.a} A · ${b.mcb.v} V${b.mcb.tiga ? ' · 3 fase' : ''}` : '—', b.kap ? fmtW(b.kap) : '—', b.kap ? fmtW(b.kap * 0.8) : '—',
           `${fmtW(b.watt)}${b.pct != null ? ` (${b.pct}%)` : ''}`, b.kap ? fmtSisa(b.kap - b.watt) : '—', b.soket ? `${b.devs.length}/${b.soket}` : String(b.devs.length),
           NP.Model.sortDev(b.devs).map(d => `${esc(d.nama)} (${m.dayaW(d) ? fmtW(m.dayaW(d)) : '? W'})`).join(', ')]);
@@ -5272,7 +5351,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       h += `<h2>Peralatan support</h2><table class="pr-table">${tr(['Nama', 'Kategori', 'Jumlah', 'Kapasitas / ukuran', 'Daya', 'Titik listrik', 'Status', 'PIC'], true)}${sup.map(d => {
         const a = d.atribut || {};
         const L = m.listrikOf(d);
-        return tr([esc(d.nama), esc(a.kategori_support || ''), esc(a.jumlah || '1'), esc(a.kapasitas_support || ''), m.dayaW(d) ? fmtW(m.dayaW(d)) : '—',
+        return tr([esc(d.nama) + lapisanLabel(d), esc(a.kategori_support || ''), esc(a.jumlah || '1'), esc(a.kapasitas_support || ''), m.dayaW(d) ? fmtW(m.dayaW(d)) : '—',
           L ? esc(L.nama) : esc(NP.LISTRIK[a.listrik || ''].label), esc((STATUS[d.status] || STATUS.rencana).label), esc(d.pic)]);
       }).join('')}</table>`;
     }
@@ -6223,6 +6302,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function staticMap(opts) {
     opts = opts || {};
     const m = S.model;
+    // Laporan gabungan beberapa layer: titik warna layer di kiri bawah tiap perangkat.
+    const lpPeta = kolomLapisan(true);
     const { W, H } = peta.size();
     const vb = opts.vb || [0, 0, W, H];
     const u = Math.max(vb[2], vb[3]) / 1100 * (opts.vb ? 2.2 : 1);
@@ -6275,6 +6356,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         ${d.jenis === 'ap' && NP.sektor(d) ? (s => `<path d="${NP.wedgePath(0, 0, r * 2.2, s.arah, s.lebar)}" fill="${TYPES.ap.color}" fill-opacity=".35"/>`)(NP.sektor(d)) : ''}
         <circle r="${r}" fill="${t.color}"/>
         ${bolt || `<text text-anchor="middle" dy=".35em" font-size="${(t.short.length > 2 ? 6.5 : 8) * u}" font-weight="700" fill="#fff" font-family="Arial">${esc(t.short)}</text>`}`}
+        ${lpPeta.length ? `<circle cx="${-b}" cy="${b}" r="${4.2 * u}" fill="${esc(m.lapisanById(m.lapisanOf(d)).warna)}" stroke="#fff" stroke-width="${1.2 * u}"/>` : ''}
         ${NP.nonJaringan(d) || opts.tanpaInternet ? '' : `<circle cx="${b}" cy="${-b}" r="${4.5 * u}" fill="${K.color}" stroke="#fff" stroke-width="${1.2 * u}"/>
         <text x="${b}" y="${-b}" dy=".36em" text-anchor="middle" font-size="${6.5 * u}" font-weight="800" fill="#fff" font-family="Arial">${K.icon}</text>`}
         <text text-anchor="middle" y="${r + 11 * u}" font-size="${9 * u}" font-weight="700" fill="#111" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(d.nama)}</text>
@@ -6366,14 +6448,15 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const o = apOpts();
     const list = apList(o);
     if (!list.length) return toast('Belum ada access point di event ini', true);
-    const rows = [['Nama', 'Jenis', 'Nama alat', 'Status', 'Internet', 'IP', 'VLAN', 'Gateway', 'Subnet', 'DNS', 'Uplink', 'Port di uplink',
+    const lpCsv = kolomLapisan(true).length > 0;
+    const rows = [[...(lpCsv ? ['Layer'] : []), 'Nama', 'Jenis', 'Nama alat', 'Status', 'Internet', 'IP', 'VLAN', 'Gateway', 'Subnet', 'DNS', 'Uplink', 'Port di uplink',
       'Port lokal', 'PoE uplink', 'Media', 'Kabel (m)', 'SSID', 'Keamanan', 'Password', 'SSID tambahan', 'Band', 'Channel', 'Lebar kanal',
       'TX power', 'Target user', 'Radius (m)', 'Controller', 'Pemasangan', 'Limit (Mbps)', 'Bandwidth maks. (Mbps)', 'PIC', 'Keterangan konfigurasi']];
     for (const d of list) {
       const a = d.atribut || {};
       const n = netInfo(d);
       const k = S.model.kabelM(d);
-      rows.push([d.nama, TYPES[d.jenis].label, d.model, (STATUS[d.status] || STATUS.rencana).label, KONEKSI[S.model.koneksi(d)].label,
+      rows.push([...(lpCsv ? [S.model.lapisanById(S.model.lapisanOf(d)).nama] : []), d.nama, TYPES[d.jenis].label, d.model, (STATUS[d.status] || STATUS.rencana).label, KONEKSI[S.model.koneksi(d)].label,
         d.ip, d.vlan, n.gw, n.subnet, n.dns, n.up ? n.up.nama : '', d.port_uplink, d.port_lokal, n.poe, d.media ? MEDIA[d.media].label : '',
         k == null ? '' : Math.round(k), a.ssid, a.keamanan, o.password ? a.password : (a.password ? '••••' : ''), a.ssid_lain, a.band,
         a.channel || a.frekuensi, a.lebar_kanal, a.tx_power, a.maks_user, a.radius_m, a.controller, a.mounting,
@@ -6408,8 +6491,11 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   }
 
   function apList(o) {
+    // Gabungan beberapa layer: dikelompokkan per layer dulu.
+    const lp = kolomLapisan(true);
+    const idx = d => (lp.length ? lp.findIndex(l => l.id === S.model.lapisanOf(d)) : 0);
     return S.model.list.filter(d => d.jenis === 'ap' || (o.bridge && d.jenis === 'bridge'))
-      .sort((a, b) => (a.jenis === b.jenis ? 0 : a.jenis === 'ap' ? -1 : 1) || a.nama.localeCompare(b.nama, 'id', { numeric: true }));
+      .sort((a, b) => idx(a) - idx(b) || (a.jenis === b.jenis ? 0 : a.jenis === 'ap' ? -1 : 1) || a.nama.localeCompare(b.nama, 'id', { numeric: true }));
   }
 
   /** Info jaringan dari jalur uplink: router terdekat (gateway, subnet, DNS, DHCP), perangkat uplink & PoE-nya. */
@@ -6465,7 +6551,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       ${list.map(d => {
         const a = d.atribut || {};
         const up = m.parentOf(d);
-        return `<tr><td><b>${esc(d.nama)}</b>${d.jenis === 'bridge' ? ' <span class="muted">(bridge)</span>' : ''}</td><td>${esc(d.model)}</td><td class="mono">${esc(d.ip)}</td><td>${esc(d.vlan)}</td>
+        return `<tr><td><b>${esc(d.nama)}</b>${d.jenis === 'bridge' ? ' <span class="muted">(bridge)</span>' : ''}${lapisanLabel(d)}</td><td>${esc(d.model)}</td><td class="mono">${esc(d.ip)}</td><td>${esc(d.vlan)}</td>
           <td>${up ? esc(up.nama) + (d.port_uplink ? ' : ' + esc(d.port_uplink) : '') : '—'}</td><td>${esc(a.ssid)}</td><td>${esc(a.band)}</td>
           <td><b>${esc(a.channel || a.frekuensi)}</b></td><td>${esc(a.lebar_kanal)}</td><td>${esc(a.tx_power)}</td><td>${esc((STATUS[d.status] || STATUS.rencana).label)}</td></tr>`;
       }).join('')}</tbody></table>`;
@@ -6484,7 +6570,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       return `<section class="ap-card">
         <header class="ap-head">
           <i style="background:${t.color}">${esc(t.short)}</i>
-          <div class="grow"><h3>${esc(d.nama)}</h3><span>${esc(t.label)}${d.model ? ' · ' + esc(d.model) : ''}</span></div>
+          <div class="grow"><h3>${esc(d.nama)}</h3><span>${esc(t.label)}${d.model ? ' · ' + esc(d.model) : ''}${lapisanLabel(d)}</span></div>
           <div class="ap-meta"><span>${esc((STATUS[d.status] || STATUS.rencana).label)}</span>${konBadge(m.koneksi(d))}<span class="muted">${i + 1} / ${list.length}</span></div>
         </header>
         <div class="ap-key">
@@ -6590,6 +6676,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       <div class="pr-map">${staticMap()}</div>
       <div class="pr-legend">${TYPE_ORDER.filter(j => m.list.some(d => d.jenis === j)).map(j => `<span><i style="background:${TYPES[j].color}">${esc(TYPES[j].short)}</i>${esc(TYPES[j].label)}</span>`).join('')}
         ${lineLegend().map(x => `<span>${x.svg}${esc(x.label)}</span>`).join('')}
+        ${kolomLapisan(true).map(L => `<span><i style="background:${esc(L.warna)};width:10px;height:10px"></i>Layer ${esc(L.nama)}</span>`).join('')}
         ${Object.keys(KONEKSI).map(k => `<span><i style="background:${KONEKSI[k].color}">${KONEKSI[k].icon}</i>${esc(KONEKSI[k].label)}</span>`).join('')}</div>
       ${p.catatan ? `<h2>Catatan</h2><div class="pre">${esc(p.catatan)}</div>` : ''}
       <h2>Daftar perangkat &amp; konfigurasi</h2>

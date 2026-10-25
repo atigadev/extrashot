@@ -591,6 +591,13 @@ BSI LINE: sumber WAN berbeda dan tarikan kabel ke endpoint yang berbeda pula.
   - Satu layer: denah, tabel, kebutuhan perangkat, kabel, pemeriksaan, foto, dan PowerPoint hanya untuk jaringan itu,
     dengan judul "— Layer …".
   - Berlaku juga untuk sheet AP, CSV, laporan support, dan laporan foto.
+  - Laporan gabungan semua layer, per jenis laporan:
+    - **Laporan lengkap**: legenda layer, titik warna layer di denah, daftar perangkat berkelompok per layer.
+    - **Laporan foto (cetak)**: rekap per layer, lalu per layer judul berwarna + kartu foto + tabel belum difoto.
+    - **PowerPoint**: angka per layer di sampul; ringkasan per layer & jenis; daftar titik berjudul "Layer · Jenis";
+      slide pembatas tiap layer; slide titik diberi strip warna layer + nama layer di judul & kaki.
+    - **Sheet AP / CSV AP**: urut per layer, label / kolom Layer.
+    - **Laporan support & listrik**: label layer di titik listrik & peralatan support.
 - **Penyimpanan**: kolom `np_proyek.lapisan` (JSON, migrasi otomatis skema 11) dan atribut perangkat `lapisan`.
   - Ikut duplikat event dan backup / pulihkan.
   - Event tanpa layer tetap satu jaringan seperti biasa; pemilih layer tidak tampil.

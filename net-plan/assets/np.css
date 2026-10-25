@@ -1178,3 +1178,7 @@ tr.bad-row td { background: #fef2f2; }
 .th-lp { white-space: nowrap; }
 .th-lp i, .lp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
 .print .pr-grp td { background: #f1f5f9; font-size: 12px; padding-top: 6px; padding-bottom: 6px; }
+.print .pr-lp { border-left: 6px solid #64748b; padding: 4px 0 4px 10px; margin: 18px 0 10px; break-after: avoid; }
+.print .pr-lp small { font-weight: 400; color: #475569; font-size: 12px; margin-left: 8px; }
+.print .pr-belum { font-size: 13px; margin: 10px 0 6px; }
+.print .pr-rekap-lp { margin: 8px 0 12px; }

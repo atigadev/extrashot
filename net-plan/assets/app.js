@@ -1384,6 +1384,18 @@
   const kunciLapisan = () => 'np-lapisan-' + (S.proyek ? S.proyek.id : '');
 
   /** Terapkan layer aktif ke peta (layer lain samar) & tombol pemilih layer; dipanggil setiap model diperbarui. */
+  /** Nama layer tanpa awalan bersama (dipotong di batas kata / pemisah " - ", " · ", ": "). Map id -> nama. */
+  function namaRingkasLapisan(daftar) {
+    const out = new Map(daftar.map(l => [l.id, l.nama]));
+    if (daftar.length < 2) return out;
+    let pre = daftar[0].nama;
+    daftar.forEach(l => { while (pre && !l.nama.startsWith(pre)) pre = pre.slice(0, -1); });
+    const m = pre.match(/^.*(\s[-–·:|/]\s|\s)/); // potong di pemisah / spasi terakhir dalam awalan
+    const buang = m ? m[0].length : 0;
+    if (buang < 3) return out;
+    daftar.forEach(l => { const s = l.nama.slice(buang).trim(); if (s) out.set(l.id, s); });
+    return out;
+  }
   function terapkanLapisan() {
     const box = $('#lapisan-switch');
     if (!multiLapisan()) {
@@ -1398,9 +1410,11 @@
     if (!box) return;
     const n = id => S.model.list.filter(d => S.model.lapisanOf(d) === id).length;
     box.hidden = false;
+    // Nama ringkas: buang awalan yang sama di semua layer (mis. "BSI EXPO 2026 - EXPO LINE" → "EXPO LINE"); nama lengkap di tooltip.
+    const pendek = namaRingkasLapisan(daftar);
     box.innerHTML = `<span class="lp-lbl">Layer</span><button type="button" data-lapisan="semua" class="${S.lapisan === 'semua' ? 'on' : ''}" title="Semua layer jaringan">Semua</button>` +
       daftar.map(l => `<button type="button" data-lapisan="${esc(l.id)}" class="${S.lapisan === l.id ? 'on' : ''}" title="${esc(l.nama)} · ${n(l.id)} perangkat">
-        <i style="background:${esc(l.warna)}"></i>${esc(l.nama)}</button>`).join('');
+        <i style="background:${esc(l.warna)}"></i><span>${esc(pendek.get(l.id))}</span></button>`).join('');
   }
   /**
    * Layer yang dijadikan kolom rincian di tabel ringkasan (kebutuhan perangkat, kabel, WAN): semua layer bila event
@@ -1438,11 +1452,37 @@
       `<tr><td>${esc(MEDIA[k] ? MEDIA[k].label : k)}</td>${cols.map(L => `<td class="num">${sel(kb.tot[k].lp[L.id])}</td>`).join('')}<td class="num">${kb.tot[k].n}</td><td class="num"><b>≈ ${esc(fmtM(kb.tot[k].m))}</b></td></tr>`).join('')}</table>`;
   }
 
+  /**
+   * Jalankan fn (sinkron) dengan S.model hanya berisi layer aktif — untuk halaman yang dihitung dari S.model
+   * (Ceklis, Support & listrik). Semua layer / satu jaringan: model penuh. Halaman diberi catatan layer yang tampil.
+   */
+  function modelLapisanAktif(fn, pane) {
+    if (!multiLapisan() || S.lapisan === 'semua') return fn();
+    const asli = S.model;
+    const L = asli.lapisanById(S.lapisan);
+    S.model = NP.Model.create(S.proyek, S.list.filter(d => asli.lapisanOf(d) === S.lapisan), S.katalog);
+    try {
+      return fn();
+    } finally {
+      S.model = asli;
+      const box = pane && $(pane);
+      if (box && !box.querySelector('.lp-note')) {
+        box.insertAdjacentHTML('afterbegin', `<div class="lp-note"><i style="background:${esc(L.warna)}"></i>Menampilkan layer <b>${esc(L.nama)}</b>
+          <button type="button" class="small ghost" data-lapisan-semua>Tampilkan semua layer</button></div>`);
+      }
+    }
+  }
+  function renderCeklisPage() { return modelLapisanAktif(renderCeklisPageIsi, '#ceklis-pane'); }
+  function renderSupport() { return modelLapisanAktif(renderSupportIsi, '#support-pane'); }
+  document.addEventListener('click', e => {
+    if (e.target.closest('.lp-note [data-lapisan-semua]')) setLapisan('semua');
+  });
+
   /** Label kecil layer perangkat (daftar / topologi) bila semua layer ditampilkan. */
   function lapisanChip(d) {
     if (!multiLapisan() || S.lapisan !== 'semua') return '';
     const L = S.model.lapisanById(S.model.lapisanOf(d));
-    return `<span class="lp-chip" style="--c:${esc(L.warna)}" title="Layer ${esc(L.nama)}">${esc(L.nama)}</span>`;
+    return `<span class="lp-chip" style="--c:${esc(L.warna)}" title="Layer ${esc(L.nama)}">${esc(namaRingkasLapisan(S.model.lapisanList()).get(L.id))}</span>`;
   }
   function setLapisan(id) {
     S.lapisan = id;
@@ -1806,6 +1846,76 @@
   }
   $('#btn-layers').addEventListener('click', () => setLayersOpen(!$('#map-layers').classList.contains('open')));
   $('#map').addEventListener('pointerdown', () => setLayersOpen(false));
+  // Tutup popover tampilan peta saat klik di luar atau Esc.
+  document.addEventListener('pointerdown', e => {
+    if ($('#map-layers').classList.contains('open') && !e.target.closest('#map-layers, #btn-layers')) setLayersOpen(false);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && $('#map-layers').classList.contains('open')) setLayersOpen(false);
+  });
+
+  // Rel alat ringkas: nama alat sebagai tooltip di kanan ikon (desktop; layar sentuh memakai title bawaan).
+  (() => {
+    const tip = document.createElement('div');
+    tip.className = 'tb-tip';
+    tip.hidden = true;
+    document.body.appendChild(tip);
+    const tb = $('#toolbar');
+    tb.addEventListener('pointerover', e => {
+      const b = e.target.closest('.tool');
+      if (!b || e.pointerType === 'touch' || matchMedia('(max-width: 640px)').matches) return;
+      if (!b.dataset.tip) b.dataset.tip = b.title;
+      b.removeAttribute('title'); // hindari tooltip ganda dari browser
+      const m = b.dataset.tip.match(/^(.*) \((.+)\)$/);
+      tip.innerHTML = m ? `${esc(m[1])}<kbd>${esc(m[2])}</kbd>` : esc(b.dataset.tip);
+      const r = b.getBoundingClientRect();
+      tip.style.left = r.right + 10 + 'px';
+      tip.style.top = r.top + r.height / 2 + 'px';
+      tip.hidden = false;
+    });
+    tb.addEventListener('pointerout', e => { if (!e.relatedTarget || !tb.contains(e.relatedTarget)) tip.hidden = true; });
+    tb.addEventListener('scroll', () => { tip.hidden = true; });
+    tb.addEventListener('click', () => { tip.hidden = true; });
+  })();
+
+  // Lebar panel kanan bisa diatur dengan menyeret tepi kirinya (280–560 px, disimpan per browser; klik ganda = bawaan).
+  (() => {
+    const lay = $('.peta-layout');
+    const grip = document.createElement('div');
+    grip.className = 'panel-grip';
+    grip.title = 'Seret untuk mengubah lebar panel · klik ganda = lebar bawaan';
+    lay.appendChild(grip);
+    const pasang = w => {
+      if (w) lay.style.setProperty('--panel-w', w + 'px');
+      else lay.style.removeProperty('--panel-w');
+    };
+    try { const w = +localStorage.getItem('np-panel-w'); if (w >= 280 && w <= 560) pasang(w); } catch (err) { /* abaikan */ }
+    let mulai = null;
+    grip.addEventListener('pointerdown', e => {
+      mulai = { x: e.clientX, w: $('#panel').getBoundingClientRect().width };
+      grip.setPointerCapture(e.pointerId);
+      document.body.classList.add('geser-panel');
+    });
+    grip.addEventListener('pointermove', e => {
+      if (!mulai) return;
+      pasang(Math.round(Math.min(560, Math.max(280, mulai.w + (mulai.x - e.clientX)))));
+    });
+    const selesai = () => {
+      if (!mulai) return;
+      mulai = null;
+      document.body.classList.remove('geser-panel');
+      const w = Math.round($('#panel').getBoundingClientRect().width);
+      try { localStorage.setItem('np-panel-w', w); } catch (err) { /* abaikan */ }
+      requestAnimationFrame(updateInset);
+    };
+    grip.addEventListener('pointerup', selesai);
+    grip.addEventListener('pointercancel', selesai);
+    grip.addEventListener('dblclick', () => {
+      pasang(0);
+      try { localStorage.removeItem('np-panel-w'); } catch (err) { /* abaikan */ }
+      requestAnimationFrame(updateInset);
+    });
+  })();
 
   // Peta layar penuh: sembunyikan header & tab (dan bar browser bila Fullscreen API tersedia, mis. Android).
   function setFull(on) {
@@ -4756,7 +4866,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   const warnaBeban = pct => (pct == null ? '#94a3b8' : pct > 100 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a');
   const fmtSisa = w => (w < 0 ? '−' + fmtW(-w) : fmtW(w));
 
-  function renderSupport() {
+  function renderSupportIsi() {
     const m = S.model;
     const r = dataRekapListrik();
     const chipL = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${NP.isListrik(d) ? '⚡' : esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
@@ -5639,9 +5749,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   $('[data-pane="support"]').addEventListener('click', e => {
     const b = e.target.closest('[data-sp]');
     if (b) {
-      if (b.dataset.sp === 'csv') return csvRekapListrik();
-      if (b.dataset.sp === 'cetak') return cetakRekapListrik();
-      if (b.dataset.sp === 'cetak-support') return cetakLaporanSupport();
+      if (b.dataset.sp === 'csv') return denganLapisan(() => csvRekapListrik(), S.lapisan);
+      if (b.dataset.sp === 'cetak') return denganLapisan(() => cetakRekapListrik(), S.lapisan);
+      if (b.dataset.sp === 'cetak-support') return denganLapisan(() => cetakLaporanSupport(), S.lapisan);
       if (b.dataset.sp === 'denah') {
         setView('support');
         return go('denah');
@@ -5796,7 +5906,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function barisCeklis() {
     const q = ckF.q.trim().toLowerCase();
     return NP.Model.sortDev(S.model.list)
-      .filter(d => (!ckF.jenis || d.jenis === ckF.jenis) && (!q || d.nama.toLowerCase().includes(q)))
+      .filter(d => masukLapisan(d) && (!ckF.jenis || d.jenis === ckF.jenis) && (!q || d.nama.toLowerCase().includes(q)))
       .map(d => {
         const pg = NP.ceklisProgres(d);
         return { d, pg, items: pg.items.filter(it => !ckF.grup || it.grup === ckF.grup) };
@@ -5808,7 +5918,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   const ckDev = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${NP.isListrik(d) ? '⚡' : esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
   const ckTip = it => `${CKG[it.grup].label}: ${it.label}${it.info ? ' — ' + it.info.o + ', ' + it.info.t : ''}${it.link ? ' (tersinkron ' + (it.link.startsWith('kabel') ? 'status kabel' : 'status pemasangan') + ')' : ''}`;
 
-  function renderCeklisPage() {
+  function renderCeklisPageIsi() {
     const m = S.model;
     // Ringkasan per kelompok pekerjaan (seluruh event, tidak terpengaruh filter) — kartu bisa diklik untuk memfilter.
     const tot = { '': { s: 0, t: 0 } };
@@ -5960,7 +6070,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   });
   $('[data-pane="ceklis"]').addEventListener('click', e => {
     const b = e.target.closest('[data-ckp]');
-    if (b) return b.dataset.ckp === 'csv' ? csvCeklis() : cetakCeklis();
+    if (b) return denganLapisan(() => (b.dataset.ckp === 'csv' ? csvCeklis() : cetakCeklis()), S.lapisan);
     const tg = e.target.closest('[data-ck-grupf]');
     if (tg) {
       ckF.grup = ckF.grup === tg.dataset.ckGrupf ? '' : tg.dataset.ckGrupf;

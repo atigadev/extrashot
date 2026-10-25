@@ -590,6 +590,20 @@ Pintasan di Denah:
 Scroll/pinch untuk zoom, geser latar untuk pan. Saat menghubungkan, Shift+klik menghubungkan beberapa perangkat
 sekaligus.
 
+**Tata letak denah** (dibuat agar area denah seluas mungkin):
+- **Rel alat** di kiri hanya berisi ikon (56 px). Nama alat & pintasannya muncul sebagai tooltip saat kursor diarahkan.
+  Semua alat muat di layar laptop 768 px.
+- **Panel kanan**: seret tepi kirinya untuk mengubah lebar (280–560 px, disimpan per browser). Klik ganda tepinya untuk
+  kembali ke lebar bawaan. Tombol panel / `P` menyembunyikannya.
+- **Tampilan peta** (label, garis uplink, panjang kabel, cakupan AP, status internet, progres kabel, jalur listrik,
+  kecerahan denah) ada di popover tombol **☰**, sehingga bawah denah tidak tertutup. Tutup dengan Esc atau klik di luar.
+- **Filter peta** (Semua / Jaringan / AP / Switch / Support) dan **Layer** berada dalam satu baris di kiri atas.
+  - Nama layer diringkas dengan membuang awalan yang sama, mis. "BSI EXPO 2026 - EXPO LINE" → "EXPO LINE"; nama
+    lengkap ada di tooltip.
+  - Di HP, filter & layer masing-masing satu baris yang bisa digeser.
+- **Bar tab**: bila sempit, tombol Cari menjadi ikon saja. Mode **⛶** tetap menyembunyikan header & tab untuk denah
+  layar penuh.
+
 **Layer jaringan (beberapa jaringan dalam satu denah).** Untuk venue yang sama dengan jaringan terpisah, mis. EXPO LINE dan
 BSI LINE: sumber WAN berbeda dan tarikan kabel ke endpoint yang berbeda pula.
 - **Kelola** di *Proyek → Layer jaringan*: tambah layer, ganti nama & warna, hapus layer kosong.
@@ -606,7 +620,9 @@ BSI LINE: sumber WAN berbeda dan tarikan kabel ke endpoint yang berbeda pula.
   - Memilih perangkat dari layer lain (mis. lewat pencarian) otomatis menampilkan layer itu.
 - **Pindah layer**: di tab *Identitas* (perangkat di bawahnya ikut), atau lewat aksi massal *◧ Layer…* di daftar.
   Bisa di-Ctrl+Z.
-- **Daftar, topologi, ringkasan panel** mengikuti layer aktif.
+- **Daftar, topologi, ceklis, support & listrik, port, ringkasan panel** mengikuti layer aktif. Halaman Ceklis &
+  Support memberi catatan "Menampilkan layer …" + tombol *Tampilkan semua layer*. Tombol "✓ semua", CSV, dan cetak di
+  halaman itu juga hanya untuk layer aktif.
   - Pada "Semua", pohon topologi dikelompokkan per layer.
   - Daftar memberi label layer pada tiap perangkat.
   - Pada "Semua", tabel **Kebutuhan perangkat** dan **Estimasi kabel** di Topologi punya kolom per layer (berwarna) + Total.

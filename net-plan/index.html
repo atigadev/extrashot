@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=105">
+<link rel="stylesheet" href="assets/np.css?v=109">
 </head>
 <body>
 
@@ -112,14 +112,16 @@
       <div class="peta-area">
         <svg id="map" class="map"></svg>
         <div class="map-hint" id="map-hint" hidden></div>
-        <div class="view-switch" id="view-switch" role="group" aria-label="Tampilkan perangkat">
-          <button type="button" data-view="semua" title="Semua perangkat">Semua</button>
-          <button type="button" data-view="jaringan" title="Hanya perangkat jaringan">Jaringan</button>
-          <button type="button" data-view="jenis:ap" title="Hanya access point (WiFi)">AP</button>
-          <button type="button" data-view="jenis:switch" title="Hanya switch">Switch</button>
-          <button type="button" data-view="support" title="Hanya titik listrik &amp; peralatan support">⚡ Support</button>
+        <div class="map-filters">
+          <div class="view-switch" id="view-switch" role="group" aria-label="Tampilkan perangkat">
+            <button type="button" data-view="semua" title="Semua perangkat">Semua</button>
+            <button type="button" data-view="jaringan" title="Hanya perangkat jaringan">Jaringan</button>
+            <button type="button" data-view="jenis:ap" title="Hanya access point (WiFi)">AP</button>
+            <button type="button" data-view="jenis:switch" title="Hanya switch">Switch</button>
+            <button type="button" data-view="support" title="Hanya titik listrik &amp; peralatan support">⚡ Support</button>
+          </div>
+          <div class="lapisan-switch" id="lapisan-switch" role="group" aria-label="Layer jaringan" hidden></div>
         </div>
-        <div class="lapisan-switch" id="lapisan-switch" role="group" aria-label="Layer jaringan" hidden></div>
         <div class="ep-picker" id="ep-picker" hidden></div>
         <div class="map-ctrl">
           <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
@@ -129,9 +131,10 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path class="pnl-fill" d="M15 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4z" fill="currentColor" stroke="none"/></svg>
           </button>
           <button type="button" id="btn-full" title="Peta layar penuh" aria-label="Peta layar penuh" aria-pressed="false">⛶</button>
-          <button type="button" class="layers-btn" id="btn-layers" title="Lapisan &amp; kecerahan denah" aria-expanded="false">☰</button>
+          <button type="button" class="layers-btn" id="btn-layers" title="Tampilan peta: label, garis, cakupan AP, progres kabel, kecerahan denah" aria-expanded="false">☰</button>
         </div>
         <div class="map-layers" id="map-layers">
+          <span class="ml-h">Tampilan peta</span>
           <label><input type="checkbox" data-layer="label" checked> Label</label>
           <label><input type="checkbox" data-layer="garis" checked> Garis uplink</label>
           <label><input type="checkbox" data-layer="jarak"> Panjang kabel</label>
@@ -448,13 +451,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=105"></script>
-<script src="assets/common.js?v=105"></script>
-<script src="assets/analisis.js?v=105"></script>
-<script src="assets/peta.js?v=105"></script>
-<script src="assets/katalog.js?v=105"></script>
-<script src="assets/mikrotik.js?v=105"></script>
-<script src="assets/backup.js?v=105"></script>
-<script src="assets/app.js?v=105"></script>
+<script src="vendor/qrcode.min.js?v=109"></script>
+<script src="assets/common.js?v=109"></script>
+<script src="assets/analisis.js?v=109"></script>
+<script src="assets/peta.js?v=109"></script>
+<script src="assets/katalog.js?v=109"></script>
+<script src="assets/mikrotik.js?v=109"></script>
+<script src="assets/backup.js?v=109"></script>
+<script src="assets/app.js?v=109"></script>
 </body>
 </html>

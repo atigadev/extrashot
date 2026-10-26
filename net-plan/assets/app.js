@@ -2431,7 +2431,7 @@
       : lv.mode === 'access' ? `<b>Access</b> — untagged VLAN ${nm(lv.untagged)}` : '<b>Native</b> — LAN tanpa VLAN';
     return `<div class="vl-box">
       <div class="vl-box-h">VLAN di port ${esc(d.port_uplink || '')} ${esc(p.nama)} ${vlanBadge(d)}</div>
-      <p class="small" style="margin:2px 0 6px">${hasil}${lv.auto ? ' <span class="muted">(otomatis dari VLAN perangkat ini & di bawahnya)</span>' : ''}</p>
+      <p class="small" style="margin:2px 0 6px">${hasil}${lv.auto ? ' <span class="muted">(otomatis dari VLAN perangkat ini & di bawahnya)</span>' : ''}${lv.dariPort ? ` <span class="muted">(dari pengaturan port ${esc(d.port_uplink)} di tabel VLAN per port ${esc(p.nama)})</span>` : ''}</p>
       ${lv.butuh.length ? `<p class="muted small" style="margin:0 0 6px">Dibutuhkan: VLAN ${lv.butuh.map(nm).join(', ')}</p>` : ''}
       ${(() => {
         const cek = m.checks().filter(c => c.ids.includes(d.id) && /VLAN/.test(c.msg));
@@ -2537,10 +2537,11 @@
           <td colspan="2">${lv ? hasil(lv) : ''} <span class="muted small">${x.peran === 'uplink' ? 'uplink — atur di tab Koneksi' : 'uplink kedua'}</span></td></tr>`;
       }
       if (x) {
-        const a = x.dev.atribut || {};
+        // Pengaturan efektif: kotak VLAN perangkat itu, atau pengaturan port ini yang dibuat saat port masih kosong.
+        const mp = m.modePort(x.dev);
         const lv = m.linkVlan(x.dev);
-        return `<tr><td><b class="mono">${esc(nama)}</b><br><a href="#" class="small" data-sel="${x.dev.id}">${esc(x.dev.nama)}</a></td>
-          ${pilih(`data-vs-anak="${x.dev.id}" data-vs`, a.vlan_mode || '', a.vlan_izin, lv.butuh.length ? lv.butuh : vlanAda)}<div class="vp-hasil">${hasil(lv)}</div></td></tr>`;
+        return `<tr${mp.beda ? ' class="vs-beda"' : ''}><td><b class="mono">${esc(nama)}</b><br><a href="#" class="small" data-sel="${x.dev.id}">${esc(x.dev.nama)}</a></td>
+          ${pilih(`data-vs-anak="${x.dev.id}" data-vs-key="${pt.key}" data-vs`, mp.mode, mp.izin, lv.butuh.length ? lv.butuh : vlanAda)}<div class="vp-hasil">${hasil(lv)}${mp.beda ? ' <span class="bad small" title="Pengaturan port ini berbeda dengan kotak VLAN perangkat">beda</span>' : ''}</div></td></tr>`;
       }
       const c = conf[pt.key] || {};
       return `<tr class="vs-kosong"><td><b class="mono">${esc(nama)}</b><br><span class="muted small">kosong</span></td>
@@ -2571,6 +2572,11 @@
         const c = S.model.byId.get(u.anak);
         const a = Object.assign({}, c.atribut, { vlan_mode: u.mode, vlan_izin: u.mode ? u.izin : '' });
         out.push([c.id, { atribut: a }]);
+        // Satu sumber: pengaturan lama port ini (dibuat saat port masih kosong) dihapus.
+        if (u.key && conf[u.key]) {
+          delete conf[u.key];
+          ubahP = true;
+        }
       } else {
         if (u.mode) conf[u.key] = { mode: u.mode, izin: u.izin };
         else delete conf[u.key];
@@ -2594,7 +2600,7 @@
     const izin = izinEl ? izinEl.value.trim() : '';
     const anak = el.dataset.vsAnak ? +el.dataset.vsAnak : null;
     S.vsBuka = true;
-    for (const [id, patch] of patchVlanPort(P, [{ anak, key: el.dataset.vsPort, mode, izin }])) await saveDev(id, patch, { keepPanel: true }).catch(() => {});
+    for (const [id, patch] of patchVlanPort(P, [{ anak, key: el.dataset.vsPort || el.dataset.vsKey, mode, izin }])) await saveDev(id, patch, { keepPanel: true }).catch(() => {});
   });
   $('#panel').addEventListener('click', async e => {
     if (!e.target.closest('[data-vs-terapkan]') || !S.canEdit || S.sel == null) return;
@@ -2611,7 +2617,7 @@
     pm.ports.slice(i, j + 1).forEach(pt => {
       const x = pt.isi[0];
       if (x && x.peran !== 'anak') return; // port uplink tidak diubah
-      ubah.push(x ? { anak: x.dev.id, mode, izin } : { anak: null, key: pt.key, mode, izin });
+      ubah.push(x ? { anak: x.dev.id, key: pt.key, mode, izin } : { anak: null, key: pt.key, mode, izin });
     });
     if (!ubah.length) return toast('Tidak ada port yang bisa diubah di rentang itu', true);
     S.vsBuka = true;

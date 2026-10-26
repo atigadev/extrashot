@@ -238,6 +238,12 @@ bila event punya VLAN.
 - VLAN yang dipakai di port switch (termasuk port kosong dan trunk manual) otomatis ikut dibawa trunk uplink switch itu
   sampai ke router.
 - Halaman *Port* menampilkan VLAN port kosong (mis. `A 20`).
+- **Port yang diatur saat masih kosong lalu dicolok perangkat**: pengaturan port itu berlaku untuk kabel perangkat tersebut
+  bila kotak VLAN perangkat masih *Otomatis* (ditandai "dari pengaturan port … di tabel VLAN per port …").
+  - Contoh: port 2 SW-01 Access 101 + SW-06 (VLAN 102) di port 2 → error "VLAN 102 terputus" dan garis merah.
+  - Bila perangkat juga punya pengaturan sendiri yang berbeda, yang dipakai pengaturan perangkat, ditambah peringatan
+    "samakan". Mengubah port itu di tabel menghapus pengaturan port lama, jadi hanya ada satu sumber.
+  - Perangkat tanpa isian port di switch yang punya VLAN per port mendapat peringatan, karena VLAN-nya tidak bisa dicek.
 
 Mode per kabel bisa ditetapkan manual di tab *Koneksi* lewat kotak **VLAN di port …**: Otomatis / LAN saja / Trunk + daftar VLAN
 yang diizinkan / Access + VLAN. Badge `T 10,20` / `A 20` tampil di pohon topologi dan di daftar *Terhubung* per port.

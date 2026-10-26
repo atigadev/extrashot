@@ -1308,3 +1308,4 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 .vs-box tr.vs-up td { background: #f3f4f6; }
 .vs-box tr.vs-kosong b { color: var(--muted); }
 .vs-box select, .vs-box input[type=text] { width: 100%; }
+.vs-box tr.vs-beda td { background: #fff7ed; }

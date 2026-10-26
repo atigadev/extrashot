@@ -476,19 +476,40 @@
       // Switch: VLAN port kosong yang sudah diatur (access / trunk) ikut dibawa trunk uplink switch ini.
       if (d.jenis === 'switch' && a.vlan_port) {
         const o = vlanPortSw(d);
-        Object.keys(o).forEach(k => {
+        // Port yang sudah tersambung perangkat dihitung lewat kabel perangkat itu (lihat modePort).
+        const terisi = new Set(kids(d.id).map(c => kunciPort(c.port_uplink)).filter(Boolean));
+        Object.keys(o).filter(k => !terisi.has(k)).forEach(k => {
           const lv = vlanPortKosong(d, k);
           (lv.mode === 'access' ? [lv.untagged] : lv.tagged).forEach(v => s.add(v));
         });
       }
+      const mp = modePort(d);
       // Port uplink diatur manual sebagai access VLAN n: perangkat ini memang memakai VLAN n.
-      if (a.vlan_mode === 'access') angkaVlan(a.vlan_izin).filter(v => v > 1).slice(0, 1).forEach(v => s.add(v));
+      if (mp.mode === 'access') angkaVlan(mp.izin).filter(v => v > 1).slice(0, 1).forEach(v => s.add(v));
       // Port uplink diatur manual sebagai trunk VLAN tertentu: VLAN itu juga harus dibawa kabel-kabel di atasnya.
-      if (a.vlan_mode === 'trunk') angkaVlan(a.vlan_izin).filter(v => v > 1).forEach(v => s.add(v));
+      if (mp.mode === 'trunk') angkaVlan(mp.izin).filter(v => v > 1).forEach(v => s.add(v));
       if (d.jenis === 'ap' || d.jenis === 'bridge') {
         for (const x of String(a.ssid_lain || '').matchAll(/vlan\s*:?\s*(\d+)/gi)) if (+x[1] > 1) s.add(+x[1]);
       }
       return s;
+    }
+
+    /**
+     * Mode VLAN port uplink d: pilihan perangkat itu sendiri (vlan_mode / vlan_izin), atau bila kosong pengaturan port
+     * di switch induknya (vlan_port, mis. port diatur saat masih kosong lalu perangkat dicolok ke situ).
+     * {mode, izin, dariPort, beda}: beda = perangkat & port switch diatur berbeda (pengaturan perangkat yang dipakai).
+     */
+    function modePort(d) {
+      const a = d.atribut || {};
+      const p = parentOf(d);
+      const k = p && p.jenis === 'switch' && p.atribut && p.atribut.vlan_port ? kunciPort(d.port_uplink) : null;
+      const c = k ? vlanPortSw(p)[k] : null;
+      const pc = c && c.mode ? { mode: c.mode, izin: String(c.izin || '') } : null;
+      if (a.vlan_mode) {
+        const beda = !!pc && (pc.mode !== a.vlan_mode || urutNum(new Set(angkaVlan(pc.izin))).join() !== urutNum(new Set(angkaVlan(a.vlan_izin))).join());
+        return { mode: a.vlan_mode, izin: a.vlan_izin || '', dariPort: false, beda, port: pc };
+      }
+      return pc ? { mode: pc.mode, izin: pc.izin, dariPort: true, beda: false } : { mode: '', izin: '', dariPort: false, beda: false };
     }
 
     /** VLAN yang harus lewat kabel uplink d: VLAN d sendiri + semua perangkat di bawahnya. */
@@ -513,12 +534,14 @@
       // VLAN berakhir di router (gateway): kabel router ke WAN / router induk tidak membawa VLAN LAN.
       if (d.jenis === 'router' || d.jenis === 'isp') return { mode: 'native', tagged: [], untagged: null, butuh: [], auto: true, ujungVlan: true };
       const butuh = urutNum(vlanButuh(d));
-      const izin = urutNum(new Set(angkaVlan(a.vlan_izin).filter(v => v > 1)));
-      if (a.vlan_mode === 'native') return { mode: 'native', tagged: [], untagged: null, butuh, auto: false };
-      if (a.vlan_mode === 'trunk') return { mode: 'trunk', tagged: izin.length ? izin : butuh, untagged: null, butuh, auto: false };
-      if (a.vlan_mode === 'access') {
+      const mp = modePort(d);
+      const izin = urutNum(new Set(angkaVlan(mp.izin).filter(v => v > 1)));
+      const x = { butuh, auto: false, dariPort: mp.dariPort };
+      if (mp.mode === 'native') return Object.assign({ mode: 'native', tagged: [], untagged: null }, x);
+      if (mp.mode === 'trunk') return Object.assign({ mode: 'trunk', tagged: izin.length ? izin : butuh, untagged: null }, x);
+      if (mp.mode === 'access') {
         const v = izin[0] || urutNum(vlanDev(d))[0] || butuh[0] || null;
-        return { mode: v ? 'access' : 'native', tagged: [], untagged: v, butuh, auto: false };
+        return Object.assign({ mode: v ? 'access' : 'native', tagged: [], untagged: v }, x);
       }
       if (!butuh.length) return { mode: 'native', tagged: [], untagged: null, butuh, auto: true };
       const ujung = !INFRA.includes(d.jenis) && d.jenis !== 'ap';
@@ -586,6 +609,16 @@
         // Access hanya untuk perangkat ujung: perangkat di bawahnya butuh VLAN lain -> terputus.
         if (lv.mode === 'access' && lv.butuh.some(v => v !== lv.untagged)) {
           add('err', d, `${d.nama}: port uplink access VLAN ${lv.untagged}, padahal perangkat di bawahnya butuh VLAN ${lv.butuh.filter(v => v !== lv.untagged).join(', ')} — jadikan trunk`, [d]);
+        }
+        // Switch induk punya VLAN per port, tetapi port perangkat ini belum diisi: VLAN-nya tidak bisa dicocokkan.
+        if (p.jenis === 'switch' && p.atribut && p.atribut.vlan_port && !String(d.port_uplink || '').trim() && !NP.nonJaringan(d)) {
+          add('warn', [p, d], `${d.nama} belum diisi port di ${p.nama}, padahal ${p.nama} punya VLAN per port — isi port-nya agar VLAN kabel ini bisa dicek`, [d]);
+        }
+        // Port switch induk diatur berbeda dengan kotak VLAN perangkat ini (pengaturan perangkat yang dipakai).
+        const mp = modePort(d);
+        if (mp.beda) {
+          const t = c => (c.mode === 'access' ? 'Access ' : c.mode === 'trunk' ? 'Trunk ' : 'LAN saja') + (c.mode === 'native' ? '' : c.izin);
+          add('warn', [p, d], `${p.nama} port ${d.port_uplink} diatur ${t(mp.port)}, tetapi ${d.nama} di port itu diatur ${t({ mode: mp.mode, izin: mp.izin })} â€” samakan (yang dipakai: pengaturan ${d.nama})`, [d]);
         }
         // Switch unmanaged tidak bisa memasang VLAN per port.
         const sw = p.jenis === 'switch' && /unmanaged/i.test((p.atribut || {}).managed || '');
@@ -1115,7 +1148,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, portMap, portWan, jumlahPort, kunciPort, lapisanList, lapisanOf, lapisanById, lantaiList, multiLantai, lantaiOf, lantaiById, skalaOf, naikM, proyeksi, bedaLantai: beda, vlanDef, vlanDev, vlanButuh, linkVlan, vlanRingkas, vlanPortSw, vlanPortKosong, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, portMap, portWan, jumlahPort, kunciPort, lapisanList, lapisanOf, lapisanById, lantaiList, multiLantai, lantaiOf, lantaiById, skalaOf, naikM, proyeksi, bedaLantai: beda, vlanDef, vlanDev, vlanButuh, linkVlan, vlanRingkas, vlanPortSw, vlanPortKosong, modePort, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

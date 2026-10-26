@@ -1269,3 +1269,42 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 .lp-note { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 7px 12px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 13px; box-shadow: var(--shadow); }
 .lp-note i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .lp-note button { margin-left: auto; }
+
+/* ---- Lantai gedung (beberapa denah) */
+.lantai-switch button.on { background: #5b21b6; }
+.map .link .riser circle { fill: #7c3aed; stroke: #fff; stroke-width: 2px; }
+.map .link .riser .ar, .map .node .rs .ar { fill: none; stroke: #fff; stroke-width: 1.6px; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.map .link .riser-lbl { text-anchor: middle; font: 700 10.5px system-ui, sans-serif; fill: #5b21b6; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
+.map.no-label .link .riser-lbl { display: none; }
+.map .node .rs rect { fill: #7c3aed; stroke: #fff; stroke-width: 1.5px; }
+.map .node .rs text { font: 800 10px system-ui, sans-serif; fill: #fff; text-anchor: middle; }
+.lt-chip { display: inline-flex; align-items: center; margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #5b21b6; background: #f3effe; border: 1px solid #ddd3fb; white-space: nowrap; vertical-align: middle; }
+.lt-chip::before { content: '⇅'; margin-right: 3px; font-size: 10px; }
+.lt-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.lt-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.lt-thumb { width: 96px; height: 64px; border-radius: 6px; overflow: hidden; background: #f1f4f9; display: grid; place-items: center; font-size: 11px; color: var(--muted); text-align: center; }
+.lt-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.lt-isi { min-width: 0; }
+.lt-isi p { margin: 4px 0 0; }
+.lt-isi input[type=text] { flex: 1; min-width: 0; }
+.lt-tinggi { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.lt-tinggi input { width: 64px; }
+.lt-up { margin-top: 6px; flex-wrap: wrap; gap: 6px; }
+.lt-aksi { display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+@media (max-width: 640px) {
+  .lt-row { grid-template-columns: 64px 1fr; }
+  .lt-thumb { width: 64px; height: 48px; }
+  .lt-aksi { grid-column: 1 / -1; justify-content: flex-end; }
+}
+.pr-lt { padding: 4px 8px; font-size: 12px; background: #f3effe; color: #3b0764; border-bottom: 1px solid #ccc; }
+
+/* ---- VLAN per port switch */
+.vs-box { margin: 10px 0 6px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcfe; }
+.vs-box > summary { cursor: pointer; padding: 8px 10px; font-weight: 700; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.vs-box[open] > summary { border-bottom: 1px solid var(--line); }
+.vs-box > .mt-vport, .vs-box > p { margin: 8px 10px; width: calc(100% - 20px); }
+.vs-bagi { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; font-size: 12.5px; background: #eef4ff; border-bottom: 1px solid var(--line); }
+.vs-bagi select, .vs-bagi input { font-size: 12.5px; padding: 3px 6px; }
+.vs-box tr.vs-up td { background: #f3f4f6; }
+.vs-box tr.vs-kosong b { color: var(--muted); }
+.vs-box select, .vs-box input[type=text] { width: 100%; }

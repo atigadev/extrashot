@@ -5,6 +5,7 @@
  * GET ?id=N        -> wajib login admin (admin event: hanya event miliknya)
  * GET ?k=KODE      -> link lihat-saja
  * GET ?t=TOKEN     -> link akses tim
+ * &lantai=F2       -> denah lantai lain (default: denah utama / F1)
  */
 require __DIR__ . '/db.php';
 
@@ -15,14 +16,14 @@ if (isset($_GET['t'])) {
     if (!preg_match('/^[a-f0-9]{32}$/', $t)) {
         json_error('Link tidak valid', 404);
     }
-    $st = $pdo->prepare('SELECT p.denah_file FROM np_akses a JOIN np_proyek p ON p.id = a.proyek_id WHERE a.token = ? AND a.aktif = 1');
+    $st = $pdo->prepare('SELECT p.denah_file, p.lantai FROM np_akses a JOIN np_proyek p ON p.id = a.proyek_id WHERE a.token = ? AND a.aktif = 1');
     $st->execute([$t]);
 } elseif (isset($_GET['k'])) {
     $k = (string) $_GET['k'];
     if (!preg_match('/^[a-f0-9]{24}$/', $k)) {
         json_error('Link tidak valid', 404);
     }
-    $st = $pdo->prepare('SELECT denah_file FROM np_proyek WHERE kode_lihat = ?');
+    $st = $pdo->prepare('SELECT denah_file, lantai FROM np_proyek WHERE kode_lihat = ?');
     $st->execute([$k]);
 } else {
     if (!start_admin_session()) {
@@ -33,10 +34,20 @@ if (isset($_GET['t'])) {
     if (!boleh_proyek($pid)) {
         json_error('Akses ditolak', 403); // admin event hanya boleh denah event miliknya
     }
-    $st = $pdo->prepare('SELECT denah_file FROM np_proyek WHERE id = ?');
+    $st = $pdo->prepare('SELECT denah_file, lantai FROM np_proyek WHERE id = ?');
     $st->execute([$pid]);
 }
-$file = $st->fetchColumn();
+$row = $st->fetch();
+$file = $row ? $row['denah_file'] : null;
+$lid = isset($_GET['lantai']) ? (string) $_GET['lantai'] : 'F1';
+if ($row && $lid !== 'F1') {
+    $file = null;
+    foreach (lantai_baca($row['lantai']) as $l) {
+        if ($l['id'] === $lid) {
+            $file = $l['denah_file'];
+        }
+    }
+}
 $path = $file ? NP_UPLOAD_DIR . '/' . $file : '';
 if (!$file || !preg_match('/^denah_[a-f0-9]+\.(png|jpg|webp|gif)$/', $file, $m) || !is_file($path)) {
     json_error('Denah tidak ditemukan', 404);

@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=109">
+<link rel="stylesheet" href="assets/np.css?v=111">
 </head>
 <body>
 
@@ -120,6 +120,7 @@
             <button type="button" data-view="jenis:switch" title="Hanya switch">Switch</button>
             <button type="button" data-view="support" title="Hanya titik listrik &amp; peralatan support">⚡ Support</button>
           </div>
+          <div class="lapisan-switch lantai-switch" id="lantai-switch" role="group" aria-label="Lantai gedung" hidden></div>
           <div class="lapisan-switch" id="lapisan-switch" role="group" aria-label="Layer jaringan" hidden></div>
         </div>
         <div class="ep-picker" id="ep-picker" hidden></div>
@@ -191,6 +192,7 @@
         <select id="bulk-kabel" class="small-select" aria-label="Ubah status kabel perangkat terpilih"><option value="">Status kabel…</option></select>
         <select id="bulk-listrik" class="small-select edit-only" aria-label="Pasang titik listrik ke perangkat terpilih"><option value="">⚡ Titik listrik…</option></select>
         <select id="bulk-lapisan" class="small-select edit-only" aria-label="Pindahkan perangkat terpilih ke layer jaringan" hidden><option value="">◧ Layer…</option></select>
+        <select id="bulk-lantai" class="small-select edit-only" aria-label="Pindahkan perangkat terpilih ke lantai lain" hidden><option value="">⇅ Lantai…</option></select>
         <button type="button" class="small edit-only" id="bulk-kunci" title="Kunci posisi titik terpilih agar tidak tergeser di denah">🔒 Kunci posisi</button>
         <button type="button" class="small edit-only" id="bulk-buka" title="Buka kunci posisi titik terpilih">🔓 Buka kunci</button>
         <button type="button" class="small edit-only" id="bulk-unlink" title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
@@ -451,13 +453,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=109"></script>
-<script src="assets/common.js?v=109"></script>
-<script src="assets/analisis.js?v=109"></script>
-<script src="assets/peta.js?v=109"></script>
-<script src="assets/katalog.js?v=109"></script>
-<script src="assets/mikrotik.js?v=109"></script>
-<script src="assets/backup.js?v=109"></script>
-<script src="assets/app.js?v=109"></script>
+<script src="vendor/qrcode.min.js?v=111"></script>
+<script src="assets/common.js?v=111"></script>
+<script src="assets/analisis.js?v=111"></script>
+<script src="assets/peta.js?v=111"></script>
+<script src="assets/katalog.js?v=111"></script>
+<script src="assets/mikrotik.js?v=111"></script>
+<script src="assets/backup.js?v=111"></script>
+<script src="assets/app.js?v=111"></script>
 </body>
 </html>

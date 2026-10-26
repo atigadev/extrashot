@@ -18,6 +18,9 @@
  * POST {"action":"denah_hapus","id":N}
  * POST {"action":"proyek_lapisan","id":N,"lapisan":[{id:"L1",nama,warna}]}  -> layer jaringan event
  * POST {"action":"lapisan_impor","id":N,"sumber_id":M,"lapisan":[...],"lapisan_id":"L2"} -> salin perangkat event M jadi layer L2
+ * POST {"action":"lantai_save","id":N,"lantai":[{id:"F1",nama,tinggi},..]}  -> daftar lantai (bawah -> atas)
+ * POST multipart action=lantai_denah, id=N, lantai_id=F2, denah=<file>, sesuaikan=1|0 -> denah lantai
+ * POST {"action":"lantai_skala","id":N,"lantai_id":"F2","skala":0.05} -> skala denah lantai
  * POST multipart action=foto_upload, id=N (perangkat), foto=<jpeg>, lat, lng, akurasi, waktu -> {foto:[...]} (maks. 3 per perangkat)
  * POST {"action":"foto_hapus","id":N (foto),"proyek_id":N} -> {foto:[...]}
  * POST {"action":"perangkat_verif","id":N,"hasil":"sesuai"|"tidak"|"","catatan":"..."} -> hasil pengecekan penempatan
@@ -191,6 +194,7 @@ switch ($method . ' ' . $action) {
         hapus_foto_proyek($id);
         $pdo->prepare('DELETE FROM np_proyek WHERE id = ?')->execute([$id]);
         hapus_file_denah($p['denah_file']);
+        hapus_denah_lantai($p['lantai']);
         json_out(['ok' => true]);
 
     case 'POST proyek_duplicate':
@@ -537,6 +541,105 @@ switch ($method . ' ' . $action) {
         $pdo->prepare('UPDATE np_proyek SET lapisan = ? WHERE id = ?')->execute([lapisan_json(isset($req['lapisan']) ? $req['lapisan'] : []), $id]);
         json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($id))]);
 
+    case 'POST lantai_save':
+        // Daftar lantai (urutan bawah -> atas, nama, tinggi lantai m). Data denah tiap lantai dipertahankan; lantai yang
+        // dihapus harus kosong (perangkatnya dipindah dulu) dan file denahnya ikut dihapus. F1 = denah utama, selalu ada.
+        $p = find_proyek($id);
+        $lama = [];
+        foreach (lantai_baca($p['lantai']) as $l) {
+            $lama[$l['id']] = $l;
+        }
+        $baru = [];
+        $ids = [];
+        foreach (isset($req['lantai']) && is_array($req['lantai']) ? array_slice($req['lantai'], 0, 30) : [] as $l) {
+            $lid = is_array($l) && isset($l['id']) ? (string) $l['id'] : '';
+            if (!preg_match('/^F\d{1,3}$/', $lid) || isset($ids[$lid])) {
+                json_error('ID lantai tidak valid');
+            }
+            $ids[$lid] = true;
+            $e = isset($lama[$lid]) ? $lama[$lid] : ['denah_file' => null, 'denah_w' => null, 'denah_h' => null, 'skala' => null];
+            $e['id'] = $lid;
+            $e['nama'] = str_field($l, 'nama', 60, true, 'Nama lantai');
+            $e['tinggi'] = isset($l['tinggi']) && is_numeric($l['tinggi']) ? max(0, min(50, (float) $l['tinggi'])) : 4.0;
+            $baru[] = $e;
+        }
+        if (!isset($ids['F1'])) {
+            array_unshift($baru, ['id' => 'F1', 'nama' => 'Lantai 1', 'tinggi' => 4.0, 'denah_file' => null, 'denah_w' => null, 'denah_h' => null, 'skala' => null]);
+        }
+        foreach ($lama as $lid => $l) {
+            if ($lid === 'F1' || isset($ids[$lid])) {
+                continue;
+            }
+            $st = $pdo->prepare('SELECT COUNT(*) FROM np_perangkat WHERE proyek_id = ? AND ' . sql_lantai($lid));
+            $st->execute([$p['id']]);
+            if ((int) $st->fetchColumn()) {
+                json_error('Lantai "' . $l['nama'] . '" masih berisi perangkat — pindahkan perangkatnya dulu');
+            }
+        }
+        $pdo->prepare('UPDATE np_proyek SET lantai = ? WHERE id = ?')->execute([count($baru) > 1 ? json_encode($baru, JSON_UNESCAPED_UNICODE) : null, $p['id']]);
+        foreach ($lama as $lid => $l) {
+            if (!isset($ids[$lid])) {
+                hapus_denah_lantai(json_encode([$l]));
+            }
+        }
+        json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($p['id']))]);
+
+    case 'POST lantai_denah':
+        // Gambar denah lantai selain F1 (multipart: id, lantai_id, denah, sesuaikan). sesuaikan: posisi perangkat di
+        // lantai itu & skalanya mengikuti ukuran gambar baru; tanpa sesuaikan skala lantai dikosongkan (kalibrasi ulang).
+        $p = find_proyek($id);
+        $lid = isset($req['lantai_id']) ? (string) $req['lantai_id'] : '';
+        $daftar = lantai_baca($p['lantai']);
+        $i = array_search($lid, array_column($daftar, 'id'), true);
+        if ($lid === 'F1' || $i === false) {
+            json_error('Lantai tidak dikenal');
+        }
+        list($name, $w, $h) = terima_gambar_denah();
+        $l = $daftar[$i];
+        $pdo->beginTransaction();
+        $skala = $l['skala'];
+        if (!empty($req['sesuaikan']) && $l['denah_w'] && $l['denah_h'] && ($l['denah_w'] !== $w || $l['denah_h'] !== $h)) {
+            $fx = $w / $l['denah_w'];
+            $fy = $h / $l['denah_h'];
+            $pdo->prepare('UPDATE np_perangkat SET x = x * ?, y = y * ? WHERE proyek_id = ? AND ' . sql_lantai($lid))->execute([$fx, $fy, $p['id']]);
+            $st = $pdo->prepare("SELECT id, jalur FROM np_perangkat WHERE proyek_id = ? AND jalur LIKE '%\"bebas\"%' AND " . sql_lantai($lid));
+            $st->execute([$p['id']]);
+            $upd = $pdo->prepare('UPDATE np_perangkat SET jalur = ? WHERE id = ?');
+            foreach ($st->fetchAll() as $r) {
+                $upd->execute([jalur_json(json_decode($r['jalur'], true), $fx, $fy), $r['id']]);
+            }
+            if ($skala !== null) {
+                $skala = $skala * $l['denah_w'] / $w;
+            }
+        } elseif (empty($req['sesuaikan'])) {
+            $skala = null;
+        }
+        $fileLama = $l['denah_file'];
+        $daftar[$i] = array_merge($l, ['denah_file' => $name, 'denah_w' => $w, 'denah_h' => $h, 'skala' => $skala]);
+        $pdo->prepare('UPDATE np_proyek SET lantai = ? WHERE id = ?')->execute([json_encode($daftar, JSON_UNESCAPED_UNICODE), $p['id']]);
+        $pdo->commit();
+        if ($fileLama) {
+            hapus_denah_lantai(json_encode([['id' => $lid, 'denah_file' => $fileLama]]));
+        }
+        json_out(['ok' => true] + proyek_lengkap(find_proyek($p['id'])));
+
+    case 'POST lantai_skala':
+        // Skala (m per piksel) denah lantai selain F1; null = hapus kalibrasi.
+        $p = find_proyek($id);
+        $lid = isset($req['lantai_id']) ? (string) $req['lantai_id'] : '';
+        $daftar = lantai_baca($p['lantai']);
+        $i = array_search($lid, array_column($daftar, 'id'), true);
+        if ($lid === 'F1' || $i === false) {
+            json_error('Lantai tidak dikenal');
+        }
+        $sk = isset($req['skala']) && $req['skala'] !== null && $req['skala'] !== '' ? (float) $req['skala'] : null;
+        if ($sk !== null && ($sk <= 0 || $sk >= 1000)) {
+            json_error('Skala tidak wajar');
+        }
+        $daftar[$i]['skala'] = $sk;
+        $pdo->prepare('UPDATE np_proyek SET lantai = ? WHERE id = ?')->execute([json_encode($daftar, JSON_UNESCAPED_UNICODE), $p['id']]);
+        json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($p['id']))]);
+
     case 'POST lapisan_impor':
         // Salin semua perangkat event lain (sumber_id) ke event ini sebagai layer lapisan_id. Posisi & jalur kabel
         // diskalakan mengikuti ukuran denah; foto bukti ikut disalin (file baru). Event sumber tidak diubah.
@@ -550,8 +653,10 @@ switch ($method . ' ' . $action) {
         if (!$lapisan || !in_array($lid, array_column(json_decode($lapisan, true), 'id'), true)) {
             json_error('Layer tujuan tidak dikenal');
         }
-        $fx = $p['denah_w'] && $src['denah_w'] ? $p['denah_w'] / $src['denah_w'] : 1;
-        $fy = $p['denah_h'] && $src['denah_h'] ? $p['denah_h'] / $src['denah_h'] : 1;
+        // Lantai: perangkat di lantai sumber yang id-nya juga ada di event ini tetap di lantai itu; selain itu masuk
+        // lantai tujuan (lantai_id, default F1). Posisi diskalakan dari ukuran denah lantai asal ke lantai tujuan.
+        $lantaiTuju = array_merge(['F1'], array_column(lantai_baca($p['lantai']), 'id'));
+        $ltDefault = isset($req['lantai_id']) && in_array((string) $req['lantai_id'], $lantaiTuju, true) ? (string) $req['lantai_id'] : 'F1';
         $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE proyek_id = ? ORDER BY id');
         $st->execute([$src['id']]);
         $list = [];
@@ -559,6 +664,17 @@ switch ($method . ' ' . $action) {
             $atr = json_decode((string) $r['atribut'], true);
             $atr = is_array($atr) ? $atr : [];
             $atr['lapisan'] = $lid;
+            $ltAsal = isset($atr['lantai']) && is_string($atr['lantai']) ? $atr['lantai'] : 'F1';
+            $lt = in_array($ltAsal, $lantaiTuju, true) ? $ltAsal : $ltDefault;
+            if ($lt === 'F1') {
+                unset($atr['lantai']);
+            } else {
+                $atr['lantai'] = $lt;
+            }
+            list($sw, $sh) = dimensi_lantai($src, $ltAsal);
+            list($tw, $th) = dimensi_lantai($p, $lt);
+            $fx = $tw && $sw ? $tw / $sw : 1;
+            $fy = $th && $sh ? $th / $sh : 1;
             // Jalur kabel sambungan tambahan (WAN tambahan / uplink kedua) ikut diskalakan.
             foreach (['wan_lain', 'uplink_lain'] as $k) {
                 $arr = isset($atr[$k]) ? json_decode((string) $atr[$k], true) : null;
@@ -742,6 +858,9 @@ function izin_admin_event($aksi, $req, $id)
         case 'POST denah_upload':
         case 'POST denah_hapus':
         case 'POST proyek_lapisan':
+        case 'POST lantai_save':
+        case 'POST lantai_denah':
+        case 'POST lantai_skala':
         case 'POST perangkat_hapus_semua':
             return $cekProyek($id);
         case 'POST lapisan_impor':
@@ -862,8 +981,27 @@ function hapus_file_denah($file)
     }
 }
 
-/** Simpan gambar denah baru. $sesuaikan: geser posisi perangkat & skala mengikuti ukuran gambar baru. */
-function upload_denah($p, $sesuaikan)
+/** Syarat SQL: perangkat di lantai utama F1 (atribut tanpa "lantai", atau "lantai":"F1"). */
+const SQL_LANTAI_UTAMA = '(atribut IS NULL OR atribut NOT LIKE \'%"lantai":%\' OR atribut LIKE \'%"lantai":"F1"%\')';
+/** Syarat SQL: perangkat di lantai $id (bukan F1). */
+function sql_lantai($id)
+{
+    return 'atribut LIKE ' . db()->quote('%"lantai":"' . $id . '"%');
+}
+
+/** Ukuran gambar denah [w, h] satu lantai event (F1 = kolom denah_* proyek). */
+function dimensi_lantai($p, $lid)
+{
+    foreach ($lid === 'F1' ? [] : lantai_baca($p['lantai']) as $l) {
+        if ($l['id'] === $lid) {
+            return [(int) $l['denah_w'], (int) $l['denah_h']];
+        }
+    }
+    return [(int) $p['denah_w'], (int) $p['denah_h']];
+}
+
+/** Terima & simpan file gambar denah dari $_FILES["denah"] (PNG/JPG/WEBP/GIF, maks. 30 MB) -> [nama file, lebar, tinggi]. */
+function terima_gambar_denah()
 {
     $f = isset($_FILES['denah']) ? $_FILES['denah'] : null;
     if (!$f || is_array($f['error'])) {
@@ -894,6 +1032,13 @@ function upload_denah($p, $sesuaikan)
     if (!move_uploaded_file($f['tmp_name'], NP_UPLOAD_DIR . '/' . $name)) {
         json_error('Tidak bisa menyimpan file di folder uploads/', 500);
     }
+    return [$name, $w, $h];
+}
+
+/** Simpan gambar denah baru. $sesuaikan: geser posisi perangkat & skala mengikuti ukuran gambar baru. */
+function upload_denah($p, $sesuaikan)
+{
+    list($name, $w, $h) = terima_gambar_denah();
 
     $pdo = db();
     $pdo->beginTransaction();
@@ -903,10 +1048,10 @@ function upload_denah($p, $sesuaikan)
     if ($sesuaikan && $oldW > 0 && $oldH > 0 && ($oldW !== $w || $oldH !== $h)) {
         $fx = $w / $oldW;
         $fy = $h / $oldH;
-        $pdo->prepare('UPDATE np_perangkat SET x = x * ?, y = y * ? WHERE proyek_id = ?')
+        $pdo->prepare('UPDATE np_perangkat SET x = x * ?, y = y * ? WHERE proyek_id = ? AND ' . SQL_LANTAI_UTAMA)
             ->execute([$fx, $fy, $p['id']]);
         // Titik lekukan jalur kabel ikut diskalakan.
-        $st = $pdo->prepare("SELECT id, jalur FROM np_perangkat WHERE proyek_id = ? AND jalur LIKE '%\"bebas\"%'");
+        $st = $pdo->prepare("SELECT id, jalur FROM np_perangkat WHERE proyek_id = ? AND jalur LIKE '%\"bebas\"%' AND " . SQL_LANTAI_UTAMA);
         $st->execute([$p['id']]);
         $upd = $pdo->prepare('UPDATE np_perangkat SET jalur = ? WHERE id = ?');
         foreach ($st->fetchAll() as $r) {
@@ -1112,7 +1257,7 @@ function atribut_json($atr)
             continue;
         }
         // Daftar sambungan tambahan (JSON berisi port, status kabel & lekukan jalur) boleh lebih panjang.
-        $maks = in_array($k, ['wan_lain', 'uplink_lain', 'ceklis', 'ceklis_x', 'mt', 'verif'], true) ? 20000 : 1000;
+        $maks = in_array($k, ['wan_lain', 'uplink_lain', 'ceklis', 'ceklis_x', 'mt', 'verif', 'vlan_port'], true) ? 20000 : 1000;
         if (mb_strlen($v) > $maks) {
             json_error('Isian "' . $k . '" maksimal ' . $maks . ' karakter');
         }
@@ -1285,11 +1430,25 @@ function duplikat_proyek($p)
             json_error('Tidak bisa menyalin file denah', 500);
         }
     }
+    // Denah lantai tambahan juga disalin jadi file baru (menghapus salah satu event tidak memengaruhi yang lain).
+    $lantai = lantai_baca(isset($p['lantai']) ? $p['lantai'] : null);
+    foreach ($lantai as &$l) {
+        $asal = $l['denah_file'];
+        $l['denah_file'] = null;
+        if ($asal && is_file(NP_UPLOAD_DIR . '/' . $asal)) {
+            $baru = 'denah_' . rand_hex(10) . '.' . pathinfo($asal, PATHINFO_EXTENSION);
+            if (copy(NP_UPLOAD_DIR . '/' . $asal, NP_UPLOAD_DIR . '/' . $baru)) {
+                $l['denah_file'] = $baru;
+            }
+        }
+    }
+    unset($l);
     $nama = mb_substr($p['nama'], 0, 138) . ' (salinan)';
     $pdo->prepare('INSERT INTO np_proyek (nama, venue, tanggal_mulai, tanggal_selesai, catatan, denah_file, denah_w, denah_h,
-            skala, slack_kabel, lapisan, kode_lihat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            skala, slack_kabel, lapisan, lantai, kode_lihat) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         ->execute([$nama, $p['venue'], $p['tanggal_mulai'], $p['tanggal_selesai'], $p['catatan'], $file,
-            $p['denah_w'], $p['denah_h'], $p['skala'], $p['slack_kabel'], isset($p['lapisan']) ? $p['lapisan'] : null, rand_hex(12)]);
+            $p['denah_w'], $p['denah_h'], $p['skala'], $p['slack_kabel'], isset($p['lapisan']) ? $p['lapisan'] : null,
+            count($lantai) > 1 ? json_encode($lantai, JSON_UNESCAPED_UNICODE) : null, rand_hex(12)]);
     $newId = (int) $pdo->lastInsertId();
     $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE proyek_id = ? ORDER BY id');
     $st->execute([$p['id']]);

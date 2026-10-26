@@ -49,6 +49,8 @@
       layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true, kabel: false, listrik: false },
       hidden: new Set(), // jenis yang disembunyikan
       redup: null, // fn(d) -> true: perangkat digambar samar & tidak bisa diklik (mis. layer jaringan lain)
+      saring: null, // fn(d) -> true: perangkat tidak digambar (mis. di lantai lain)
+      skala: null, // m/piksel denah yang sedang tampil (lantai aktif)
       measure: [], linkSrc: null, cursor: null, flash: null,
       userView: false, // pengguna sudah zoom/pan sendiri
       inset: 0, // tinggi panel bawah yang menutupi peta (px)
@@ -61,11 +63,14 @@
 
     // ------------------------------------------------------------------ data & gambar
 
-    function setData(model, imgUrl) {
+    /** dims (opsional) = {denah_w, denah_h, skala} denah lantai yang ditampilkan; default denah utama proyek. */
+    function setData(model, imgUrl, dims) {
       const p = model.proyek;
-      const W = p.denah_w && imgUrl ? p.denah_w : DEFAULT_W;
-      const H = p.denah_h && imgUrl ? p.denah_h : DEFAULT_H;
+      const dm = dims || p;
+      const W = dm.denah_w && imgUrl ? dm.denah_w : DEFAULT_W;
+      const H = dm.denah_h && imgUrl ? dm.denah_h : DEFAULT_H;
       const sizeChanged = W !== st.W || H !== st.H || imgUrl !== st.img || !st.model || st.model.proyek.id !== p.id;
+      st.skala = dm.skala || null;
       st.model = model;
       st.W = W;
       st.H = H;
@@ -82,6 +87,15 @@
       if (!st.fitted || sizeChanged) fit(true);
       else layout();
     }
+
+    /** Perangkat tidak digambar: jenisnya disembunyikan atau tersaring (lantai lain). */
+    const tersembunyi = d => st.hidden.has(d.jenis) || !!(st.saring && st.saring(d));
+    const lainLantai = (a, b) => !!(st.model.multiLantai() && st.model.bedaLantai(a, b));
+    /** Ikon panah naik-turun (kabel riser antar lantai), digambar dengan garis putih di atas lingkaran ungu. */
+    const PANAH_RISER = 'M-2.5 4.5V-4.5M-5 -2L-2.5 -4.5L0 -2M2.5 -4.5V4.5M0 2L2.5 4.5L5 2';
+    /** Penanda riser di ujung kabel ke perangkat di lantai lain: ⇅ + nama uplink & lantainya. */
+    const riserHtml = (ke) => `<g class="riser"><circle r="8"/><path class="ar" d="${PANAH_RISER}"/></g>` +
+      `<text class="riser-lbl">${esc(ke.nama)} · ${esc(st.model.lantaiById(st.model.lantaiOf(ke)).nama)}</text>`;
 
     function build() {
       const m = st.model;
@@ -112,7 +126,7 @@
             // Penanda status kabel di tengah garis (tampil di lapisan Progres kabel; klik = ubah status).
             const kb = NP.KABEL[NP.kabelSt(d)];
             return `<g class="kb-mark"><circle r="9" fill="${kb.color}"/><text dy="0.35em">${kb.icon}</text><title>Kabel ${esc(d.nama)} → ${esc(p.nama)}: ${esc(kb.label)} (klik untuk ubah)</title></g>`;
-          })() : ''}${err ? `<title>${esc(d.nama)} → ${esc(p.nama)}: ${esc(err.join('\n'))}</title>` : ''}`;
+          })() : ''}${lainLantai(d, p) ? riserHtml(p) : ''}${err ? `<title>${esc(d.nama)} → ${esc(p.nama)}: ${esc(err.join('\n'))}</title>` : ''}`;
         gLinks.appendChild(g);
         linkEls.set(d.id, g);
       }
@@ -125,7 +139,7 @@
           const kb = NP.KABEL[w.kabel];
           const g = el('g', { class: `link ${wan ? 'wan2' : 'up2'} k-${m.koneksi(w.dev)} kb-${w.kabel}${w.media === 'fiber' ? ' fo' : ''}`, 'data-id': d.id, 'data-ke': w.dev.id, 'data-kunci': w.kunci });
           g.innerHTML = `<polyline class="hit"/><polyline class="case"/><polyline class="ln"/>
-            <text class="wan-lbl">${lbl}</text><text class="dist"></text>
+            <text class="wan-lbl">${lbl}</text><text class="dist"></text>${lainLantai(d, w.dev) ? riserHtml(w.dev) : ''}
             <g class="kb-mark"><circle r="9" fill="${kb.color}"/><text dy="0.35em">${kb.icon}</text><title>Kabel ${esc(d.nama)} → ${esc(w.dev.nama)} (${lbl}): ${esc(kb.label)} (klik untuk ubah)</title></g>`;
           gLinks.appendChild(g);
           // Sambungan ke perangkat yang sama dengan uplink utama (LACP) digeser sejajar agar tidak menumpuk.
@@ -141,6 +155,17 @@
         g.innerHTML = '<line class="case"/><line class="ln"/>';
         gLinks.appendChild(g);
         pwrEls.push({ g, d, L });
+      }
+      // Perangkat di lantai lain yang kabelnya (uplink / sambungan tambahan) berujung di perangkat ini.
+      const riserKe = new Map();
+      if (m.multiLantai()) {
+        for (const x of m.list) {
+          const ke = [m.parentOf(x), ...m.linkLain(x).map(w => w.dev)].filter(y => y && lainLantai(x, y));
+          for (const y of ke) {
+            if (!riserKe.has(y.id)) riserKe.set(y.id, []);
+            if (!riserKe.get(y.id).includes(x)) riserKe.get(y.id).push(x);
+          }
+        }
       }
       for (const d of ordered) {
         const t = NP.tampil(d);
@@ -179,6 +204,12 @@
             const L = m.lapisanById(m.lapisanOf(d));
             return `<g class="lp" transform="translate(${-b},${b})"><circle r="${BADGE - 0.5}" fill="${esc(L.warna)}"/><title>Layer ${esc(L.nama)}</title></g>`;
           })()}
+          ${(() => {
+            // Kabel dari perangkat di lantai lain yang ber-uplink ke sini (riser): lencana ⇅n di atas titik.
+            const dari = riserKe.get(d.id) || [];
+            return dari.length ? `<g class="rs" transform="translate(0,${-(R + 12)})"><rect x="-15" y="-8" width="30" height="16" rx="8"/><path class="ar" transform="translate(-6,0) scale(.8)" d="${PANAH_RISER}"/><text x="4" dy="0.35em">${dari.length}</text>` +
+              `<title>${dari.length} kabel dari lantai lain: ${esc(dari.map(x => x.nama + ' (' + m.lantaiById(m.lantaiOf(x)).nama + ')').join(', '))}</title></g>` : '';
+          })()}
           ${NP.terkunci(d) ? `<g class="lock" transform="translate(${-b},${-b})"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3" /></g>` : ''}
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
           <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
@@ -194,7 +225,7 @@
       gCov.textContent = '';
       if (!st.layers.cakupan || !m) return;
       for (const d of m.list) {
-        if (d.jenis !== 'ap' || st.hidden.has(d.jenis) || (st.redup && st.redup(d))) continue;
+        if (d.jenis !== 'ap' || tersembunyi(d) || (st.redup && st.redup(d))) continue;
         const r = m.apRadiusPx(d);
         if (!r) continue;
         const sk = sektor(d);
@@ -220,24 +251,24 @@
         g.classList.toggle('src', id === st.linkSrc);
         g.classList.toggle('on-path', onPath.has(id) && id !== st.sel);
         g.classList.toggle('flash', id === st.flash);
-        g.style.display = st.hidden.has(d.jenis) ? 'none' : '';
+        g.style.display = tersembunyi(d) ? 'none' : '';
         g.classList.toggle('redup', samar(d));
       }
       for (const [id, g] of linkEls) {
         const d = m.byId.get(id);
         const p = m.parentOf(d);
         g.classList.toggle('on-path', onPath.has(id) && p && onPath.has(p.id));
-        g.style.display = !st.layers.garis || st.hidden.has(d.jenis) || (p && st.hidden.has(p.jenis)) ? 'none' : '';
+        g.style.display = !st.layers.garis || tersembunyi(d) || (p && st.hidden.has(p.jenis)) ? 'none' : '';
         g.classList.toggle('redup', samar(d) || (!!p && samar(p)));
       }
       for (const w of pwrEls) {
         w.g.classList.toggle('show', !!st.layers.listrik || w.d.id === st.sel || w.L.id === st.sel);
-        w.g.style.display = st.hidden.has(w.d.jenis) || st.hidden.has(w.L.jenis) ? 'none' : '';
+        w.g.style.display = tersembunyi(w.d) || tersembunyi(w.L) ? 'none' : '';
         w.g.classList.toggle('redup', samar(w.d));
       }
       for (const w of wanEls) {
         w.g.classList.toggle('on-path', w.d.id === st.sel || w.isp.id === st.sel);
-        w.g.style.display = !st.layers.garis || st.hidden.has(w.d.jenis) || st.hidden.has(w.isp.jenis) ? 'none' : '';
+        w.g.style.display = !st.layers.garis || tersembunyi(w.d) || st.hidden.has(w.isp.jenis) ? 'none' : '';
         w.g.classList.toggle('redup', samar(w.d) || samar(w.isp));
       }
       svg.classList.toggle('no-label', !st.layers.label);
@@ -278,6 +309,7 @@
         t.setAttribute('y', mid.y - 4);
         const mk = g.querySelector('.kb-mark');
         if (mk) mk.setAttribute('transform', `translate(${mid.x.toFixed(1)},${mid.y.toFixed(1)})`);
+        posRiser(g, pts);
       }
       for (const w of pwrEls) {
         for (const ln of w.g.querySelectorAll('line')) {
@@ -306,9 +338,21 @@
         t.setAttribute('y', mid.y - 4);
         const mk = w.g.querySelector('.kb-mark');
         if (mk) mk.setAttribute('transform', `translate(${mid.x.toFixed(1)},${mid.y.toFixed(1)})`);
+        posRiser(w.g, pts);
       }
       drawHandles();
       drawTool();
+    }
+
+    /** Penanda riser (kabel ke lantai lain) di ujung garis, label di sebelah kanannya. */
+    function posRiser(g, pts) {
+      const rs = g.querySelector('.riser');
+      if (!rs) return;
+      const e = pts[pts.length - 1];
+      rs.setAttribute('transform', `translate(${e.x.toFixed(1)},${e.y.toFixed(1)})`);
+      const t = g.querySelector('.riser-lbl');
+      t.setAttribute('x', e.x.toFixed(1));
+      t.setAttribute('y', (e.y - 13).toFixed(1));
     }
 
     /**
@@ -322,7 +366,7 @@
       const items = [];
       for (const [id, g] of nodeEls) {
         const d = m.byId.get(id);
-        if (st.hidden.has(d.jenis)) continue;
+        if (tersembunyi(d)) continue;
         items.push({ g, d, p: id === st.sel ? -1 : rank(d.jenis) });
       }
       items.sort((a, b) => a.p - b.p);
@@ -363,7 +407,7 @@
       const m = st.model;
       if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || !st.layers.garis || st.layers.kabel) return null; // lapisan kabel: klik garis = ubah status, bukan bentuk jalur
       const d = m.byId.get(st.sel);
-      return d && m.parentOf(d) && !st.hidden.has(d.jenis) ? d : null;
+      return d && m.parentOf(d) && !tersembunyi(d) ? d : null;
     }
 
     /** Perangkat terpilih yang jalur kabelnya bisa dibentuk (punya uplink, bukan wireless). */
@@ -405,7 +449,7 @@
       const m = st.model;
       if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || !st.layers.garis || st.layers.kabel) return [];
       const d = m.byId.get(st.sel);
-      return d && !st.hidden.has(d.jenis) ? m.linkLain(d).map(w => ({ d, w })) : [];
+      return d && !tersembunyi(d) ? m.linkLain(d).map(w => ({ d, w })) : [];
     }
 
     /** Pegangan lekukan untuk satu jalur (data-ke/data-kunci menandai sambungan tambahan). */
@@ -484,7 +528,7 @@
         const end = b || st.cursor;
         if (end) {
           const px = Math.hypot(end.x - a.x, end.y - a.y);
-          const lbl = m && m.proyek.skala ? fmtM(px * m.proyek.skala) : Math.round(px) + ' px';
+          const lbl = st.skala ? fmtM(px * st.skala) : Math.round(px) + ' px';
           h += `<line class="ms-line" x1="${sx(a.x)}" y1="${sy(a.y)}" x2="${sx(end.x)}" y2="${sy(end.y)}"/>
             <text class="ms-lbl" x="${(sx(a.x) + sx(end.x)) / 2}" y="${(sy(a.y) + sy(end.y)) / 2 - 8}">${esc(lbl)}</text>`;
         }
@@ -730,7 +774,7 @@
         let x = clampX(w.x), y = clampY(w.y);
         if (!e.altKey) {
           // Snap: sejajar horizontal/vertikal dengan titik sebelum/sesudahnya -> sudut siku yang rapi.
-          const full = [{ x: d.x, y: d.y }, ...pts, gesture.lain ? gesture.ujung : st.model.parentOf(d)];
+          const full = [{ x: d.x, y: d.y }, ...pts, st.model.proyeksi(gesture.lain ? gesture.ujung : st.model.parentOf(d), d)];
           const tol = 10 / st.z;
           for (const n of [full[gesture.idx], full[gesture.idx + 2]]) {
             if (Math.abs(x - n.x) < tol) x = n.x;
@@ -948,6 +992,13 @@
       buildCoverage();
       applyClasses();
     }
+    /** fn(d) -> true: perangkat tidak digambar sama sekali (perangkat di lantai lain); null = semua tampil. */
+    function setSaring(fn) {
+      st.saring = fn || null;
+      buildCoverage();
+      applyClasses();
+      layout();
+    }
     /** fn(d) -> true: perangkat (dan garisnya) digambar samar & tidak bisa diklik; null = semua normal. */
     function setRedup(fn) {
       st.redup = fn || null;
@@ -957,7 +1008,7 @@
 
 
     return {
-      setData, select, setTool, setLayer, setHidden, setRedup, fit, zoomBy, centerOn, flash,
+      setData, select, setTool, setLayer, setHidden, setRedup, setSaring, fit, zoomBy, centerOn, flash,
       setEditable(v) { st.canEdit = v; applyClasses(); },
       setOpacity(v) {
         st.opacity = v;

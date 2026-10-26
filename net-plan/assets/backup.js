@@ -33,12 +33,22 @@
       if (!r.ok) throw new Error(`Gambar denah "${p.nama}" tidak bisa diambil`);
       denah = await blobKeDataUrl(await r.blob());
     }
+    // Lantai lain: daftar (nama, tinggi, skala) + gambar denah per lantai.
+    const lantai = (p.lantai || []).map(l => ({ id: l.id, nama: l.nama, tinggi: l.tinggi, skala: l.skala }));
+    const denahLantai = {};
+    for (const l of p.lantai || []) {
+      if (l.id === 'F1' || !l.denah_v) continue;
+      const r = await fetch(`api/denah.php?id=${p.id}&lantai=${encodeURIComponent(l.id)}&v=${l.denah_v}`, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error(`Gambar denah ${l.nama} "${p.nama}" tidak bisa diambil`);
+      denahLantai[l.id] = await blobKeDataUrl(await r.blob());
+    }
     return {
       proyek: {
         nama: p.nama, venue: p.venue, tanggal_mulai: p.tanggal_mulai, tanggal_selesai: p.tanggal_selesai, catatan: p.catatan,
-        skala: p.skala, slack_kabel: p.slack_kabel, denah_w: p.denah_w, denah_h: p.denah_h, lapisan: p.lapisan || [],
+        skala: p.skala, slack_kabel: p.slack_kabel, denah_w: p.denah_w, denah_h: p.denah_h, lapisan: p.lapisan || [], lantai,
       },
       denah,
+      denah_lantai: denahLantai,
       perangkat: res.perangkat.map(d => {
         const o = Object.assign({}, d);
         delete o.proyek_id; delete o.created_at; delete o.updated_at;
@@ -162,6 +172,24 @@
       }
       if (p.skala) await api(API, { action: 'proyek_skala', id: baru.id, skala: p.skala });
       if (Array.isArray(p.lapisan) && p.lapisan.length) await api(API, { action: 'proyek_lapisan', id: baru.id, lapisan: p.lapisan });
+      // Lantai: daftar dulu, lalu gambar denah & skala tiap lantai (selain F1 = denah utama di atas).
+      if (Array.isArray(p.lantai) && p.lantai.length > 1) {
+        await api(API, { action: 'lantai_save', id: baru.id, lantai: p.lantai.map(l => ({ id: l.id, nama: l.nama, tinggi: l.tinggi })) });
+        for (const l of p.lantai) {
+          if (l.id === 'F1') continue;
+          const img = a.denah_lantai && a.denah_lantai[l.id];
+          if (img) {
+            const fd = new FormData();
+            fd.append('action', 'lantai_denah');
+            fd.append('id', baru.id);
+            fd.append('lantai_id', l.id);
+            fd.append('sesuaikan', '0');
+            fd.append('denah', await dataUrlKeFile(img, nama + '-' + l.nama));
+            await api(API, fd);
+          }
+          if (l.skala) await api(API, { action: 'lantai_skala', id: baru.id, lantai_id: l.id, skala: l.skala });
+        }
+      }
       const perangkat = (a.perangkat || []).map(d => {
         const atr = Object.assign({}, d.atribut);
         if (atr.tipe_endpoint != null) atr.tipe_endpoint = tipeMap.get(String(atr.tipe_endpoint)) || '';

@@ -34,7 +34,7 @@ const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 11;
+const NP_SCHEMA = 12;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -299,6 +299,8 @@ function np_install_schema()
     np_tambah_kolom('np_proyek', 'admin_hash', 'VARCHAR(255) NULL AFTER kode_lihat');
     // Skema 11: layer jaringan per event (beberapa jaringan terpisah dalam satu denah).
     np_tambah_kolom('np_proyek', 'lapisan', 'TEXT NULL AFTER slack_kabel');
+    // Skema 12: lantai (beberapa denah dalam satu gedung). F1 = denah utama (kolom denah_*), lantai lain di JSON ini.
+    np_tambah_kolom('np_proyek', 'lantai', 'TEXT NULL AFTER lapisan');
     np_tambah_index('np_perangkat', 'idx_np_perangkat_katalog', 'katalog_id');
     // Tipe endpoint bawaan: hanya saat tabelnya baru dibuat (tipe yang sengaja dihapus tidak muncul lagi).
     // INSERT IGNORE + UNIQUE(nama) -> tidak dobel walau dua request menjalankan migrasi bersamaan.
@@ -376,6 +378,12 @@ function proyek_row($r)
     $r['skala'] = $r['skala'] === null ? null : (float) $r['skala'];
     $lp = isset($r['lapisan']) ? json_decode((string) $r['lapisan'], true) : null;
     $r['lapisan'] = is_array($lp) ? $lp : [];
+    // Lantai: nama file denah tidak dikirim ke browser; diganti versi (denah_v) untuk URL api/denah.php?lantai=.
+    $r['lantai'] = array_map(function ($l) {
+        $l['denah_v'] = !empty($l['denah_file']) ? substr(md5($l['denah_file']), 0, 10) : null;
+        unset($l['denah_file']);
+        return $l;
+    }, lantai_baca(isset($r['lantai']) ? $r['lantai'] : null));
     // Versi denah (berubah tiap upload) untuk URL gambar; nama file aslinya tidak dikirim ke browser.
     $r['denah_v'] = $r['denah_file'] ? substr(md5($r['denah_file']), 0, 10) : null;
     // Password admin event: hanya status "sudah diatur", hash-nya tidak pernah dikirim ke browser.
@@ -596,6 +604,43 @@ function proyek_lengkap($proyek, $sembunyikanRahasia = false)
     }
     return ['proyek' => proyek_row($proyek), 'perangkat' => $list, 'katalog' => $katalog, 'endpoint_tipe' => endpoint_tipe_list(),
         'foto' => foto_list($proyek['id'])];
+}
+
+// ------------------------------------------------------------------------------------------- lantai (multi denah)
+
+/**
+ * Daftar lantai tersimpan (np_proyek.lantai) -> array [{id, nama, tinggi, denah_file, denah_w, denah_h, skala}].
+ * F1 = lantai denah utama (gambar & skala di kolom denah_* proyek; entri F1 hanya menyimpan nama & tinggi).
+ */
+function lantai_baca($json)
+{
+    $arr = json_decode((string) $json, true);
+    $out = [];
+    foreach (is_array($arr) ? $arr : [] as $l) {
+        if (!is_array($l) || !isset($l['id']) || !preg_match('/^F\d{1,3}$/', (string) $l['id'])) {
+            continue;
+        }
+        $out[] = [
+            'id' => (string) $l['id'],
+            'nama' => isset($l['nama']) ? (string) $l['nama'] : '',
+            'tinggi' => isset($l['tinggi']) && is_numeric($l['tinggi']) ? (float) $l['tinggi'] : 4.0,
+            'denah_file' => isset($l['denah_file']) ? $l['denah_file'] : null,
+            'denah_w' => isset($l['denah_w']) ? (int) $l['denah_w'] : null,
+            'denah_h' => isset($l['denah_h']) ? (int) $l['denah_h'] : null,
+            'skala' => isset($l['skala']) && $l['skala'] !== null ? (float) $l['skala'] : null,
+        ];
+    }
+    return $out;
+}
+
+/** Hapus semua file denah lantai tambahan satu event (sebelum event dihapus). */
+function hapus_denah_lantai($json)
+{
+    foreach (lantai_baca($json) as $l) {
+        if ($l['denah_file'] && preg_match('/^denah_[a-f0-9]+\.(png|jpg|webp|gif)$/', $l['denah_file']) && is_file(NP_UPLOAD_DIR . '/' . $l['denah_file'])) {
+            @unlink(NP_UPLOAD_DIR . '/' . $l['denah_file']);
+        }
+    }
 }
 
 // ------------------------------------------------------------------------------------------- pengecekan penempatan

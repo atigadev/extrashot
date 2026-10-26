@@ -188,7 +188,9 @@
     S.model = NP.Model.create(S.proyek, S.list, S.katalog);
     if (S.sel != null && !S.model.byId.has(S.sel)) S.sel = null;
     if (S.parentCtx != null && !S.model.byId.has(S.parentCtx)) S.parentCtx = null;
-    peta.setData(S.model, denahUrl());
+    if (!S.model.lantaiList().some(l => l.id === S.lantai)) S.lantai = 'F1';
+    peta.setData(S.model, denahUrl(S.lantai), lantaiAktif());
+    terapkanLantai();
     terapkanLapisan();
     peta.select(S.sel);
     if (S.tab === 'denah') {
@@ -200,13 +202,18 @@
     updateHint();
   }
 
-  function denahUrl() {
+  /** URL gambar denah lantai lid (default F1 = denah utama) atau null bila lantai itu belum punya denah. */
+  function denahUrl(lid) {
     const p = S.proyek;
-    if (!p || !p.denah_v) return null;
-    if (S.tim) return `api/denah.php?t=${encodeURIComponent(S.tim)}&v=${p.denah_v}`;
+    if (!p) return null;
+    const L = lid && lid !== 'F1' ? (p.lantai || []).find(l => l.id === lid) : null;
+    const v = lid && lid !== 'F1' ? L && L.denah_v : p.denah_v;
+    if (!v) return null;
+    const q = `v=${v}${L ? '&lantai=' + encodeURIComponent(L.id) : ''}`;
+    if (S.tim) return `api/denah.php?t=${encodeURIComponent(S.tim)}&${q}`;
     return S.lihat
-      ? `api/denah.php?k=${encodeURIComponent(S.lihat)}&v=${p.denah_v}`
-      : `api/denah.php?id=${p.id}&v=${p.denah_v}`;
+      ? `api/denah.php?k=${encodeURIComponent(S.lihat)}&${q}`
+      : `api/denah.php?id=${p.id}&${q}`;
   }
 
   async function loadProyek(id) {
@@ -233,6 +240,7 @@
       resetRiwayat();
       // Layer jaringan terakhir yang dipilih di event ini.
       try { S.lapisan = localStorage.getItem(kunciLapisan()) || 'semua'; } catch (err) { S.lapisan = 'semua'; }
+      try { S.lantai = localStorage.getItem(kunciLantai()) || 'F1'; } catch (err) { S.lantai = 'F1'; }
     }
     return changed;
   }
@@ -718,6 +726,13 @@
       try { localStorage.setItem(kunciLapisan(), S.lapisan); } catch (err) { /* abaikan */ }
       terapkanLapisan();
     }
+    // Perangkat di lantai lain: pindah ke denah lantainya.
+    if (d && multiLantai() && S.model.lantaiOf(d) !== S.lantai) {
+      S.lantai = S.model.lantaiOf(d);
+      try { localStorage.setItem(kunciLantai(), S.lantai); } catch (err) { /* abaikan */ }
+      peta.setData(S.model, denahUrl(S.lantai), lantaiAktif());
+      terapkanLantai();
+    }
     if (d && TYPES[d.jenis] && TYPES[d.jenis].parent) S.parentCtx = id;
     peta.select(id);
     if (peta.tool !== 'ukur') renderPanel();
@@ -785,7 +800,7 @@
     if (pilih && pilih.jenis === 'lan') return { lan: pilih, cara: 'dipilih' };
     let best = null;
     for (const d of S.list) {
-      if (d.jenis !== 'lan') continue;
+      if (d.jenis !== 'lan' || (multiLantai() && S.model.lantaiOf(d) !== S.lantai)) continue; // titik LAN di lantai yang tampil
       const jarak = Math.hypot(d.x - x, d.y - y);
       if (!best || jarak < best.jarak) best = { lan: d, jarak };
     }
@@ -1066,6 +1081,12 @@
       const up = uplinkId != null && S.model.byId.get(uplinkId);
       const lid = up ? S.model.lapisanOf(up) : S.lapisan !== 'semua' ? S.lapisan : (body.atribut && body.atribut.lapisan) || '';
       if (lid) body.atribut = Object.assign({}, body.atribut, { lapisan: lid });
+    }
+    // Lantai: perangkat ditaruh di denah lantai yang sedang tampil.
+    if (multiLantai() || (body.atribut && body.atribut.lantai)) {
+      body.atribut = Object.assign({}, body.atribut);
+      if (atrLantai(S.lantai)) body.atribut.lantai = S.lantai;
+      else delete body.atribut.lantai;
     }
     try {
       const res = await enqueue(() => api(API, body));
@@ -1496,6 +1517,59 @@
     const b = e.target.closest('[data-lapisan]');
     if (b) setLapisan(b.dataset.lapisan);
   });
+
+  // ------------------------------------------------------------------------ lantai (beberapa denah satu gedung)
+
+  /** Event punya lebih dari satu lantai (denah berbeda per lantai). Peta selalu menampilkan satu lantai. */
+  const multiLantai = () => !!S.model && S.model.multiLantai();
+  const kunciLantai = () => 'np-lantai-' + (S.proyek ? S.proyek.id : '');
+  /** Data lantai yang sedang tampil di peta: {id, nama, denah_w, denah_h, skala, denah_v, ...}. */
+  const lantaiAktif = () => S.model.lantaiById(S.lantai || 'F1');
+  const namaLantai = d => S.model.lantaiById(S.model.lantaiOf(d)).nama;
+  /** Nilai atribut "lantai" untuk perangkat baru di lantai id (F1 = kosong). */
+  const atrLantai = id => (id && id !== 'F1' ? id : '');
+
+  /** Terapkan lantai aktif: perangkat lantai lain tidak digambar & tombol pemilih lantai. */
+  function terapkanLantai() {
+    const box = $('#lantai-switch');
+    if (!multiLantai()) {
+      S.lantai = 'F1';
+      if (box) box.hidden = true;
+      peta.setSaring(null);
+      return;
+    }
+    const daftar = S.model.lantaiList();
+    if (!daftar.some(l => l.id === S.lantai)) S.lantai = 'F1';
+    peta.setSaring(d => S.model.lantaiOf(d) !== S.lantai);
+    if (!box) return;
+    const n = id => S.model.list.filter(d => S.model.lantaiOf(d) === id).length;
+    box.hidden = false;
+    // Urut atas -> bawah seperti tombol lift.
+    box.innerHTML = `<span class="lp-lbl">Lantai</span>` + daftar.slice().reverse().map(l =>
+      `<button type="button" data-lantai="${esc(l.id)}" class="${S.lantai === l.id ? 'on' : ''}" title="${esc(l.nama)} · ${n(l.id)} perangkat${l.denah_v ? '' : ' · belum ada denah'}">${esc(l.nama)}</button>`).join('');
+  }
+  function setLantai(id) {
+    if (id === S.lantai) return;
+    S.lantai = id;
+    try { localStorage.setItem(kunciLantai(), id); } catch (err) { /* abaikan */ }
+    peta.clearMeasure();
+    if (S.sel != null && S.model.byId.has(S.sel) && S.model.lantaiOf(S.model.byId.get(S.sel)) !== id) {
+      S.sel = null;
+      peta.select(null);
+    }
+    peta.setData(S.model, denahUrl(id), lantaiAktif());
+    terapkanLantai();
+    if (S.tab === 'denah') renderPanel();
+    updateHint();
+  }
+  $('#lantai-switch').addEventListener('click', e => {
+    const b = e.target.closest('[data-lantai]');
+    if (b) setLantai(b.dataset.lantai);
+  });
+  /** Label kecil lantai perangkat di daftar / laporan (kosong bila satu lantai). */
+  function lantaiChip(d) {
+    return multiLantai() ? `<span class="lt-chip" title="Lantai">${esc(namaLantai(d))}</span>` : '';
+  }
 
   document.addEventListener('keydown', e => {
     if (S.tab !== 'denah' || $('#editor').hidden || document.querySelector('dialog[open]')) return;
@@ -2408,6 +2482,7 @@
           return `<button type="button" class="port${x ? ' isi' : ''}${pt.isi.length > 1 ? ' bentrok' : ''}${pt.sfp ? ' sfp' : ''}${x && x.peran !== 'anak' ? ' up' : ''}${x && x.otomatis ? ' oto' : ''}"${x ? ` data-sel="${x.dev.id}" style="--c:${warna}"` : ''}
             title="Port ${esc(pt.label)}: ${x ? esc(pt.isi.map(nama).join(', ')) : 'kosong'}">${esc(pt.sfp ? 'S' + pt.label.slice(3) : pt.label)}</button>`;
         }).join('')}</div>`;
+      if (P.jenis === 'switch') h += vlanSwHtml(P, pm);
     } else {
       h += `<p class="muted small" style="margin:2px 0 6px">Isi <b>Jumlah port</b> (tab ${esc(tabJenis(P))}) atau pilih alat dari katalog agar peta port tampil.</p>`;
     }
@@ -2431,6 +2506,121 @@
     }
     return h + '</div>';
   }
+
+  /**
+   * VLAN per port switch: trunk dari uplink dibagi menjadi access / trunk di port-port lain. Port yang tersambung
+   * perangkat menyimpan pilihan di perangkat itu (sama dengan kotak VLAN tab Koneksi); port kosong di atribut vlan_port.
+   * Tampil bila event punya VLAN (didefinisikan di router atau dipakai perangkat).
+   */
+  function vlanSwHtml(P, pm) {
+    const m = S.model;
+    const lvUp = m.parentOf(P) ? m.linkVlan(P) : null;
+    const vlanAda = urutVlan([...m.vlanDef().keys(), ...(lvUp ? lvUp.butuh : [])]);
+    if (!vlanAda.length) return '';
+    const dis = S.canEdit ? '' : ' disabled';
+    const conf = m.vlanPortSw(P);
+    const hasil = lv => (lv.mode === 'trunk' ? `<span class="vl vl-trunk">T ${lv.tagged.join(',') || '—'}</span>`
+      : lv.mode === 'access' ? `<span class="vl vl-access">A ${lv.untagged}</span>` : '<span class="muted small">LAN</span>');
+    const pilih = (attr, mode, izin, ph) => `<td><select ${attr}="mode"${dis}>
+        <option value=""${!mode ? ' selected' : ''}>${attr.includes('anak') ? 'Otomatis' : 'LAN saja'}</option>
+        <option value="access"${mode === 'access' ? ' selected' : ''}>Access</option>
+        <option value="trunk"${mode === 'trunk' ? ' selected' : ''}>Trunk</option>
+        ${attr.includes('anak') ? `<option value="native"${mode === 'native' ? ' selected' : ''}>LAN saja</option>` : ''}</select></td>
+      <td>${mode === 'access' || mode === 'trunk' ? `<input type="text" ${attr}="izin" value="${esc(izin || '')}" placeholder="${esc(mode === 'access' ? String(ph[0] || '10') : ph.join(',') || '10,20')}"${dis}>` : ''}`;
+    const rows = pm.ports.map(pt => {
+      const x = pt.isi[0];
+      const nama = pt.sfp ? 'sfp' + pt.label.slice(3) : (pm.prefix || '') + pt.label;
+      if (x && x.peran !== 'anak') {
+        // Port uplink switch ini (mis. eth1): trunk dari atas, diatur di tab Koneksi switch ini.
+        const lv = x.peran === 'uplink' && lvUp ? lvUp : null;
+        return `<tr class="vs-up"><td><b class="mono">${esc(nama)}</b><br><span class="small muted">↑ ${esc(x.dev.nama)}</span></td>
+          <td colspan="2">${lv ? hasil(lv) : ''} <span class="muted small">${x.peran === 'uplink' ? 'uplink — atur di tab Koneksi' : 'uplink kedua'}</span></td></tr>`;
+      }
+      if (x) {
+        const a = x.dev.atribut || {};
+        const lv = m.linkVlan(x.dev);
+        return `<tr><td><b class="mono">${esc(nama)}</b><br><a href="#" class="small" data-sel="${x.dev.id}">${esc(x.dev.nama)}</a></td>
+          ${pilih(`data-vs-anak="${x.dev.id}" data-vs`, a.vlan_mode || '', a.vlan_izin, lv.butuh.length ? lv.butuh : vlanAda)}<div class="vp-hasil">${hasil(lv)}</div></td></tr>`;
+      }
+      const c = conf[pt.key] || {};
+      return `<tr class="vs-kosong"><td><b class="mono">${esc(nama)}</b><br><span class="muted small">kosong</span></td>
+        ${pilih(`data-vs-port="${pt.key}" data-vs`, c.mode || '', c.izin, vlanAda)}<div class="vp-hasil">${hasil(m.vlanPortKosong(P, pt.key))}</div></td></tr>`;
+    }).join('');
+    const opsiPort = pm.ports.map((pt, i) => `<option value="${i}">${esc(pt.sfp ? 'sfp' + pt.label.slice(3) : (pm.prefix || '') + pt.label)}</option>`).join('');
+    return `<details class="vs-box"${S.vsBuka ? ' open' : ''}>
+      <summary>VLAN per port <span class="muted small">${lvUp && lvUp.mode === 'trunk' ? `trunk masuk: VLAN ${lvUp.tagged.join(', ')}` : `VLAN ${vlanAda.join(', ')}`}</span></summary>
+      ${S.canEdit ? `<div class="vs-bagi">Port <select data-vs-dari>${opsiPort}</select> s/d <select data-vs-sampai>${opsiPort}</select>
+        → <select data-vs-mode><option value="access">Access</option><option value="trunk">Trunk</option><option value="">LAN saja</option></select>
+        VLAN <input type="text" data-vs-vlan placeholder="${esc(String(vlanAda[0]))}" style="width:5.5em"> <button type="button" class="small primary" data-vs-terapkan>Terapkan</button></div>` : ''}
+      <table class="mini mt-vlan mt-vport"><colgroup><col style="width:34%"><col style="width:30%"><col style="width:36%"></colgroup>
+        <tr><th>Port</th><th>Mode</th><th title="Access: satu VLAN untagged. Trunk: VLAN tagged dipisah koma.">VLAN</th></tr>${rows}</table>
+      <p class="muted small">Access = satu VLAN untagged (laptop, printer, AP tanpa multi-SSID). Trunk = beberapa VLAN tagged (switch / AP multi-SSID).
+        VLAN yang dipakai di port ikut dibawa trunk uplink switch ini secara otomatis.</p>
+    </details>`;
+  }
+  const urutVlan = arr => [...new Set(arr.filter(v => v >= 2 && v <= 4094))].sort((a, b) => a - b);
+
+  /** Simpan VLAN port switch: port tersambung -> atribut perangkat di port itu; port kosong -> vlan_port switch. */
+  function patchVlanPort(P, ubah) {
+    // ubah: [{anak: id | null, key, mode, izin}] -> daftar [id, patch]
+    const out = [];
+    const conf = S.model.vlanPortSw(P);
+    let ubahP = false;
+    for (const u of ubah) {
+      if (u.anak) {
+        const c = S.model.byId.get(u.anak);
+        const a = Object.assign({}, c.atribut, { vlan_mode: u.mode, vlan_izin: u.mode ? u.izin : '' });
+        out.push([c.id, { atribut: a }]);
+      } else {
+        if (u.mode) conf[u.key] = { mode: u.mode, izin: u.izin };
+        else delete conf[u.key];
+        ubahP = true;
+      }
+    }
+    if (ubahP) out.push([P.id, { atribut: Object.assign({}, P.atribut, { vlan_port: Object.keys(conf).length ? JSON.stringify(conf) : '' }) }]);
+    return out;
+  }
+  $('#panel').addEventListener('toggle', e => {
+    if (e.target.classList && e.target.classList.contains('vs-box')) S.vsBuka = e.target.open;
+  }, true);
+  $('#panel').addEventListener('change', async e => {
+    const el = e.target.closest('[data-vs]');
+    if (!el || !S.canEdit || S.sel == null) return;
+    const P = S.model.byId.get(S.sel);
+    const tr = el.closest('tr');
+    const modeEl = tr.querySelector('select[data-vs]');
+    const izinEl = tr.querySelector('input[data-vs]');
+    const mode = modeEl.value;
+    const izin = izinEl ? izinEl.value.trim() : '';
+    const anak = el.dataset.vsAnak ? +el.dataset.vsAnak : null;
+    S.vsBuka = true;
+    for (const [id, patch] of patchVlanPort(P, [{ anak, key: el.dataset.vsPort, mode, izin }])) await saveDev(id, patch, { keepPanel: true }).catch(() => {});
+  });
+  $('#panel').addEventListener('click', async e => {
+    if (!e.target.closest('[data-vs-terapkan]') || !S.canEdit || S.sel == null) return;
+    const box = e.target.closest('.vs-box');
+    const P = S.model.byId.get(S.sel);
+    const pm = S.model.portMap(P);
+    let i = +box.querySelector('[data-vs-dari]').value, j = +box.querySelector('[data-vs-sampai]').value;
+    if (i > j) [i, j] = [j, i];
+    const mode = box.querySelector('[data-vs-mode]').value;
+    const izin = box.querySelector('[data-vs-vlan]').value.trim();
+    if (mode && !/\d/.test(izin)) return toast('Isi nomor VLAN, mis. 10 (trunk: 10,20)', true);
+    if (mode === 'access' && /\d+\D+\d+/.test(izin)) return toast('Access hanya satu VLAN', true);
+    const ubah = [];
+    pm.ports.slice(i, j + 1).forEach(pt => {
+      const x = pt.isi[0];
+      if (x && x.peran !== 'anak') return; // port uplink tidak diubah
+      ubah.push(x ? { anak: x.dev.id, mode, izin } : { anak: null, key: pt.key, mode, izin });
+    });
+    if (!ubah.length) return toast('Tidak ada port yang bisa diubah di rentang itu', true);
+    S.vsBuka = true;
+    await kelompok(`VLAN ${ubah.length} port ${P.nama}`, async () => {
+      for (const [id, patch] of patchVlanPort(P, ubah)) await saveDev(id, patch, { keepPanel: true }).catch(() => {});
+    });
+    renderPanelInfo();
+    toast(`${ubah.length} port ${P.nama} → ${mode ? (mode === 'access' ? 'access' : 'trunk') + ' VLAN ' + izin : 'LAN saja'} (Ctrl+Z untuk membatalkan)`);
+  });
 
   $('#panel').addEventListener('change', e => {
     const s = e.target.closest('[data-port-anak]');
@@ -2704,9 +2894,9 @@
       <div class="pn-sec">
         <h3>${esc(p.nama)}</h3>
         ${S.tim && S.akses ? `<div class="tim-info"><b>${esc(S.akses.nama)}</b>${aksesRingkas(S.akses)}${progresTim()}</div>` : ''}
-        <p class="muted small">${ds.length} perangkat${multiLapisan() && S.lapisan !== 'semua' ? ' · layer ' + esc(m.lapisanById(S.lapisan).nama) : ''}${p.skala ? ` · skala 1 px = ${fmtM(p.skala).replace(' m', '')} m` : ''}</p>
-        ${!p.denah_v && S.canEdit ? '<p class="note">Belum ada denah. Upload di tab <a href="#" data-go="proyek">Proyek</a>.</p>' : ''}
-        ${!p.skala ? `<p class="note">Skala belum dikalibrasi — panjang kabel &amp; cakupan AP belum bisa dihitung. Pakai alat <a href="#" data-tool-go="ukur">Ukur</a> pada garis skala denah (mis. "7000 cm").</p>` : ''}
+        <p class="muted small">${ds.length} perangkat${multiLapisan() && S.lapisan !== 'semua' ? ' · layer ' + esc(m.lapisanById(S.lapisan).nama) : ''}${multiLantai() ? ' · denah ' + esc(lantaiAktif().nama) : ''}${lantaiAktif().skala ? ` · skala 1 px = ${fmtM(lantaiAktif().skala).replace(' m', '')} m` : ''}</p>
+        ${!lantaiAktif().denah_v && S.canEdit ? `<p class="note">Belum ada denah${multiLantai() ? ' ' + esc(lantaiAktif().nama) : ''}. Upload di tab <a href="#" data-go="proyek">Proyek</a>.</p>` : ''}
+        ${!lantaiAktif().skala ? `<p class="note">Skala belum dikalibrasi — panjang kabel &amp; cakupan AP belum bisa dihitung. Pakai alat <a href="#" data-tool-go="ukur">Ukur</a> pada garis skala denah (mis. "7000 cm").</p>` : ''}
       </div>
       <div class="pn-sec">
         <h4>Jenis perangkat <span class="muted small">klik untuk sembunyikan</span></h4>
@@ -2748,7 +2938,7 @@
 
   function panelUkur() {
     const ms = peta.measure;
-    const p = S.proyek;
+    const p = lantaiAktif(); // skala denah lantai yang tampil
     let h = '<div class="pn-sec"><h3>Ukur jarak</h3>';
     if (ms.length < 2) {
       h += '<p class="muted">Klik dua titik di denah.</p>';
@@ -2777,7 +2967,9 @@
     const px = Math.hypot(ms[1].x - ms[0].x, ms[1].y - ms[0].y);
     if (!(meter > 0) || !(px > 0)) return;
     try {
-      const res = await enqueue(() => api(API, { action: 'proyek_skala', id: S.proyek.id, skala: meter / px }));
+      const lid = S.lantai || 'F1';
+      const res = await enqueue(() => api(API, lid === 'F1' ? { action: 'proyek_skala', id: S.proyek.id, skala: meter / px }
+        : { action: 'lantai_skala', id: S.proyek.id, lantai_id: lid, skala: meter / px }));
       S.proyek = res.proyek;
       toast('Skala tersimpan');
       refreshModel();
@@ -2892,6 +3084,7 @@
             <div class="field wide"><span>Status pemasangan</span>${statusPicker(d, S.canEdit ? 'admin' : '')}</div>
             ${fieldHtml({ k: 'pic', label: 'PIC / teknisi' }, d.pic, dis)}
             ${multiLapisan() ? `<label class="field"><span>Layer jaringan</span><select data-lapisan-dev${dis}>${S.model.lapisanList().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lapisanOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
+            ${multiLantai() ? `<label class="field"><span>Lantai (denah)</span><select data-lantai-dev${dis}>${S.model.lantaiList().slice().reverse().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lantaiOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
           </div>
         </div>
         <div class="pn-sec" data-pp="koneksi">
@@ -3103,8 +3296,9 @@
     const m = S.model;
     const a = d.atribut || {};
     const titik = m.list.filter(NP.isListrik)
-      .map(L => ({ L, jarak: m.distPx(d, L) * (S.proyek.skala || 0) }))
-      .sort((x, y) => m.distPx(d, x.L) - m.distPx(d, y.L));
+      // Titik listrik di lantai yang sama lebih dulu (jarak hanya bisa diukur di denah yang sama).
+      .map(L => ({ L, beda: m.bedaLantai(d, L), jarak: m.bedaLantai(d, L) ? 0 : m.distPx(d, L) * (m.skalaOf(d) || 0) }))
+      .sort((x, y) => x.beda - y.beda || m.distPx(d, x.L) - m.distPx(d, y.L));
     const katW = parseFloat(m.spec(d).daya_w) > 0 ? parseFloat(m.spec(d).daya_w) : null;
     const L = m.listrikOf(d);
     // Ringkasan titik listrik terpilih: kapasitas MCB, terpakai (termasuk perangkat ini) & sisa.
@@ -3125,7 +3319,7 @@
     return `<div class="pn-sec">
       <h4>Listrik <span class="small">opsional — kosongkan bila tidak perlu dicatat</span></h4>
       ${titik.length ? `<label class="field"><span>Sumber listrik (titik listrik yang sudah dibuat)</span>
-        <select data-listrik-src${dis}><option value="">— tidak memakai titik listrik —</option>${titik.map(x => `<option value="${x.L.id}"${L && L.id === x.L.id ? ' selected' : ''}>${esc(x.L.nama)}${x.jarak ? ' · ≈ ' + esc(fmtM(x.jarak)) : ''}${(() => { const mc = NP.dayaMcb(x.L.atribut || {}); return mc ? ' · MCB ' + mc.a + ' A' : ''; })()}</option>`).join('')}</select></label>`
+        <select data-listrik-src${dis}><option value="">— tidak memakai titik listrik —</option>${titik.map(x => `<option value="${x.L.id}"${L && L.id === x.L.id ? ' selected' : ''}>${esc(x.L.nama)}${x.jarak ? ' · ≈ ' + esc(fmtM(x.jarak)) : ''}${x.beda ? ' · ' + esc(namaLantai(x.L)) : ''}${(() => { const mc = NP.dayaMcb(x.L.atribut || {}); return mc ? ' · MCB ' + mc.a + ' A' : ''; })()}</option>`).join('')}</select></label>`
         : `<p class="note">Belum ada titik listrik di event ini.${S.canEdit ? ' <button type="button" class="small" data-listrik-buat>⚡ Buat titik listrik</button>' : ''}</p>`}
       ${ringkas}
       <div class="fgrid">
@@ -3190,6 +3384,42 @@
     if (S.lapisan !== 'semua' && S.lapisan !== lid && ds.some(d => d.id === S.sel)) setLapisan(lid);
     toast(`${ds.length} perangkat dipindah ke layer ${L.nama} (Ctrl+Z untuk membatalkan)`);
   }
+  /**
+   * Pindahkan perangkat ke lantai lid. Posisi diskalakan mengikuti ukuran denah tujuan (denah dianggap sejajar);
+   * lekukan jalur kabel dihapus karena digambar di denah lantai asal. Satu langkah Ctrl+Z; peta ikut ke lantai tujuan.
+   */
+  async function pindahLantai(ids, lid) {
+    const m = S.model;
+    const ds = ids.map(id => m.byId.get(id)).filter(d => d && m.lantaiOf(d) !== lid);
+    const L = m.lantaiById(lid);
+    if (!ds.length) return toast(`Semua perangkat terpilih sudah di ${L.nama}`);
+    const tuju = ukuranLantai(lid);
+    await kelompok(`pindah ${ds.length} perangkat ke ${L.nama}`, async () => {
+      for (const d of ds) {
+        const asal = ukuranLantai(m.lantaiOf(d));
+        const atribut = Object.assign({}, d.atribut);
+        if (atrLantai(lid)) atribut.lantai = lid;
+        else delete atribut.lantai;
+        const r = v => Math.round(v * 10) / 10;
+        await saveDev(d.id, { atribut, x: r(d.x * tuju.W / asal.W), y: r(d.y * tuju.H / asal.H), jalur: null }, { keepPanel: true }).catch(() => {});
+      }
+    });
+    toast(`${ds.length} perangkat dipindah ke ${L.nama} (Ctrl+Z untuk membatalkan)`);
+  }
+  $('#panel').addEventListener('change', async e => {
+    const s = e.target.closest('[data-lantai-dev]');
+    if (!s || S.sel == null || !S.canEdit) return;
+    const id = S.sel;
+    await pindahLantai([id], s.value);
+    selectDev(id, true); // tampilkan denah lantai tujuan
+  });
+  $('#bulk-lantai').addEventListener('change', e => {
+    const v = e.target.value;
+    e.target.value = '';
+    if (!v || !S.pilih.size) return;
+    if (!confirm(`Pindahkan ${S.pilih.size} perangkat terpilih ke ${S.model.lantaiById(v).nama}?`)) return;
+    pindahLantai([...S.pilih], v);
+  });
   $('#panel').addEventListener('change', e => {
     const s = e.target.closest('[data-lapisan-dev]');
     if (!s || S.sel == null || !S.canEdit) return;
@@ -3399,7 +3629,7 @@
       const berbelok = m.routePts(d).length > 2;
       h += `<div class="kv"><span>${d.media === 'wireless' ? 'Jarak link' : 'Kabel ke uplink'}</span><b>${jarak == null
         ? '<span class="muted">kalibrasi skala dulu</span>'
-        : d.media === 'wireless' ? fmtM(jarak) : `≈ ${fmtM(kabel)} <span class="muted">(${berbelok ? 'jalur' : 'lurus'} ${fmtM(m.jalurM(d))} + ${S.proyek.slack_kabel}%)</span>`}</b></div>`;
+        : d.media === 'wireless' ? fmtM(jarak) : `≈ ${fmtM(kabel)} <span class="muted">(${berbelok ? 'jalur' : 'lurus'} ${fmtM(m.jalurM(d))} + ${S.proyek.slack_kabel}%)</span>`}${m.multiLantai() && m.bedaLantai(d, m.parentOf(d)) ? `<br><span class="muted small">termasuk riser ${fmtM(m.naikM(d, m.parentOf(d)))} ke ${esc(namaLantai(m.parentOf(d)))}</span>` : ''}</b></div>`;
       // Tim update status punya pemilih kabel sendiri di kotak tim (di bawah), jadi di sini tidak diulang.
       if (NP.perluKabel(d) && !(S.tim && bolehKabel(d))) {
         h += kabelPicker([d.id], NP.kabelSt(d), bolehKabel(d), `<span>🔌 Kabel ke <b>${esc(m.parentOf(d).nama)}</b></span>${kabel ? `<span class="muted">≈ ${esc(fmtM(kabel))}</span>` : ''}`);
@@ -3494,7 +3724,7 @@
     const nFoto = fotoOf(d.id).length;
     box.innerHTML = `<div class="pn-sec verif-box${V ? ' vf-' + v.h : ''}">
       <h4>🔍 Pengecekan penempatan${isChecker() ? ' · ' + esc(S.akses.nama) : ''}</h4>
-      ${isChecker() ? `${S.proyek.denah_v ? `<div class="cek-map" title="Posisi ${esc(d.nama)} di denah plan">${staticMap({ vb: cropAround(d), focus: d.id, cls: 'crop-map' })}</div>` : ''}
+      ${isChecker() ? `${denahUrl(S.model.lantaiOf(d)) ? `<div class="cek-map" title="Posisi ${esc(d.nama)} di denah plan">${staticMap({ vb: cropAround(d), focus: d.id, cls: 'crop-map' })}</div>` : ''}
         <dl class="cek-plan">${plan.map(([k, x]) => `<dt>${k}</dt><dd>${esc(x)}</dd>`).join('')}</dl>` : ''}
       ${V ? `<div class="vf-hasil"><b style="color:${V.color}">${V.icon} ${esc(V.label)}</b> <span class="muted small">${esc(v.o || '')} · ${esc(v.t || '')}</span>${v.c ? `<p>${esc(v.c)}</p>` : ''}</div>`
         : '<p class="muted small" style="margin:0 0 6px">Belum dicek.</p>'}
@@ -4340,7 +4570,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const td = (label, html, cls) => `<td data-label="${label}" class="${cls || ''}${html ? '' : ' empty'}">${html}</td>`;
       return `<tr data-id="${d.id}"${S.pilih.has(d.id) ? ' class="dipilih"' : ''}>
         <td class="c-cek pilih-only"><input type="checkbox" data-cek="${d.id}"${S.pilih.has(d.id) ? ' checked' : ''} aria-label="Pilih ${esc(d.nama)}"></td>
-        ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b>${lapisanChip(d)}${NP.terkunci(d) ? '<span class="lock-i" title="Posisi terkunci">🔒</span>' : ''}</span>`, 'c-nama')}
+        ${td('Nama', `<span class="dotlbl"><i style="background:${NP.tampil(d).color}"></i><b>${esc(d.nama)}</b>${lapisanChip(d)}${lantaiChip(d)}${NP.terkunci(d) ? '<span class="lock-i" title="Posisi terkunci">🔒</span>' : ''}</span>`, 'c-nama')}
         ${td('Jenis', esc(jenisLabel(d)), 'c-jenis')}
         ${td('Nama alat', esc(d.model))}
         ${td('IP', esc(d.ip), 'mono')}
@@ -4504,6 +4734,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const lp = $('#bulk-lapisan');
     lp.hidden = !multiLapisan();
     lp.innerHTML = '<option value="">◧ Layer…</option>' + (multiLapisan() ? S.model.lapisanList().map(l => `<option value="${esc(l.id)}">→ ${esc(l.nama)}</option>`).join('') : '');
+    const lt = $('#bulk-lantai');
+    lt.hidden = !multiLantai();
+    lt.innerHTML = '<option value="">⇅ Lantai…</option>' + (multiLantai() ? S.model.lantaiList().slice().reverse().map(l => `<option value="${esc(l.id)}">→ ${esc(l.nama)}</option>`).join('') : '');
   }
 
   $('#bulk-lapisan').addEventListener('change', e => {
@@ -4977,14 +5210,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function cetakLaporanSupport() {
     const m = S.model;
     const butuh = d => !NP.nonJaringan(d) && (!!m.listrikOf(d) || (d.atribut || {}).listrik === 'perlu');
-    const denahSvg = staticMap({ filter: NP.nonJaringan, redup: butuh, pwr: true, tanpaInternet: true });
+    const denahSvg = petaLaporan({ filter: NP.nonJaringan, redup: butuh, pwr: true, tanpaInternet: true });
     const lg = (warna, isi, teks) => `<span><i style="background:${warna}">${isi}</i>${esc(teks)}</span>`;
     $('#print').className = 'print';
     $('#print').innerHTML = prHead('Laporan support & listrik') +
       `<div class="pr-legend">${lg(TYPES.listrik.color, '⚡', 'Titik listrik')}${lg(TYPES.support.color, 'SUP', 'Peralatan support')}
         <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="#ca8a04" stroke-width="2.5" stroke-dasharray="2 4" stroke-linecap="round"/></svg>Jalur listrik ke titik pemasok</span>
         <span style="opacity:.45"><i style="background:#64748b"></i>Perangkat jaringan yang memakai / butuh listrik (samar)</span></div>
-      <div class="pr-map">${denahSvg}</div>` +
+      ${denahSvg}` +
       htmlRekapListrik();
     printWith('A4 landscape');
   }
@@ -5100,7 +5333,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
 
   /** Potongan denah di sekitar d (PNG data URL) dengan penanda titik; img = gambar denah yang sudah dimuat. */
   function potonganDenah(img, d) {
-    const { W, H } = peta.size();
+    const { W, H } = ukuranLantai(S.model.lantaiOf(d));
     const [x, y, w, h] = cropAround(d, 0.5);
     const kx = img.naturalWidth / W, ky = img.naturalHeight / H;
     const cw = 900, ch = Math.round(cw * h / w);
@@ -5162,7 +5395,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const up = m.parentOf(d);
     tambah('Uplink', up ? `${up.nama}${d.port_uplink ? ' port ' + d.port_uplink : ''}${d.media ? ' · ' + MEDIA[d.media].label : ''}` : '');
     tambah('IP / VLAN', [d.ip, d.vlan ? 'VLAN ' + d.vlan : ''].filter(Boolean).join(' · '));
-    tambah('Posisi pasang', [a.mounting, a.lokasi_rak].filter(Boolean).join(' · '));
+    tambah('Posisi pasang', [m.multiLantai() ? m.lantaiById(m.lantaiOf(d)).nama : '', a.mounting, a.lokasi_rak].filter(Boolean).join(' · '));
     tambah('Limit bandwidth', d.bandwidth_mbps > 0 ? fmtBw(d.bandwidth_mbps) : '');
     tambah('PIC', d.pic);
     const sp = (k && k.spesifikasi) || {};
@@ -5206,12 +5439,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     try {
       toast('Menyiapkan PowerPoint…');
       await muatSkrip('vendor/pptxgenjs.bundle.js?v=3.12.0');
-      let denahImg = null;
-      const du = denahUrl();
-      if (du) {
-        denahImg = new Image();
-        denahImg.src = await keDataUrl(du);
-        await denahImg.decode().catch(() => { denahImg = null; });
+      // Gambar denah per lantai (hanya lantai yang punya titik berfoto).
+      const denahImgs = new Map();
+      for (const lid of new Set(ada.map(d => m.lantaiOf(d)))) {
+        const du = denahUrl(lid);
+        if (!du) continue;
+        const im = new Image();
+        im.src = await keDataUrl(du);
+        if (await im.decode().then(() => true, () => false)) denahImgs.set(lid, im);
       }
       const ppt = new window.PptxGenJS();
       ppt.layout = 'LAYOUT_WIDE'; // 13,33 × 7,5 in
@@ -5408,8 +5643,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         // Kolom kanan: lokasi di denah + hasil pengecekan.
         const rx = 9.95, rw = 3.0;
         let ry = 1.15;
+        const denahImg = denahImgs.get(m.lantaiOf(d));
         if (denahImg) {
-          s.addText('Lokasi di denah', { x: rx, y: ry, w: rw, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: GELAP });
+          s.addText(multiLantai() ? `Lokasi di denah · ${namaLantai(d)}` : 'Lokasi di denah', { x: rx, y: ry, w: rw, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: GELAP });
           const [, , cw, ch] = cropAround(d, 0.5);
           const kotak = pasKotak(cw, ch, rx, ry + 0.32, rw, 2.3);
           s.addImage({ data: potonganDenah(denahImg, d), ...kotak, line: { color: GARIS } });
@@ -5475,7 +5711,11 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const nama = pt => (pt.sfp ? pt.label : (pm.prefix || '') + pt.label);
       const baris = pm.ports.map(pt => {
         const x = pt.isi[0];
-        if (!x) return { port: nama(pt), kosong: true };
+        if (!x) {
+          // Port kosong switch yang sudah diberi VLAN (disiapkan untuk perangkat yang dicolok di lapangan).
+          const lk = P.jenis === 'switch' ? m.vlanPortKosong(P, pt.key) : null;
+          return { port: nama(pt), kosong: true, vlan: lk && lk.mode === 'access' ? 'A ' + lk.untagged : lk && lk.mode === 'trunk' ? 'T ' + lk.tagged.join(',') : '' };
+        }
         const dev = x.dev;
         const kat = katPort(P, x);
         // Kabel & VLAN: sambungan ke anak = kabel anak; ke uplink = kabel P sendiri.
@@ -5527,7 +5767,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         <p class="pr-foto-meta">Uplink: <b>${up ? esc(up.nama) + (P.port_uplink ? ' port ' + esc(P.port_uplink) : '') : '—'}</b>${P.ip ? ' · IP ' + esc(P.ip) : ''}${(P.atribut || {}).managed ? ' · ' + esc(P.atribut.managed) : ''}${(P.atribut || {}).poe ? ' · PoE ' + esc(P.atribut.poe) : ''}
           · ${x.pm.ports.length ? `<b>${x.pm.terpakai}</b> dari ${x.pm.ports.length} port terpakai` : 'jumlah port belum diisi'}</p>
         ${x.pm.ports.length ? `<div class="pr-ports">${x.baris.map(b => `<div class="pp${b.kosong ? ' kosong' : ''}${b.dobel ? ' dobel' : ''}" style="${b.kosong ? '' : `--c:${KAT_PORT[b.kat].color}`}">
-            <span class="pp-n">${esc(b.port)}</span><span class="pp-d">${b.kosong ? '' : esc(b.dev.nama)}</span></div>`).join('')}</div>` : ''}
+            <span class="pp-n">${esc(b.port)}</span><span class="pp-d">${b.kosong ? esc(b.vlan || '') : esc(b.dev.nama)}</span></div>`).join('')}</div>` : ''}
         <table class="pr-table">${tr(['Port', 'Terhubung ke', 'Kategori', 'Media · kabel', ...(adaVlan ? ['VLAN'] : []), 'IP'], true)}${x.baris.filter(b => !b.kosong).map(b => tr([
           `<b>${esc(b.port)}</b>`,
           `${esc(b.dev.nama)}${b.peran === 'uplink' ? ' <span class="muted">(uplink)</span>' : b.peran === 'up2' ? ' <span class="muted">(uplink kedua)</span>' : ''}${b.otomatis ? ' <span class="muted">(port otomatis)</span>' : ''}${b.dobel ? `<br><span class="bad">dobel: ${esc(b.dobel.join(', '))}</span>` : ''}`,
@@ -5600,7 +5840,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const adaVlan = x.baris.some(b => b.vlan);
       return `<section class="card pt-card${nM ? ' pt-masalah' : ''}" id="pt-${P.id}">
         <div class="pt-h">
-          <div class="pt-judul"><h2>${esc(P.nama)} <small>${esc(jenisLabel(P))}${P.model ? ' · ' + esc(P.model) : ''}</small>${lapisanChip(P)}</h2>
+          <div class="pt-judul"><h2>${esc(P.nama)} <small>${esc(jenisLabel(P))}${P.model ? ' · ' + esc(P.model) : ''}</small>${lapisanChip(P)}${lantaiChip(P)}</h2>
             <p class="muted small">Uplink: <b>${up ? esc(up.nama) + (P.port_uplink ? ' port ' + esc(P.port_uplink) : '') : '—'}</b>${P.ip ? ' · IP ' + esc(P.ip) : ''}${(P.atribut || {}).managed ? ' · ' + esc(P.atribut.managed) : ''}
               · ${x.pm.ports.length ? `<b>${x.pm.terpakai}</b> dari ${x.pm.ports.length} port terpakai` : '<span class="bad">jumlah port belum diisi</span>'}</p></div>
           <div class="pt-aksi">
@@ -5609,7 +5849,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           </div>
         </div>
         ${x.pm.ports.length ? `<div class="pt-ports">${x.baris.map(b => `<button type="button" class="pp${b.kosong ? ' kosong' : ''}${b.dobel ? ' dobel' : ''}"${b.kosong ? '' : ` style="--c:${KAT_PORT[b.kat].color}" data-sel="${b.dev.id}"`}
-            title="${esc(b.port)}: ${b.kosong ? 'kosong' : esc((b.dobel || [b.dev.nama]).join(', ')) + ' · ' + esc(KAT_PORT[b.kat].label)}"><span class="pp-n">${esc(b.port)}</span><span class="pp-d">${b.kosong ? '' : esc(b.dev.nama)}</span></button>`).join('')}</div>` : ''}
+            title="${esc(b.port)}: ${b.kosong ? 'kosong' : esc((b.dobel || [b.dev.nama]).join(', ')) + ' · ' + esc(KAT_PORT[b.kat].label)}"><span class="pp-n">${esc(b.port)}</span><span class="pp-d">${b.kosong ? esc(b.vlan || '') : esc(b.dev.nama)}</span></button>`).join('')}</div>` : ''}
         ${x.baris.some(b => !b.kosong) ? `<div class="pt-tbl-wrap"><table class="mini pt-tbl"><tr><th>Port</th><th>Terhubung ke</th><th>Kategori</th><th>Media · kabel</th>${adaVlan ? '<th>VLAN</th>' : ''}<th>IP</th></tr>
           ${x.baris.filter(b => !b.kosong).map(b => {
             // Port bisa diubah: sambungan ke anak (port di uplink anak) & ke uplink P sendiri (port lokal P).
@@ -5637,7 +5877,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         <label class="check-inline"><input type="checkbox" id="pt-masalah"${ptFilter.masalah ? ' checked' : ''}> Hanya yang perlu dirapikan</label>
         <span class="pt-legend">${katDipakai.map(k => `<span><i style="background:${KAT_PORT[k].color}"></i>${esc(KAT_PORT[k].label)}</span>`).join('')}<span><i class="kosong"></i>Kosong</span></span></div>
       ${semua.length ? `<div class="card"><h2>Rekap</h2><div class="pt-tbl-wrap"><table class="mini pt-rekap"><tr><th>Perangkat</th><th class="num">Port</th><th class="num">Terpakai</th><th class="num">Kosong</th>${katDipakai.map(k => `<th class="num">${esc(KAT_PORT[k].label)}</th>`).join('')}<th class="num">Perlu dirapikan</th></tr>
-        ${data.map(x => `<tr data-pt-ke="${x.P.id}" class="pt-klik"><td><b>${esc(x.P.nama)}</b>${lapisanChip(x.P)}<br><span class="muted small">${esc(x.P.model || jenisLabel(x.P))}</span></td>
+        ${data.map(x => `<tr data-pt-ke="${x.P.id}" class="pt-klik"><td><b>${esc(x.P.nama)}</b>${lapisanChip(x.P)}${lantaiChip(x.P)}<br><span class="muted small">${esc(x.P.model || jenisLabel(x.P))}</span></td>
           <td class="num">${x.pm.ports.length || '<span class="muted">—</span>'}</td><td class="num">${x.pm.terpakai}</td><td class="num">${x.pm.ports.length ? x.pm.ports.length - x.pm.terpakai : '—'}</td>
           ${katDipakai.map(k => `<td class="num">${x.rekap[k] || ''}</td>`).join('')}<td class="num">${masalahPort(x) ? `<b class="bad">${masalahPort(x)}</b>` : '<span class="ok-text">✓</span>'}</td></tr>`).join('')}</table></div></div>` : ''}
       ${data.length ? data.map(kartu).join('') : `<p class="muted">${semua.length ? 'Tidak ada yang cocok dengan filter.' : 'Belum ada switch / router di event ini.'}</p>`}`;
@@ -6219,6 +6459,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             ${p.ada_password ? '<button type="button" class="small danger super-only" data-p="pw-hapus">Hapus password</button>' : ''}</div>
         </form>
       </div>
+      <div class="card" id="card-lantai"></div>
       <div class="card" id="card-lapisan"></div>
       <div class="card" id="card-akses"><h2>Akses tim</h2><p class="muted small">Memuat…</p></div>
       <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>
@@ -6242,6 +6483,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         </div>
       </div>`;
     renderLapisanCard();
+    renderLantaiCard();
     muatAkses();
     muatAktivitas();
   }
@@ -6375,7 +6617,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       btn.disabled = true;
       btn.textContent = 'Mengimpor…';
       try {
-        const res = await api(API, { action: 'lapisan_impor', id: S.proyek.id, sumber_id: sumber, lapisan: arr, lapisan_id: baru.id });
+        const res = await api(API, { action: 'lapisan_impor', id: S.proyek.id, sumber_id: sumber, lapisan: arr, lapisan_id: baru.id, lantai_id: S.lantai || 'F1' });
         S.proyek = res.proyek;
         S.list = res.perangkat;
         S.foto = res.foto || [];
@@ -6387,6 +6629,140 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         toast(err.message, true);
         btn.disabled = false;
         btn.textContent = 'Impor sebagai layer';
+      }
+    }
+  });
+
+  // ------------------------------------------------------------------------ kartu lantai (tab Proyek)
+
+  /** Daftar lantai tersimpan untuk dikirim ulang: [{id, nama, tinggi}] urut bawah -> atas (minimal F1). */
+  function lantaiSekarang() {
+    return S.model.lantaiList().map(l => ({ id: l.id, nama: l.nama, tinggi: l.tinggi }));
+  }
+  function lantaiBaru(arr) {
+    const no = Math.max(0, ...arr.map(l => +l.id.slice(1))) + 1;
+    return { id: 'F' + no, nama: 'Lantai ' + (arr.length + 1), tinggi: 4 };
+  }
+  async function simpanLantai(arr) {
+    try {
+      const res = await enqueue(() => api(API, { action: 'lantai_save', id: S.proyek.id, lantai: arr }));
+      S.proyek = res.proyek;
+      refreshModel();
+      renderLantaiCard();
+    } catch (err) {
+      toast(err.message, true);
+      renderLantaiCard();
+    }
+  }
+
+  function renderLantaiCard() {
+    const box = $('#card-lantai');
+    if (!box) return;
+    const m = S.model;
+    const daftar = m.lantaiList();
+    const n = id => m.list.filter(d => m.lantaiOf(d) === id).length;
+    const skalaTxt = l => (l.skala ? `1 px = ${(l.skala * 100).toLocaleString('id-ID', { maximumFractionDigits: 2 })} cm` : '<span class="bad">belum dikalibrasi</span>');
+    box.innerHTML = `<h2>Lantai gedung</h2>
+      <p class="muted small">Satu gedung dengan denah berbeda per lantai. Tiap lantai punya gambar denah &amp; skala sendiri; layer jaringan tetap bisa melintasi lantai.
+        Kabel ke perangkat di lantai lain ditandai <b>⇅</b> (riser) dan panjangnya = jalur di denah sampai titik riser + selisih ketinggian lantai.
+        Titik riser = posisi uplink pada denah lantai ini (denah antar lantai dianggap sejajar).</p>
+      <div class="lt-list">${daftar.slice().reverse().map(l => {
+        const i = daftar.indexOf(l);
+        return `<div class="lt-row" data-lt="${esc(l.id)}">
+          <div class="lt-thumb">${denahUrl(l.id) ? `<img src="${esc(denahUrl(l.id))}" alt="" loading="lazy">` : '<span>Belum ada denah</span>'}</div>
+          <div class="lt-isi">
+            <div class="inline"><input type="text" value="${esc(l.nama)}" maxlength="60" data-lt-nama aria-label="Nama lantai">
+              <label class="lt-tinggi" title="Tinggi lantai ke lantai (untuk panjang kabel riser)"><input type="number" min="0" max="50" step="0.1" value="${l.tinggi}" data-lt-tinggi aria-label="Tinggi lantai"> m</label></div>
+            <p class="muted small">${n(l.id)} perangkat · ${l.denah_w ? `${l.denah_w} × ${l.denah_h} px · ` : ''}skala ${skalaTxt(l)} · elevasi ${l.elev.toLocaleString('id-ID')} m</p>
+            ${l.utama ? '<p class="muted small">Denah utama — ganti gambarnya di kartu <b>Denah venue</b>.</p>'
+              : `<div class="inline lt-up"><label class="btn small">${l.denah_v ? 'Ganti' : 'Upload'} denah<input type="file" data-lt-file accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
+                ${l.denah_v ? `<label class="check small"><input type="checkbox" data-lt-sesuai checked><span>Venue sama (skalakan posisi)</span></label>` : ''}
+                ${l.skala ? '<button type="button" class="small ghost" data-lt-skala-reset>Hapus kalibrasi</button>' : ''}</div>`}
+          </div>
+          <div class="lt-aksi">
+            <button type="button" class="small ghost" data-lt-pilih>Tampilkan</button>
+            <button type="button" class="icon" data-lt-geser="1" title="Naikkan urutan"${i === daftar.length - 1 ? ' disabled' : ''} aria-label="Naik">↑</button>
+            <button type="button" class="icon" data-lt-geser="-1" title="Turunkan urutan"${i === 0 ? ' disabled' : ''} aria-label="Turun">↓</button>
+            ${l.utama ? '' : `<button type="button" class="icon" data-lt-hapus title="${n(l.id) ? 'Pindahkan perangkatnya dulu' : 'Hapus lantai'}"${n(l.id) ? ' disabled' : ''} aria-label="Hapus lantai">✕</button>`}
+          </div></div>`;
+      }).join('')}</div>
+      <div class="btn-row"><button type="button" class="small" data-lt-tambah>+ Tambah lantai</button></div>`;
+  }
+
+  $('#proyek-pane').addEventListener('change', async e => {
+    const row = e.target.closest('#card-lantai [data-lt]');
+    if (!row) return;
+    const lid = row.dataset.lt;
+    const t = e.target;
+    if (t.matches('[data-lt-nama], [data-lt-tinggi]')) {
+      const arr = lantaiSekarang();
+      const l = arr.find(x => x.id === lid);
+      if (t.matches('[data-lt-nama]')) {
+        if (!t.value.trim()) return toast('Nama lantai wajib diisi', true);
+        l.nama = t.value.trim();
+      } else l.tinggi = Math.max(0, Math.min(50, parseFloat(t.value) || 0));
+      return simpanLantai(arr);
+    }
+    if (t.matches('[data-lt-file]') && t.files[0]) {
+      const s = row.querySelector('[data-lt-sesuai]');
+      const fd = new FormData();
+      fd.append('action', 'lantai_denah');
+      fd.append('id', S.proyek.id);
+      fd.append('lantai_id', lid);
+      fd.append('sesuaikan', s && s.checked ? '1' : '0');
+      fd.append('denah', t.files[0]);
+      toast('Mengunggah denah…');
+      try {
+        const res = await api(API, fd);
+        S.proyek = res.proyek;
+        S.list = res.perangkat;
+        refreshModel();
+        renderLantaiCard();
+        toast(`Denah ${S.model.lantaiById(lid).nama} tersimpan`);
+      } catch (err) {
+        toast(err.message, true);
+        t.value = '';
+      }
+    }
+  });
+  $('#proyek-pane').addEventListener('click', async e => {
+    if (!e.target.closest('#card-lantai')) return;
+    if (e.target.closest('[data-lt-tambah]')) {
+      const arr = lantaiSekarang();
+      if (arr.length >= 30) return toast('Maksimal 30 lantai', true);
+      arr.push(lantaiBaru(arr));
+      return simpanLantai(arr);
+    }
+    const row = e.target.closest('[data-lt]');
+    if (!row) return;
+    const lid = row.dataset.lt;
+    if (e.target.closest('[data-lt-pilih]')) {
+      go('denah');
+      return setLantai(lid);
+    }
+    const g = e.target.closest('[data-lt-geser]');
+    if (g) {
+      const arr = lantaiSekarang();
+      const i = arr.findIndex(l => l.id === lid);
+      const j = i + +g.dataset.ltGeser;
+      if (j < 0 || j >= arr.length) return;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      return simpanLantai(arr);
+    }
+    if (e.target.closest('[data-lt-hapus]')) {
+      const L = S.model.lantaiById(lid);
+      if (!confirm(`Hapus ${L.nama} beserta gambar denahnya?`)) return;
+      return simpanLantai(lantaiSekarang().filter(l => l.id !== lid));
+    }
+    if (e.target.closest('[data-lt-skala-reset]')) {
+      if (!confirm('Hapus kalibrasi skala lantai ini?')) return;
+      try {
+        const res = await enqueue(() => api(API, { action: 'lantai_skala', id: S.proyek.id, lantai_id: lid, skala: null }));
+        S.proyek = res.proyek;
+        refreshModel();
+        renderLantaiCard();
+      } catch (err) {
+        toast(err.message, true);
       }
     }
   });
@@ -6692,17 +7068,21 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const m = S.model;
     // Laporan gabungan beberapa layer: titik warna layer di kiri bawah tiap perangkat.
     const lpPeta = kolomLapisan(true);
-    const { W, H } = peta.size();
+    // Lantai yang digambar: opts.lantai, lantai perangkat fokus, atau lantai yang tampil di peta.
+    const fd = opts.focus != null && m.byId.get(opts.focus);
+    const lid = opts.lantai || (fd ? m.lantaiOf(fd) : S.lantai || 'F1');
+    const { W, H, img } = ukuranLantai(lid);
     const vb = opts.vb || [0, 0, W, H];
     const u = Math.max(vb[2], vb[3]) / 1100 * (opts.vb ? 2.2 : 1);
     const r = 9 * u;
-    const img = denahUrl();
     let h = `<svg viewBox="${vb.join(' ')}" xmlns="http://www.w3.org/2000/svg" class="${opts.cls || 'print-map'}" preserveAspectRatio="xMidYMid ${opts.vb ? 'slice' : 'meet'}">`;
     if (opts.vb) h += `<rect x="${vb[0]}" y="${vb[1]}" width="${vb[2]}" height="${vb[3]}" fill="#fff"/>`;
     h += img ? `<rect width="${W}" height="${H}" fill="#fff"/><image href="${esc(img)}" width="${W}" height="${H}" opacity="${peta.opacity}"/>` : `<rect width="${W}" height="${H}" fill="#fff" stroke="#ccc"/>`;
     // opts.filter(d): hanya perangkat ini yang digambar; opts.redup(d): digambar samar (konteks). opts.pwr: garis listrik.
-    const utama = d => !opts.filter || opts.filter(d);
-    const samar = d => !utama(d) && !!opts.redup && opts.redup(d);
+    const diLantai = d => !multiLantai() || m.lantaiOf(d) === lid;
+    const lolos = d => !opts.filter || opts.filter(d);
+    const utama = d => diLantai(d) && lolos(d);
+    const samar = d => diLantai(d) && !lolos(d) && !!opts.redup && opts.redup(d);
     const tampil = d => utama(d) || samar(d);
     if (opts.pwr) {
       for (const d of m.list) {
@@ -6721,7 +7101,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     }
     for (const d of m.list) {
       const p = m.parentOf(d);
-      if (!p || !utama(d) || !utama(p)) continue;
+      const riser = p && multiLantai() && m.bedaLantai(d, p);
+      if (!p || !utama(d) || !(riser ? lolos(p) : utama(p))) continue;
       const md = MEDIA[d.media] || MEDIA.utp;
       const kl = m.koneksiLink(d);
       const color = kl === 'online' ? md.color || '#0369a1' : KONEKSI[kl].color;
@@ -6729,6 +7110,13 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const pts = m.routePts(d).map(q => q.x + ',' + q.y).join(' ');
       h += `<polyline points="${pts}" fill="none" stroke-linejoin="round" stroke-linecap="round" stroke="#fff" stroke-width="${6.5 * u}" opacity=".9"/>
         <polyline points="${pts}" fill="none" stroke-linejoin="round" stroke-linecap="round" stroke="${color}" stroke-width="${3.6 * u}" stroke-dasharray="${dash ? dash.split(' ').map(x => x * u).join(' ') : ''}"/>`;
+      if (riser) {
+        // Kabel ke lantai lain: penanda ⇅ di titik riser + nama uplink & lantainya.
+        const e = m.routePts(d).slice(-1)[0];
+        h += `<g transform="translate(${e.x},${e.y})"><circle r="${7 * u}" fill="#7c3aed" stroke="#fff" stroke-width="${1.5 * u}"/>
+          <path d="M-2.5 4.5V-4.5M-5 -2L-2.5 -4.5L0 -2M2.5 -4.5V4.5M0 2L2.5 4.5L5 2" transform="scale(${u})" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>
+          <text text-anchor="middle" y="${-10 * u}" font-size="${8 * u}" font-weight="700" fill="#5b21b6" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(p.nama)} · ${esc(m.lantaiById(m.lantaiOf(p)).nama)}</text></g>`;
+      }
     }
     for (const d of m.list) {
       if (!tampil(d)) continue;
@@ -6759,8 +7147,30 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   }
 
   /** Potongan denah 4:3 di sekitar titik d; frac = lebar potongan relatif sisi terpanjang denah (bawaan 0,3). */
+  /**
+   * Denah laporan: satu blok .pr-map per lantai yang berisi perangkat (judul = nama lantai); satu lantai = satu denah
+   * seperti biasa. opts diteruskan ke staticMap, cls = kelas tambahan blok.
+   */
+  function petaLaporan(opts, cls) {
+    const m = S.model;
+    const blok = (isi, judul) => `<div class="pr-map${cls ? ' ' + cls : ''}">${judul ? `<div class="pr-lt">${judul}</div>` : ''}${isi}</div>`;
+    if (!multiLantai()) return blok(staticMap(opts));
+    const pakai = m.lantaiList().filter(L => m.list.some(d => m.lantaiOf(d) === L.id));
+    return (pakai.length ? pakai : [lantaiAktif()]).slice().reverse().map(L => {
+      const n = m.list.filter(d => m.lantaiOf(d) === L.id && (!opts || !opts.filter || opts.filter(d))).length;
+      return blok(staticMap(Object.assign({}, opts, { lantai: L.id })), `<b>${esc(L.nama)}</b> · ${n} perangkat`);
+    }).join('');
+  }
+
+  /** Ukuran & URL gambar denah satu lantai (tanpa gambar: kanvas bawaan 2000 × 1250 seperti peta). */
+  function ukuranLantai(lid) {
+    const L = S.model.lantaiById(lid || 'F1');
+    const img = denahUrl(L.id);
+    return { W: img && L.denah_w ? L.denah_w : 2000, H: img && L.denah_h ? L.denah_h : 1250, img, L };
+  }
+
   function cropAround(d, frac) {
-    const { W, H } = peta.size();
+    const { W, H } = ukuranLantai(S.model.lantaiOf(d));
     let w = Math.max(W, H) * (frac || 0.3);
     let h = w * 0.75;
     if (w > W) { w = W; h = w * 0.75; }
@@ -7009,7 +7419,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     pr.innerHTML = `
       <div class="pr-head"><h1>Sheet Konfigurasi Access Point</h1>
         <p><b>${esc(p.nama)}</b>${p.venue ? ' · ' + esc(p.venue) : ''}${tgl ? ' · ' + esc(tgl) : ''} · ${aps.length} AP${list.length > aps.length ? ` + ${list.length - aps.length} bridge` : ''} · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>
-      ${o.peta ? `<div class="pr-map ov">${staticMap()}</div>` : ''}
+      ${o.peta ? petaLaporan(null, 'ov') : ''}
       ${ssidTable}
       ${planTable}
       ${!o.password ? '<p class="muted">Password disamarkan.</p>' : ''}
@@ -7045,10 +7455,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const par = m.parentOf(d);
       const k = m.kabelM(d);
       return `<tr>
-        <td><b>${esc(d.nama)}</b><br><span class="muted">${esc(jenisLabel(d))}</span></td>
+        <td><b>${esc(d.nama)}</b><br><span class="muted">${esc(jenisLabel(d))}${multiLantai() ? ' · ' + esc(namaLantai(d)) : ''}</span></td>
         <td>${esc(d.model)}</td>
         <td>${esc(d.ip)}${d.vlan ? '<br>VLAN ' + esc(d.vlan) : ''}</td>
-        <td>${par ? esc(par.nama) : '—'}${d.port_uplink ? ' : ' + esc(d.port_uplink) : ''}${d.port_lokal ? '<br>lokal ' + esc(d.port_lokal) : ''}</td>
+        <td>${par ? esc(par.nama) + (multiLantai() && m.bedaLantai(d, par) ? ' (⇅ ' + esc(namaLantai(par)) + ')' : '') : '—'}${d.port_uplink ? ' : ' + esc(d.port_uplink) : ''}${d.port_lokal ? '<br>lokal ' + esc(d.port_lokal) : ''}</td>
         <td>${esc(d.media ? MEDIA[d.media].short : '')}${k != null ? '<br>≈ ' + esc(fmtM(k)) : ''}</td>
         <td>${esc(fmtBw(d.bandwidth_mbps))}</td>
         <td>${esc((STATUS[d.status] || STATUS.rencana).label)}<br>${konBadge(m.koneksi(d))}${d.pic ? '<br>' + esc(d.pic) : ''}</td>
@@ -7067,7 +7477,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const kb = m.kabel();
     $('#print').innerHTML = `
       <div class="pr-head"><h1>${esc(p.nama)}${S.labelLapisan ? ' — Layer ' + esc(S.labelLapisan) : ''}</h1><p>${esc([p.venue, tgl].filter(Boolean).join(' · '))} · ${m.list.length} perangkat · dicetak ${esc(new Date().toLocaleString('id-ID'))}</p></div>
-      <div class="pr-map">${staticMap()}</div>
+      ${petaLaporan()}
       <div class="pr-legend">${TYPE_ORDER.filter(j => m.list.some(d => d.jenis === j)).map(j => `<span><i style="background:${TYPES[j].color}">${esc(TYPES[j].short)}</i>${esc(TYPES[j].label)}</span>`).join('')}
         ${lineLegend().map(x => `<span>${x.svg}${esc(x.label)}</span>`).join('')}
         ${kolomLapisan(true).map(L => `<span><i style="background:${esc(L.warna)};width:10px;height:10px"></i>Layer ${esc(L.nama)}</span>`).join('')}

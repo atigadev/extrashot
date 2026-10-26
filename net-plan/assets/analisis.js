@@ -52,24 +52,88 @@
       return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
-    /** Jarak lurus ke uplink (meter) atau null bila skala belum dikalibrasi. */
-    function jarakM(d) {
-      const p = parentOf(d);
-      if (!p || !proyek.skala) return null;
-      return distPx(d, p) * proyek.skala;
+    // ---- Lantai: satu gedung bisa punya beberapa denah (proyek.lantai [{id, nama, tinggi, denah_w, denah_h, skala,
+    // denah_v}], urut bawah -> atas). F1 = denah utama (gambar & skala di kolom proyek). Perangkat memilih lantai di
+    // atribut "lantai" (kosong = F1). Kabel antar lantai (riser): jalur di lantai asal sampai lekukan terakhir (titik
+    // shaft) + selisih ketinggian lantai; posisi denah antar lantai tidak dibandingkan.
+    const lantaiMemo = { v: null };
+    function lantaiList() {
+      if (lantaiMemo.v) return lantaiMemo.v;
+      const def = Array.isArray(proyek && proyek.lantai) ? proyek.lantai.filter(l => l && /^F\d+$/.test(l.id)) : [];
+      if (!def.some(l => l.id === 'F1')) def.unshift({ id: 'F1', nama: 'Lantai 1', tinggi: 4 });
+      let elev = 0;
+      const out = def.map(l => {
+        const utama = l.id === 'F1';
+        const r = { id: l.id, nama: l.nama || 'Lantai ' + l.id.slice(1), tinggi: +l.tinggi >= 0 ? +l.tinggi : 4, elev,
+          denah_w: utama ? proyek.denah_w : l.denah_w, denah_h: utama ? proyek.denah_h : l.denah_h,
+          skala: utama ? proyek.skala : l.skala, denah_v: utama ? proyek.denah_v : l.denah_v, utama };
+        elev += r.tinggi;
+        return r;
+      });
+      return (lantaiMemo.v = out);
+    }
+    const multiLantai = () => lantaiList().length > 1;
+    /** Id lantai perangkat (kosong / tidak dikenal = F1). */
+    function lantaiOf(d) {
+      const id = d && d.atribut && d.atribut.lantai;
+      return id && lantaiList().some(l => l.id === id) ? id : 'F1';
+    }
+    function lantaiById(id) {
+      return lantaiList().find(l => l.id === id) || lantaiList().find(l => l.id === 'F1');
+    }
+    /** Skala (m/piksel) denah lantai perangkat. */
+    const skalaOf = d => lantaiById(lantaiOf(d)).skala || null;
+    const beda = (a, b) => lantaiOf(a) !== lantaiOf(b);
+    /** Selisih ketinggian (m) lantai dua perangkat. */
+    const naikM = (a, b) => Math.abs(lantaiById(lantaiOf(a)).elev - lantaiById(lantaiOf(b)).elev);
+
+    /**
+     * Posisi perangkat b dipindah ke denah lantai a (denah antar lantai dianggap sejajar; ukuran gambar berbeda
+     * diskalakan). Dipakai sebagai titik riser/shaft: kabel antar lantai naik/turun tepat di bawah/atas uplink.
+     */
+    function proyeksi(b, a) {
+      if (!beda(a, b)) return { x: b.x, y: b.y };
+      const La = lantaiById(lantaiOf(a)), Lb = lantaiById(lantaiOf(b));
+      const fx = La.denah_w && Lb.denah_w ? La.denah_w / Lb.denah_w : 1;
+      const fy = La.denah_h && Lb.denah_h ? La.denah_h / Lb.denah_h : 1;
+      return { x: b.x * fx, y: b.y * fy, riser: true };
     }
 
-    /** Titik-titik jalur kabel ke uplink (koordinat denah): [perangkat, ...lekukan, uplink]. */
+    /**
+     * Panjang (m) jalur dari a lewat lekukan ke b. Beda lantai: jalur mendatar di lantai a sampai titik riser
+     * (proyeksi b) + selisih ketinggian lantai. null bila skala denah lantai a belum dikalibrasi.
+     */
+    function panjangM(a, lek, b) {
+      const sk = skalaOf(a);
+      const datar = polyLen([a, ...lek, proyeksi(b, a)]);
+      if (!sk) return beda(a, b) && datar < 1 ? naikM(a, b) : null;
+      return datar * sk + (beda(a, b) ? naikM(a, b) : 0);
+    }
+
+    /** Jarak lurus ke uplink (meter) atau null bila skala belum dikalibrasi (beda lantai: termasuk selisih tinggi). */
+    function jarakM(d) {
+      const p = parentOf(d);
+      if (!p) return null;
+      const sk = skalaOf(d);
+      const datar = distPx(d, proyeksi(p, d));
+      if (!sk) return beda(d, p) && datar < 1 ? naikM(d, p) : null;
+      return beda(d, p) ? Math.hypot(datar * sk, naikM(d, p)) : datar * sk;
+    }
+
+    /**
+     * Titik-titik jalur kabel ke uplink (koordinat denah lantai perangkat): [perangkat, ...lekukan, uplink]. Uplink di
+     * lantai lain: titik akhir = titik riser (proyeksi uplink, ditandai riser: true).
+     */
     function routePts(d) {
       const p = parentOf(d);
       if (!p) return [];
-      return [{ x: d.x, y: d.y }, ...bends(d, p), { x: p.x, y: p.y }];
+      return [{ x: d.x, y: d.y }, ...bends(d, p), proyeksi(p, d)];
     }
 
     /** Titik lekukan saja. Wireless selalu lurus (sinyal tidak mengikuti dinding). */
     function bends(d, p) {
       if (d.media === 'wireless') return [];
-      return bendsJalur(d.jalur, d, p);
+      return bendsJalur(d.jalur, d, proyeksi(p, d));
     }
 
     /** Lekukan dari data jalur {m: 'h'|'v'|'bebas', p: [[x,y], ...]} antara titik a dan b. */
@@ -91,8 +155,8 @@
 
     /** Panjang jalur kabel (meter, tanpa tambahan) atau null bila skala belum dikalibrasi. */
     function jalurM(d) {
-      if (!parentOf(d) || !proyek.skala) return null;
-      return polyLen(routePts(d)) * proyek.skala;
+      const p = parentOf(d);
+      return p ? panjangM(d, bends(d, p), p) : null;
     }
 
     /** Estimasi panjang kabel ke uplink = panjang jalur + tambahan (naik-turun, sisa). Wireless: null. */
@@ -172,7 +236,8 @@
 
     /** Titik jalur kabel sambungan tambahan: [perangkat, ...lekukan, tujuan]. */
     function routePtsLain(d, w) {
-      return [{ x: d.x, y: d.y }, ...bendsJalur(w.jalur, d, w.dev), { x: w.dev.x, y: w.dev.y }];
+      const ujung = proyeksi(w.dev, d);
+      return [{ x: d.x, y: d.y }, ...bendsJalur(w.jalur, d, ujung), ujung];
     }
 
     /**
@@ -259,11 +324,10 @@
 
     /** Panjang kabel ke WAN tambahan (garis lurus + tambahan) atau null bila skala belum dikalibrasi. */
     function kabelWanM(d, isp) {
-      if (!proyek.skala) return null;
       // Ikuti bentuk jalur sambungan tambahan bila sudah dibentuk; selain itu garis lurus.
       const w = linkLain(d).find(x => x.dev.id === isp.id);
-      const px = w ? polyLen(routePtsLain(d, w)) : distPx(d, isp);
-      return px * proyek.skala * (1 + (proyek.slack_kabel || 0) / 100);
+      const m = panjangM(d, w ? bendsJalur(w.jalur, d, proyeksi(w.dev, d)) : [], isp);
+      return m == null ? null : m * (1 + (proyek.slack_kabel || 0) / 100);
     }
 
     /** Status koneksi yang dibawa garis dari perangkat ke uplinknya = status uplink tersebut. */
@@ -387,12 +451,40 @@
       return (vlanDefMemo.v = out);
     }
 
+    /**
+     * VLAN port switch yang belum tersambung perangkat (atribut vlan_port = JSON {kunci port: {mode, izin}}, mis.
+     * {"e5": {"mode": "access", "izin": "20"}}). Port tersambung memakai vlan_mode/vlan_izin perangkat di port itu.
+     */
+    function vlanPortSw(P) {
+      let o = {};
+      try { o = JSON.parse((P && P.atribut && P.atribut.vlan_port) || '{}') || {}; } catch (e) { o = {}; }
+      return o;
+    }
+    /** Konfigurasi VLAN port kosong switch (format sama dengan linkVlan). */
+    function vlanPortKosong(P, key) {
+      const c = vlanPortSw(P)[key] || {};
+      const izin = urutNum(new Set(angkaVlan(c.izin).filter(v => v > 1)));
+      if (c.mode === 'access' && izin.length) return { mode: 'access', tagged: [], untagged: izin[0], butuh: [], auto: false };
+      if (c.mode === 'trunk' && izin.length) return { mode: 'trunk', tagged: izin, untagged: null, butuh: [], auto: false };
+      return { mode: 'native', tagged: [], untagged: null, butuh: [], auto: !c.mode };
+    }
+
     /** VLAN yang dipakai perangkat itu sendiri (bukan turunannya). VLAN 1 = native, tidak dihitung. */
     function vlanDev(d) {
       const a = d.atribut || {};
       const s = new Set(angkaVlan(d.vlan).filter(v => v !== 1));
+      // Switch: VLAN port kosong yang sudah diatur (access / trunk) ikut dibawa trunk uplink switch ini.
+      if (d.jenis === 'switch' && a.vlan_port) {
+        const o = vlanPortSw(d);
+        Object.keys(o).forEach(k => {
+          const lv = vlanPortKosong(d, k);
+          (lv.mode === 'access' ? [lv.untagged] : lv.tagged).forEach(v => s.add(v));
+        });
+      }
       // Port uplink diatur manual sebagai access VLAN n: perangkat ini memang memakai VLAN n.
       if (a.vlan_mode === 'access') angkaVlan(a.vlan_izin).filter(v => v > 1).slice(0, 1).forEach(v => s.add(v));
+      // Port uplink diatur manual sebagai trunk VLAN tertentu: VLAN itu juga harus dibawa kabel-kabel di atasnya.
+      if (a.vlan_mode === 'trunk') angkaVlan(a.vlan_izin).filter(v => v > 1).forEach(v => s.add(v));
       if (d.jenis === 'ap' || d.jenis === 'bridge') {
         for (const x of String(a.ssid_lain || '').matchAll(/vlan\s*:?\s*(\d+)/gi)) if (+x[1] > 1) s.add(+x[1]);
       }
@@ -705,7 +797,8 @@
 
     function apRadiusPx(d) {
       const r = parseFloat(d.atribut && d.atribut.radius_m);
-      return r > 0 && proyek.skala ? r / proyek.skala : null;
+      const sk = skalaOf(d);
+      return r > 0 && sk ? r / sk : null;
     }
 
     /** Daftar masalah desain. level: err | warn | info. */
@@ -882,7 +975,7 @@
       for (let i = 0; i < aps.length; i++) {
         for (let j = i + 1; j < aps.length; j++) {
           const A = aps[i], B = aps[j];
-          if (String(A.atribut.channel).trim() !== String(B.atribut.channel).trim()) continue;
+          if (String(A.atribut.channel).trim() !== String(B.atribut.channel).trim() || beda(A, B)) continue;
           const ra = apRadiusPx(A), rb = apRadiusPx(B);
           if (ra == null || rb == null) continue;
           // Sektoral: dianggap bertumpuk hanya bila salah satu AP memancar ke arah AP lainnya (omni selalu).
@@ -1022,7 +1115,7 @@
       return [...m.values()];
     }
 
-    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, portMap, portWan, jumlahPort, kunciPort, lapisanList, lapisanOf, lapisanById, vlanDef, vlanDev, vlanButuh, linkVlan, vlanRingkas, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
+    return { proyek, list, byId, kat, spec, kids, parentOf, path, descendants, distPx, jarakM, routePts, jalurM, kabelM, bwEfektif, wanOf, wans, wanLain, wanMode, uplinkLain, uplinkMode, linkLain, routePtsLain, pemakaiWan, kabelWanM, koneksi, koneksiLink, roots, apRadiusPx, checks, bom, kabel, progresKabel, ssids, portMap, portWan, jumlahPort, kunciPort, lapisanList, lapisanOf, lapisanById, lantaiList, multiLantai, lantaiOf, lantaiById, skalaOf, naikM, proyeksi, bedaLantai: beda, vlanDef, vlanDev, vlanButuh, linkVlan, vlanRingkas, vlanPortSw, vlanPortKosong, dayaW, kapasitasW, listrikOf, bebanListrik, ringkasListrik };
   }
 
   /** Urutan tampilan: jenis (WAN → router → switch → ...), lalu nama alami (AP-2 sebelum AP-10). */

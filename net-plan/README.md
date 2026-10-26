@@ -226,6 +226,19 @@ Otomatis, Trunk + VLAN diizinkan, Access + satu VLAN, atau LAN saja (tanpa VLAN)
   perangkat tersebut.
 - Port kosong disimpan di `mt.port` router. Bila dibiarkan Otomatis, port kosong menjadi trunk semua VLAN.
 
+**VLAN per port switch.** Dipakai untuk membagi trunk yang masuk di port uplink switch (mis. eth1) menjadi access /
+trunk di port lainnya. Tabelnya ada di panel switch (tab *Info* → *Terhubung ke sini* → **VLAN per port**) dan tampil
+bila event punya VLAN.
+- Baris uplink (mis. eth1) hanya menampilkan trunk yang masuk; pengaturannya ada di tab *Koneksi* switch itu.
+- Port yang tersambung perangkat menyimpan pilihannya di perangkat itu, sama seperti kotak VLAN di tab *Koneksi*.
+- Port kosong disimpan di atribut switch `vlan_port` (JSON `{"e5":{"mode":"access","izin":"20"}}`). Bila belum
+  diatur, port kosong = LAN saja.
+- **Bagi cepat**: pilih *Port … s/d …* → Access / Trunk / LAN saja → VLAN → *Terapkan*. Contoh: port 3–8 access VLAN 20.
+  Port uplink dilewati, dan bisa dibatalkan dengan Ctrl+Z.
+- VLAN yang dipakai di port switch (termasuk port kosong dan trunk manual) otomatis ikut dibawa trunk uplink switch itu
+  sampai ke router.
+- Halaman *Port* menampilkan VLAN port kosong (mis. `A 20`).
+
 Mode per kabel bisa ditetapkan manual di tab *Koneksi* lewat kotak **VLAN di port …**: Otomatis / LAN saja / Trunk + daftar VLAN
 yang diizinkan / Access + VLAN. Badge `T 10,20` / `A 20` tampil di pohon topologi dan di daftar *Terhubung* per port.
 Kartu **VLAN** di Topologi merangkum VLAN, gateway, jumlah perangkat, dan masalahnya.
@@ -647,6 +660,41 @@ BSI LINE: sumber WAN berbeda dan tarikan kabel ke endpoint yang berbeda pula.
 - **Penyimpanan**: kolom `np_proyek.lapisan` (JSON, migrasi otomatis skema 11) dan atribut perangkat `lapisan`.
   - Ikut duplikat event dan backup / pulihkan.
   - Event tanpa layer tetap satu jaringan seperti biasa; pemilih layer tidak tampil.
+
+**Lantai gedung (denah berbeda per lantai).** Untuk satu gedung dengan beberapa lantai, setiap lantai punya gambar
+denah dan skala sendiri. Lantai terpisah dari layer: layer adalah jaringan, lantai adalah lokasi fisik, jadi satu layer
+bisa melintasi beberapa lantai.
+- **Kelola** di *Proyek → Lantai gedung*:
+  - tambah lantai, ganti nama, isi tinggi lantai (meter, untuk kabel riser), dan atur urutan bawah → atas (↑ ↓);
+  - upload denah per lantai. Centang *Venue sama* bila hanya mengganti versi gambar, maka posisi perangkat dan skala
+    ikut diskalakan;
+  - hapus lantai hanya bila sudah kosong.
+  - Lantai 1 = denah utama (kartu *Denah venue*).
+- **Denah**:
+  - pemilih **Lantai** di atas peta (urut seperti tombol lift); peta selalu menampilkan satu lantai;
+  - perangkat baru ditaruh di lantai yang tampil;
+  - memilih perangkat lantai lain (pencarian, daftar) otomatis pindah ke denah lantainya;
+  - alat **Ukur** / kalibrasi menyimpan skala lantai yang sedang tampil.
+- **Pindah lantai**: *Identitas → Lantai (denah)* (perangkat terpilih) atau *Daftar → ⇅ Lantai…* (massal). Posisi
+  diskalakan ke ukuran denah tujuan dan lekukan jalur dihapus. Bisa dibatalkan dengan Ctrl+Z.
+- **Kabel antar lantai (riser)**: uplink ke perangkat di lantai lain diatur lewat pilihan uplink di panel.
+  - Garisnya berujung di **titik riser** = posisi uplink pada denah lantai ini. Denah antar lantai dianggap sejajar,
+    dan ukuran gambar yang berbeda diskalakan.
+  - Titik riser ditandai lingkaran ungu ⇅ + "SW-01 · Lantai 1".
+  - Perangkat tujuan mendapat lencana ⇅n (jumlah kabel dari lantai lain).
+  - Panjang kabel = jalur mendatar di denah lantai asal sampai titik riser + selisih ketinggian lantai + tambahan %.
+- **Lainnya**:
+  - pemeriksaan co-channel AP hanya membandingkan AP di lantai yang sama;
+  - titik listrik di lantai yang sama diutamakan;
+  - impor event lain sebagai layer masuk ke lantai yang sedang tampil.
+- **Laporan**:
+  - laporan lengkap, sheet AP, dan laporan support mencetak satu denah per lantai (judul nama lantai + jumlah perangkat);
+  - daftar perangkat diberi nama lantai, dan uplink lintas lantai ditandai "(⇅ Lantai …)";
+  - PowerPoint dan potongan denah checker memakai denah lantai titik itu.
+- **Penyimpanan**: kolom `np_proyek.lantai` (JSON `[{id, nama, tinggi, denah_file, denah_w, denah_h, skala}]`, migrasi
+  otomatis skema 12) dan atribut perangkat `lantai` (kosong = Lantai 1).
+  - Gambar lantai lain diambil lewat `api/denah.php?…&lantai=F2`.
+  - Ikut duplikat event (file denah disalin), hapus event, dan backup / pulihkan.
 
 ## Logika jaringan
 

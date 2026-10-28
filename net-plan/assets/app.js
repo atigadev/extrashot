@@ -5456,46 +5456,52 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       }
       const ppt = new window.PptxGenJS();
       ppt.layout = 'LAYOUT_WIDE'; // 13,33 × 7,5 in
-      ppt.title = `Laporan foto pemasangan — ${p.nama}`;
+      ppt.title = `Laporan pemasangan perangkat — ${p.nama}`;
       ppt.company = 'Net Plan';
       const F = 'Calibri';
       const GELAP = '1F2937', ABU = '64748B', GARIS = 'CBD5E1';
       const tgl = p.tanggal_mulai ? fmtDate(p.tanggal_mulai) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + fmtDate(p.tanggal_selesai) : '') : '';
-      const st = d => (STATUS[d.status] || STATUS.rencana).label;
       const uplink = d => {
         const up = m.parentOf(d);
         return up ? `${up.nama}${d.port_uplink ? ' port ' + d.port_uplink : ''}` : '—';
       };
-      const vTxt = d => {
-        const v = NP.verifOf(d);
-        return v ? `${NP.VERIF[v.h].icon} ${NP.VERIF[v.h].label}` : 'Belum dicek';
+      // Tarikan LAN = kabel UTP titik ini ke uplink-nya (+ kabel UTP sambungan tambahan), tanpa kabel WAN ke ISP: [{ke, port, m}].
+      // Laporan hanya berisi jumlah perangkat & tarikan LAN (tanpa status pemasangan, progres foto, pengecekan).
+      const lanOf = d => {
+        const out = [];
+        const up = m.parentOf(d);
+        if (up && up.jenis !== 'isp' && (d.media || 'utp') === 'utp' && NP.perluKabel(d)) out.push({ ke: up, port: d.port_uplink, m: m.kabelM(d) });
+        m.linkLain(d).filter(w => w.media === 'utp' && w.dev.jenis !== 'isp').forEach(w => out.push({ ke: w.dev, port: w.port, m: m.kabelWanM(d, w.dev) }));
+        return out;
       };
-      const nVer = h => semua.filter(d => (NP.verifOf(d) || {}).h === h).length;
+      const rekap = ds => {
+        const lan = ds.flatMap(lanOf);
+        return { n: ds.length, lan: lan.length, m: lan.reduce((t, x) => t + (x.m || 0), 0), tanpaM: lan.filter(x => x.m == null).length };
+      };
+      const fmtLanM = r => (r.lan ? `≈ ${fmtM(r.m)}${r.tanpaM ? ` (+${r.tanpaM} belum terukur)` : ''}` : '—');
       const kaki = (s, teks) => s.addText(teks, { x: 0.4, y: 7.05, w: 12.5, h: 0.3, fontFace: F, fontSize: 9, color: ABU });
 
       // 1. Sampul + ringkasan angka.
       const s1 = ppt.addSlide();
       s1.background = { color: '0F172A' };
-      s1.addText('LAPORAN FOTO PEMASANGAN', { x: 0.7, y: 1.1, w: 12, h: 0.5, fontFace: F, fontSize: 16, bold: true, color: '93C5FD', charSpacing: 2 });
+      s1.addText('LAPORAN PEMASANGAN PERANGKAT', { x: 0.7, y: 1.1, w: 12, h: 0.5, fontFace: F, fontSize: 16, bold: true, color: '93C5FD', charSpacing: 2 });
       s1.addText(p.nama, { x: 0.7, y: 1.6, w: 12, h: 1.2, fontFace: F, fontSize: 40, bold: true, color: 'FFFFFF', fit: 'shrink' });
       s1.addText([p.venue, tgl, S.labelLapisan ? 'Layer ' + S.labelLapisan : ''].filter(Boolean).join(' · ') || ' ', { x: 0.7, y: 2.8, w: 12, h: 0.5, fontFace: F, fontSize: 18, color: 'CBD5E1' });
-      const kartu = [
-        ['Titik perangkat', semua.length], ['Sudah difoto', ada.length], ['Belum difoto', semua.length - ada.length],
-        ['Total foto', S.foto.filter(f => m.byId.get(f.perangkat_id)).length], ['Sesuai plan', nVer('sesuai')], ['Tidak sesuai', nVer('tidak')],
-      ];
+      const tot = rekap(semua);
+      const kartu = [['Total perangkat', String(tot.n)], ['Tarikan LAN', String(tot.lan)], ['Panjang kabel LAN', tot.lan ? '≈ ' + fmtM(tot.m) : '—']];
       kartu.forEach(([l, n], i) => {
-        const x = 0.7 + i * 2.02;
-        s1.addShape(ppt.ShapeType.roundRect, { x, y: 4.1, w: 1.85, h: 1.35, fill: { color: '1E293B' }, line: { color: '334155' }, rectRadius: 0.08 });
-        s1.addText(String(n), { x, y: 4.2, w: 1.85, h: 0.75, align: 'center', fontFace: F, fontSize: 30, bold: true, color: l === 'Tidak sesuai' && n ? 'F87171' : 'FFFFFF' });
-        s1.addText(l, { x, y: 4.95, w: 1.85, h: 0.4, align: 'center', fontFace: F, fontSize: 11, color: '94A3B8' });
+        const x = 0.7 + i * 4.05;
+        s1.addShape(ppt.ShapeType.roundRect, { x, y: 4.1, w: 3.85, h: 1.35, fill: { color: '1E293B' }, line: { color: '334155' }, rectRadius: 0.08 });
+        s1.addText(n, { x, y: 4.2, w: 3.85, h: 0.75, align: 'center', fontFace: F, fontSize: 30, bold: true, color: 'FFFFFF', fit: 'shrink' });
+        s1.addText(l, { x, y: 4.95, w: 3.85, h: 0.4, align: 'center', fontFace: F, fontSize: 12, color: '94A3B8' });
       });
       // Gabungan beberapa layer: angka per layer di bawah kartu ringkasan.
       if (colsLp.length) {
         s1.addText(colsLp.map(L => {
-          const ds = semua.filter(d => m.lapisanOf(d) === L.id);
+          const r = rekap(semua.filter(d => m.lapisanOf(d) === L.id));
           return [{ text: '● ', options: { color: L.warna.slice(1), fontSize: 16 } },
             { text: `${L.nama}  `, options: { bold: true, color: 'FFFFFF' } },
-            { text: `${ds.length} titik · difoto ${ds.filter(d => fotoOf(d.id).length).length}`, options: { color: '94A3B8', breakLine: true } }];
+            { text: `${r.n} perangkat · ${r.lan} tarikan LAN${r.lan ? ' · ' + fmtLanM(r) : ''}`, options: { color: '94A3B8', breakLine: true } }];
         }).flat(), { x: 0.7, y: 5.65, w: 12, h: 0.95, fontFace: F, fontSize: 13, valign: 'top' });
       }
       s1.addText(`Dibuat ${new Date().toLocaleString('id-ID')} · Net Plan`, { x: 0.7, y: 6.7, w: 12, h: 0.35, fontFace: F, fontSize: 10, color: '64748B' });
@@ -5509,15 +5515,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const sel = (t, o) => ({ text: String(t), options: o || {} });
       const th = t => sel(t, { bold: true, fill: { color: 'E2E8F0' }, color: GELAP });
       const angka = (n, warna) => sel(n, { align: 'center', bold: !!n, color: n ? warna : ABU });
-      const rekap = ds => {
-        const difoto = ds.filter(d => fotoOf(d.id).length).length;
-        const h = x => ds.filter(d => (NP.verifOf(d) || {}).h === x).length;
-        return { n: ds.length, difoto, belum: ds.length - difoto, sesuai: h('sesuai'), tidak: h('tidak'), blmCek: ds.filter(d => !NP.verifOf(d)).length };
-      };
       const s2 = ppt.addSlide();
       s2.addText(colsLp.length ? 'Ringkasan per layer & jenis perangkat' : 'Ringkasan per jenis perangkat', { x: 0.4, y: 0.3, w: 12.5, h: 0.6, fontFace: F, fontSize: 24, bold: true, color: GELAP });
-      const tot = rekap(semua);
-      const barisRekap = r => [angka(r.n, GELAP), angka(r.difoto, '15803D'), angka(r.belum, 'B91C1C'), angka(r.sesuai, '2563EB'), angka(r.tidak, 'DC2626'), angka(r.blmCek, ABU)];
+      const barisRekap = r => [angka(r.n, GELAP), angka(r.lan, '0369A1'), sel(fmtLanM(r), { align: 'center', color: r.lan ? GELAP : ABU })];
       // Gabungan beberapa layer: baris judul per layer (rekap layer, berwarna) lalu jenis-jenis di layer itu.
       const barisJenis = colsLp.length
         ? colsLp.flatMap(L => {
@@ -5528,10 +5528,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           return [judul, ...gs.map(g => [sel('    ' + (TYPES[g.j] || TYPES.lainnya).label, { color: GELAP }), ...barisRekap(rekap(g.ds))])];
         })
         : grup.map(g => [sel((TYPES[g.j] || TYPES.lainnya).label, { bold: true, color: GELAP }), ...barisRekap(rekap(g.ds))]);
-      s2.addTable([['Jenis perangkat', 'Titik', 'Sudah difoto', 'Belum difoto', 'Sesuai plan', 'Tidak sesuai', 'Belum dicek'].map(th)]
+      s2.addTable([['Jenis perangkat', 'Jumlah perangkat', 'Tarikan LAN', 'Panjang kabel LAN'].map(th)]
         .concat(barisJenis)
         .concat([[sel('Total', { bold: true, fill: { color: 'F1F5F9' } }), ...barisRekap(tot).map(c => ({ text: c.text, options: Object.assign({}, c.options, { fill: { color: 'F1F5F9' }, bold: true }) }))]]), {
-        x: 0.4, y: 1.0, w: 12.5, colW: [3.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5], fontFace: F, fontSize: 12, color: '334155', rowH: 0.4, valign: 'middle',
+        x: 0.4, y: 1.0, w: 12.5, colW: [4.7, 2.4, 2.4, 3.0], fontFace: F, fontSize: 12, color: '334155', rowH: 0.4, valign: 'middle',
         border: { type: 'solid', pt: 0.5, color: GARIS }, autoPage: true, autoPageRepeatHeader: true, newSlideStartY: 0.5,
       });
       // Daftar titik per jenis: tiap jenis jadi satu bagian (garis warna + nama jenis + angka + tabel). Jenis besar
@@ -5562,19 +5562,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           sg.addShape(ppt.ShapeType.rect, { x: 0.4, y: y + 0.06, w: 0.1, h: 0.34, fill: { color: (b.g.L ? b.g.L.warna : T.color).slice(1) }, line: { type: 'none' } });
           sg.addText([...(b.g.L ? [{ text: b.g.L.nama + ' · ', options: { color: b.g.L.warna.slice(1) } }] : []), { text: T.label + (b.dari > 1 ? ` (${b.ke}/${b.dari})` : '') }],
             { x: 0.58, y, w: 7, h: 0.46, fontFace: F, fontSize: 18, bold: true, color: GELAP, valign: 'middle', fit: 'shrink' });
-          sg.addText(`${r.n} titik · difoto ${r.difoto} · sesuai ${r.sesuai} · tidak sesuai ${r.tidak} · belum dicek ${r.blmCek}`,
+          sg.addText(`${r.n} perangkat · ${r.lan} tarikan LAN${r.lan ? ' · ' + fmtLanM(r) : ''}`,
             { x: 6.0, y, w: 6.9, h: 0.46, align: 'right', fontFace: F, fontSize: 11, color: ABU, valign: 'middle' });
-          const rows = [['Titik', b.g.j === 'endpoint' ? 'Tipe' : 'Alat', 'Status', 'Uplink / port', 'Foto', 'Pengecekan'].map(th)].concat(b.ds.map(d => {
-            const n = fotoOf(d.id).length;
-            const v = NP.verifOf(d);
+          const rows = [['Titik', b.g.j === 'endpoint' ? 'Tipe' : 'Alat', 'Uplink / port', 'Media', 'Tarikan LAN'].map(th)].concat(b.ds.map(d => {
             const kt = m.kat(d);
+            const r = rekap([d]);
             return [sel(d.nama, { bold: true }), b.g.j === 'endpoint' ? jenisLabel(d).replace(/^[^·]*·\s*/, '') : (kt ? [kt.merek, kt.model].filter(Boolean).join(' ') : d.model) || '—',
-              sel(st(d), { color: (STATUS[d.status] || STATUS.rencana).color.slice(1) }), uplink(d),
-              sel(`${n}/${FOTO_MAKS}`, { color: n ? '15803D' : 'B91C1C', bold: true, align: 'center' }),
-              sel(vTxt(d) + (v && v.c ? ' — ' + (v.c.length > 70 ? v.c.slice(0, 70) + '…' : v.c) : ''), { color: v ? NP.VERIF[v.h].color.slice(1) : ABU })];
+              uplink(d), d.media && MEDIA[d.media] ? MEDIA[d.media].short || '—' : '—',
+              sel(r.lan ? (r.lan > 1 ? r.lan + ' kabel · ' : '') + fmtLanM(r) : '—', { color: r.lan ? GELAP : ABU })];
           }));
           sg.addTable(rows, {
-            x: 0.4, y: y + KEPALA, w: 12.5, colW: [2.1, 2.3, 1.3, 2.5, 0.7, 3.6], rowH: BARIS, fontFace: F, fontSize: 10, color: '334155',
+            x: 0.4, y: y + KEPALA, w: 12.5, colW: [2.4, 3.2, 3.2, 1.0, 2.7], rowH: BARIS, fontFace: F, fontSize: 10, color: '334155',
             border: { type: 'solid', pt: 0.5, color: GARIS }, margin: [0.02, 0.08, 0.02, 0.08],
           });
           y += tinggiBagian(b);
@@ -5586,18 +5584,16 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         const d = ada[k];
         toast(`Menyiapkan PowerPoint… ${k + 1}/${ada.length}`);
         const fs = fotoOf(d.id);
-        const v = NP.verifOf(d);
         // Gabungan beberapa layer: slide pembatas di awal tiap layer.
         if (colsLp.length && (k === 0 || m.lapisanOf(ada[k - 1]) !== m.lapisanOf(d))) {
           const L = Lof(d);
-          const dsL = semua.filter(x => m.lapisanOf(x) === L.id);
-          const fotoL = ada.filter(x => m.lapisanOf(x) === L.id);
+          const rL = rekap(semua.filter(x => m.lapisanOf(x) === L.id));
           const sp = ppt.addSlide();
           sp.background = { color: '0F172A' };
           sp.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 0.35, h: 7.5, fill: { color: L.warna.slice(1) }, line: { type: 'none' } });
           sp.addText('LAYER JARINGAN', { x: 0.9, y: 2.3, w: 11.5, h: 0.5, fontFace: F, fontSize: 16, bold: true, color: '93C5FD', charSpacing: 2 });
           sp.addText(L.nama, { x: 0.9, y: 2.8, w: 11.5, h: 1.2, fontFace: F, fontSize: 40, bold: true, color: 'FFFFFF', fit: 'shrink' });
-          sp.addText(`${dsL.length} titik · ${fotoL.length} titik berfoto · sesuai plan ${dsL.filter(x => (NP.verifOf(x) || {}).h === 'sesuai').length} · tidak sesuai ${dsL.filter(x => (NP.verifOf(x) || {}).h === 'tidak').length}`,
+          sp.addText(`${rL.n} perangkat · ${rL.lan} tarikan LAN${rL.lan ? ' · ' + fmtLanM(rL) : ''}`,
             { x: 0.9, y: 4.0, w: 11.5, h: 0.5, fontFace: F, fontSize: 16, color: 'CBD5E1' });
         }
         const s = ppt.addSlide();
@@ -5606,7 +5602,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         s.addText([{ text: d.nama, options: { bold: true, fontSize: 24, color: 'FFFFFF' } },
           { text: `   ${jenisLabel(d)}${d.model ? ' · ' + d.model : ''}${!S.labelLapisan && m.lapisanList().length > 1 ? ' · Layer ' + m.lapisanById(m.lapisanOf(d)).nama : ''}`, options: { fontSize: 14, color: 'CBD5E1' } }],
         { x: 0.4, y: 0.12, w: 9.6, h: 0.7, fontFace: F, valign: 'middle' });
-        s.addText(st(d), { x: 10.3, y: 0.25, w: 2.6, h: 0.45, align: 'right', fontFace: F, fontSize: 14, bold: true, color: (STATUS[d.status] || STATUS.rencana).color.slice(1) });
+
         // Spesifikasi & data titik: alat (katalog), spesifikasi katalog, isian jenis (tanpa password / setelan jaringan
         // router), lalu uplink, IP, posisi pasang, PIC. Disusun dua pasang kolom di bawah foto.
         const spek = specPpt(d);
@@ -5646,7 +5642,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             border: { type: 'solid', pt: 0.5, color: 'E2E8F0' }, fill: { color: 'FFFFFF' },
           });
         }
-        // Kolom kanan: lokasi di denah + hasil pengecekan.
+        // Kolom kanan: lokasi di denah + tarikan LAN titik ini.
         const rx = 9.95, rw = 3.0;
         let ry = 1.15;
         const denahImg = denahImgs.get(m.lantaiOf(d));
@@ -5657,21 +5653,20 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           s.addImage({ data: potonganDenah(denahImg, d), ...kotak, line: { color: GARIS } });
           ry += 0.32 + kotak.h + 0.25;
         }
-        const V = v && NP.VERIF[v.h];
-        const vh = Math.min(6.85 - ry, v && v.c ? 2.2 : 0.8);
-        s.addShape(ppt.ShapeType.roundRect, { x: rx, y: ry, w: rw, h: vh, fill: { color: V ? (v.h === 'tidak' ? 'FEF2F2' : 'EFF6FF') : 'F8FAFC' }, line: { color: V ? V.color.slice(1) : GARIS }, rectRadius: 0.06 });
+        const lan = lanOf(d);
+        const lh = Math.min(6.85 - ry, 0.5 + Math.max(1, lan.length) * 0.42);
+        s.addShape(ppt.ShapeType.roundRect, { x: rx, y: ry, w: rw, h: lh, fill: { color: 'F0F9FF' }, line: { color: lan.length ? '0369A1' : GARIS }, rectRadius: 0.06 });
         s.addText([
-          { text: 'Pengecekan penempatan', options: { fontSize: 9, color: ABU, breakLine: true } },
-          { text: vTxt(d), options: { bold: true, fontSize: 13, color: V ? V.color.slice(1) : ABU, breakLine: true } },
-          ...(v ? [{ text: `${v.o || ''} · ${v.t || ''}`, options: { fontSize: 9, color: ABU, breakLine: !!v.c } }] : []),
-          ...(v && v.c ? [{ text: v.c, options: { fontSize: 10, color: '334155' } }] : []),
-        ], { x: rx + 0.08, y: ry + 0.04, w: rw - 0.16, h: vh - 0.08, fontFace: F, valign: 'top', fit: 'shrink' });
+          { text: 'Tarikan LAN', options: { fontSize: 9, color: ABU, breakLine: true } },
+          ...(lan.length ? lan.map((x, i) => ({ text: `${x.ke.nama}${x.port ? ' port ' + x.port : ''}${x.m != null ? '  ≈ ' + fmtM(x.m) : ''}`, options: { bold: true, fontSize: 12, color: '0369A1', breakLine: i < lan.length - 1 } }))
+            : [{ text: m.parentOf(d) ? `${MEDIA[d.media] ? MEDIA[d.media].label : d.media} ke ${m.parentOf(d).nama}` : 'Tanpa kabel LAN', options: { fontSize: 12, color: ABU } }]),
+        ], { x: rx + 0.08, y: ry + 0.04, w: rw - 0.16, h: lh - 0.08, fontFace: F, valign: 'top', fit: 'shrink' });
         kaki(s, `${p.nama}${colsLp.length ? ' · Layer ' + Lof(d).nama : ''} · Titik ${k + 1}/${ada.length}`);
       }
 
-      const nama = `laporan-foto-${slug(p.nama)}.pptx`;
+      const nama = `laporan-pemasangan-${slug(p.nama)}.pptx`;
       await ppt.writeFile({ fileName: nama });
-      toast(`${nama} diunduh — ${ada.length} titik, ${ada.reduce((t, d) => t + fotoOf(d.id).length, 0)} foto`);
+      toast(`${nama} diunduh — ${tot.n} perangkat, ${tot.lan} tarikan LAN, ${ada.length} titik berfoto`);
     } catch (e) {
       toast(e.message || 'PowerPoint gagal dibuat', true);
     } finally {

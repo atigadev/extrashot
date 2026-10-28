@@ -345,26 +345,25 @@ bisa diubah langsung:
   label layer.
 - Port yang belum diketahui jumlahnya ditandai "belum diisi". Isi *Jumlah port* di switch, atau di tab Router → Sistem.
 
-**Laporan foto PowerPoint.** Di dialog *Cetak → Laporan foto pemasangan* ada tombol **⬇ Unduh PowerPoint**. File
-`.pptx` (16:9) dibuat langsung di browser, tanpa server tambahan. Isinya:
-- **Sampul**: nama event, venue, tanggal, dan angka ringkas (titik, sudah / belum difoto, total foto, sesuai / tidak
-  sesuai plan).
-- **Ringkasan per jenis perangkat**: satu tabel rekap per jenis berisi jumlah titik, sudah / belum difoto, sesuai /
-  tidak sesuai plan, belum dicek, dan baris total.
-- **Daftar titik per jenis** (urut WAN → router → switch → AP → …). Tiap jenis punya judul berwarna, angka ringkas, dan
-  tabel: titik, alat (merek/model; endpoint: tipe), status, uplink / port, jumlah foto, dan hasil pengecekan (catatan
-  dipotong 70 karakter). Jenis besar dibagi rata maks. 19 baris per slide (mis. "Switch (1/2)", "Switch (2/2)").
-  Jenis kecil digabung dalam satu slide selama muat.
-- Slide foto per titik juga berurutan per jenis.
+**Laporan PowerPoint (pemasangan perangkat).** Di dialog *Cetak → Laporan foto pemasangan* ada tombol **⬇ Unduh
+PowerPoint**. File `.pptx` (16:9) dibuat langsung di browser, tanpa server tambahan. Isinya hanya **jumlah perangkat
+dan tarikan LAN**, tanpa status pemasangan, progres foto, dan hasil pengecekan:
+- **Sampul**: nama event, venue, tanggal, dan tiga angka: total perangkat, jumlah tarikan LAN, dan panjang kabel LAN
+  (≈ m). Ada juga angka per layer.
+- **Tarikan LAN** = kabel UTP titik ke uplink-nya, termasuk sambungan UTP tambahan. Kabel WAN ke Sumber WAN/ISP,
+  fiber, dan wireless tidak dihitung. Panjang mengikuti estimasi kabel (jalur + tambahan %); kabel tanpa skala ditulis
+  "belum terukur".
+- **Ringkasan per jenis perangkat**: jumlah perangkat, tarikan LAN, dan panjang kabel LAN per jenis, ditambah baris
+  total.
+- **Daftar titik per jenis** (urut WAN → router → switch → AP → …): titik, alat (merek/model; endpoint: tipe), uplink /
+  port, media, dan tarikan LAN (m). Jenis besar dibagi rata maks. 19 baris per slide; jenis kecil digabung selama muat.
 - **Satu slide per titik berfoto**:
   - 1–3 foto bercap, utuh tanpa terpotong, disusun 1 besar / 2 / 3 kolom mengikuti rasio foto;
   - keterangan tiap foto: waktu, pengambil, dan koordinat yang bisa diklik ke Google Maps;
-  - tabel **Spesifikasi & data titik** di bawah foto (dua pasang kolom, maks. 20 baris): alat (merek/model katalog),
-    data pemasangan (uplink & port, IP/VLAN, posisi pasang, limit, PIC), spesifikasi katalog (port, PoE, daya, standar
-    WiFi, band, throughput, antena, OS, …), dan isian jenis (mis. tipe switch, channel AP). Password dan setelan
-    jaringan router (DHCP, DNS, admin) tidak ikut;
-  - kolom kanan: **potongan denah** dengan penanda lokasi titik,
-    dan kotak hasil pengecekan (sesuai / tidak sesuai + catatan).
+  - tabel **Spesifikasi & data titik** di bawah foto: alat, uplink & port, IP/VLAN, posisi pasang, spesifikasi
+    katalog, dan isian jenis. Password dan setelan jaringan router tidak ikut;
+  - kolom kanan: **potongan denah** dengan penanda lokasi titik, dan kotak **Tarikan LAN** (dari switch/port mana,
+    ≈ meter).
 
 Pustaka PptxGenJS 3.12.0 (MIT) ada di `vendor/pptxgenjs.bundle.js` dan hanya dimuat saat tombol diklik.
 
@@ -659,7 +658,7 @@ BSI LINE: sumber WAN berbeda dan tarikan kabel ke endpoint yang berbeda pula.
   - Laporan gabungan semua layer, per jenis laporan:
     - **Laporan lengkap**: legenda layer, titik warna layer di denah, daftar perangkat berkelompok per layer.
     - **Laporan foto (cetak)**: rekap per layer, lalu per layer judul berwarna + kartu foto + tabel belum difoto.
-    - **PowerPoint**: angka per layer di sampul; ringkasan per layer & jenis; daftar titik berjudul "Layer · Jenis";
+    - **PowerPoint**: perangkat & tarikan LAN per layer di sampul; ringkasan per layer & jenis; daftar titik berjudul "Layer · Jenis";
       slide pembatas tiap layer; slide titik diberi strip warna layer + nama layer di judul & kaki.
     - **Sheet AP / CSV AP**: urut per layer, label / kolom Layer.
     - **Laporan support & listrik**: label layer di titik listrik & peralatan support.

@@ -345,6 +345,7 @@ bisa diubah langsung:
   label layer.
 - Port yang belum diketahui jumlahnya ditandai "belum diisi". Isi *Jumlah port* di switch, atau di tab Router → Sistem.
 
+**Dialog Cetak & unduh laporan.** Jenis laporan tampil sebagai kartu ringkas (2 kolom; 1 kolom di ponsel) dengan ikon,ringkasan, dan format (A4 tegak / mendatar, CSV, PowerPoint). Penjelasan lengkap jenis terpilih ada di bawah kartu.Pilihan layer & opsi jenis laporan ada di panel *Pengaturan*, dan tombol aksi ada di footer yang selalu terlihat.**Progress proses panjang.** Pembuatan PowerPoint (pustaka → denah → ringkasan → penempatan → slide foto per titik →simpan), persiapan cetak (memuat semua gambar denah & foto sebelum dialog print muncul), serta backup & pulihkanmenampilkan dialog progress berisi bar persen dan langkah yang sedang dikerjakan.
 **Laporan PowerPoint (pemasangan perangkat).** Di dialog *Cetak → Laporan foto pemasangan* ada tombol **⬇ Unduh
 PowerPoint**. File `.pptx` (16:9) dibuat langsung di browser, tanpa server tambahan. Isinya hanya **jumlah perangkat
 dan tarikan LAN**, tanpa status pemasangan, progres foto, dan hasil pengecekan:

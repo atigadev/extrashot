@@ -519,8 +519,10 @@
       el = document.createElement('div');
       el.className = 'toast';
       el.setAttribute('role', 'status');
-      document.body.appendChild(el);
     }
+    // Dialog modal terbuka: toast ditaruh di dalamnya agar tidak tertutup lapisan modal.
+    const host = [...document.querySelectorAll('dialog[open]')].pop() || document.body;
+    if (el.parentNode !== host) host.appendChild(el);
     el.textContent = msg;
     el.classList.toggle('err', !!isErr);
     el.classList.toggle('has-action', !!action);
@@ -539,6 +541,52 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), action ? 7000 : isErr ? 4500 : 2200);
   }
 
+
+  /**
+   * Progress proses panjang (PowerPoint, persiapan cetak, backup): dialog modal kecil berisi judul, bar & keterangan.
+   * buka(judul) -> set(persen 0–100 | null = tak tentu, teks) -> tutup(). Tidak bisa ditutup dengan Esc selama berjalan.
+   */
+  const progres = (() => {
+    let el = null;
+    const pastikan = () => {
+      if (el) return el;
+      el = document.createElement('dialog');
+      el.className = 'dlg dlg-progres';
+      el.setAttribute('aria-live', 'polite');
+      el.innerHTML = '<div class="pg-judul"></div><div class="pg-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i></i></div><div class="pg-info"><span class="pg-teks"></span><b class="pg-pct"></b></div>';
+      el.addEventListener('cancel', e => e.preventDefault());
+      document.body.appendChild(el);
+      return el;
+    };
+    return {
+      buka(judul, teks) {
+        const d = pastikan();
+        d.querySelector('.pg-judul').textContent = judul;
+        this.set(null, teks || '');
+        if (!d.open) d.showModal();
+      },
+      set(pct, teks) {
+        const d = pastikan();
+        const bar = d.querySelector('.pg-bar');
+        const tentu = pct != null && isFinite(pct);
+        const v = tentu ? Math.max(0, Math.min(100, pct)) : 0;
+        bar.classList.toggle('tak-tentu', !tentu);
+        bar.firstChild.style.width = tentu ? v + '%' : '';
+        if (tentu) bar.setAttribute('aria-valuenow', Math.round(v)); else bar.removeAttribute('aria-valuenow');
+        d.querySelector('.pg-pct').textContent = tentu ? Math.round(v) + '%' : '';
+        if (teks != null) d.querySelector('.pg-teks').textContent = teks;
+      },
+      tutup() {
+        if (!el || !el.open) return;
+        const t = el.querySelector('.toast');
+        el.close();
+        // Toast yang muncul selama progress ikut dipindah keluar agar tetap terlihat.
+        if (t) ([...document.querySelectorAll('dialog[open]')].pop() || document.body).appendChild(t);
+      },
+      /** Beri kesempatan browser menggambar ulang (dipakai di antara langkah berat yang sinkron). */
+      jeda: () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0))),
+    };
+  })();
   async function copy(text) {
     try {
       await navigator.clipboard.writeText(text);
@@ -598,5 +646,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

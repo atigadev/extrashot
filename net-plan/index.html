@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=115">
+<link rel="stylesheet" href="assets/np.css?v=116">
 </head>
 <body>
 
@@ -372,43 +372,59 @@
 </dialog>
 
 <!-- Dialog cetak / unduh laporan -->
-<dialog id="dlg-print" class="dlg">
+<dialog id="dlg-print" class="dlg dlg-print" aria-labelledby="pr-judul">
   <form method="dialog" id="form-print">
-    <h2>Cetak laporan</h2>
-    <div class="radio-list">
-      <label><input type="radio" name="jenis" value="ap" checked>
-        <span><b>Sheet konfigurasi AP</b><small>Satu kartu per access point berisi lokasi, IP/VLAN, uplink &amp; port, SSID, password, channel, catatan, dan checklist pemasangan. Acuan teknisi saat setting AP. A4 tegak.</small></span></label>
-      <label><input type="radio" name="jenis" value="lengkap">
-        <span><b>Laporan lengkap</b><small>Denah bertitik, tabel semua perangkat, kebutuhan perangkat, estimasi kabel, dan hasil pemeriksaan. A4 mendatar.</small></span></label>
-      <label><input type="radio" name="jenis" value="support">
-        <span><b>Laporan support &amp; listrik</b><small>Denah khusus titik listrik &amp; peralatan support beserta jalur listriknya, rekap daya per titik listrik (MCB, terpakai, sisa), perangkat tanpa titik pemasok, dan daftar peralatan support. A4 mendatar.</small></span></label>
-      <label><input type="radio" name="jenis" value="port">
-        <span><b>Laporan penggunaan port</b><small>Per switch &amp; router: panel port berwarna, isi tiap port (uplink/WAN, antar switch, AP, titik LAN, endpoint, CCTV, server, …), port kosong, media &amp; status kabel, VLAN trunk/access, serta perangkat tanpa nomor port. Rekap semua perangkat di awal. A4 tegak, atau unduh CSV.</small></span></label>
-      <label><input type="radio" name="jenis" value="foto">
-        <span><b>Laporan foto pemasangan</b><small>Bukti pemasangan per perangkat: 1–3 foto dari lapangan dengan koordinat GPS &amp; waktu, status, lokasi uplink/port, hasil pengecekan, ringkasan kelengkapan foto, dan daftar perangkat yang belum difoto. Cetak A4 tegak, atau <b>Unduh PowerPoint</b> (satu slide per titik + potongan denah).</small></span></label>
+    <header class="pr-dlg-head">
+      <div><h2 id="pr-judul">Cetak &amp; unduh laporan</h2><p class="muted small" id="print-info"></p></div>
+      <button type="button" class="icon" data-close aria-label="Tutup">✕</button>
+    </header>
+    <div class="pr-dlg-body">
+      <h3 class="pr-sec">Jenis laporan</h3>
+      <div class="pr-jenis" role="radiogroup" aria-label="Jenis laporan">
+        <label><input type="radio" name="jenis" value="ap" checked>
+          <i class="pr-ico" style="--c:#16a34a"><svg viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor"/></svg></i>
+          <span><b>Sheet konfigurasi AP</b><small>Kartu setting per AP: SSID, password, channel, IP/VLAN, uplink.</small><em>A4 tegak · CSV</em></span></label>
+        <label><input type="radio" name="jenis" value="lengkap">
+          <i class="pr-ico" style="--c:#2563eb"><svg viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg></i>
+          <span><b>Laporan lengkap</b><small>Denah bertitik, daftar perangkat, kebutuhan &amp; kabel, pemeriksaan.</small><em>A4 mendatar</em></span></label>
+        <label><input type="radio" name="jenis" value="support">
+          <i class="pr-ico" style="--c:#ca8a04"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></i>
+          <span><b>Support &amp; listrik</b><small>Titik listrik, jalur &amp; beban daya, peralatan support.</small><em>A4 mendatar</em></span></label>
+        <label><input type="radio" name="jenis" value="port">
+          <i class="pr-ico" style="--c:#7c3aed"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 11v2M10 11v2M14 11v2M18 11v2"/></svg></i>
+          <span><b>Penggunaan port</b><small>Isi tiap port switch &amp; router, VLAN, port kosong.</small><em>A4 tegak · CSV</em></span></label>
+        <label><input type="radio" name="jenis" value="foto">
+          <i class="pr-ico" style="--c:#ea580c"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></i>
+          <span><b>Foto pemasangan</b><small>Foto bukti per titik + GPS; penempatan &amp; tarikan LAN.</small><em>A4 tegak · PowerPoint</em></span></label>
+      </div>
+      <p class="pr-detail" id="print-detail"></p>
+
+      <div class="pr-set" id="print-set">
+        <h3 class="pr-sec">Pengaturan</h3>
+        <label class="field" id="print-lapisan" hidden><span>Layer jaringan</span><select name="lapisan"></select>
+          <small class="muted">Semua layer = laporan gabungan (tiap perangkat diberi label layer). Pilih satu layer untuk laporan jaringan itu saja.</small></label>
+        <fieldset class="print-opts" id="ap-opts">
+          <label class="check"><input type="checkbox" name="password" checked>
+            <span>Tampilkan password WiFi<small>Matikan bila lembar akan ditempel/dibagikan di area publik.</small></span></label>
+          <label class="check"><input type="checkbox" name="peta" checked>
+            <span>Potongan denah lokasi tiap AP</span></label>
+          <label class="check" id="opt-bridge"><input type="checkbox" name="bridge" checked>
+            <span>Sertakan wireless bridge (PtP/PtMP)</span></label>
+        </fieldset>
+        <fieldset class="print-opts" id="foto-opts" hidden>
+          <label class="check"><input type="checkbox" name="panjang_kabel">
+            <span>PowerPoint: tampilkan panjang kabel LAN<small>Bila mati, laporan hanya berisi jumlah perangkat &amp; jumlah tarikan LAN (tanpa meter).</small></span></label>
+        </fieldset>
+      </div>
     </div>
-    <label class="field" id="print-lapisan" hidden><span>Layer jaringan</span><select name="lapisan"></select>
-      <small class="muted">Semua layer = laporan gabungan (tiap perangkat diberi label layer). Pilih satu layer untuk laporan jaringan itu saja.</small></label>
-    <fieldset class="print-opts" id="ap-opts">
-      <label class="check"><input type="checkbox" name="password" checked>
-        <span>Tampilkan password WiFi<small>Matikan bila lembar akan ditempel/dibagikan di area publik.</small></span></label>
-      <label class="check"><input type="checkbox" name="peta" checked>
-        <span>Potongan denah lokasi tiap AP</span></label>
-      <label class="check" id="opt-bridge"><input type="checkbox" name="bridge" checked>
-        <span>Sertakan wireless bridge (PtP/PtMP)</span></label>
-    </fieldset>
-    <fieldset class="print-opts" id="foto-opts" hidden>
-      <label class="check"><input type="checkbox" name="panjang_kabel">
-        <span>PowerPoint: tampilkan panjang kabel LAN<small>Bila mati, laporan hanya berisi jumlah perangkat &amp; jumlah tarikan LAN (tanpa meter).</small></span></label>
-    </fieldset>
-    <p class="muted small" id="print-info"></p>
-    <div class="btn-row end">
+    <footer class="pr-dlg-foot">
       <button type="button" data-close>Batal</button>
-      <button type="button" id="btn-ap-csv">Unduh CSV</button>
-      <button type="button" id="btn-foto-pptx" hidden>⬇ Unduh PowerPoint</button>
-      <button type="button" id="btn-port-csv" hidden>Unduh CSV</button>
-      <button type="submit" class="primary">Cetak</button>
-    </div>
+      <span class="spacer"></span>
+      <button type="button" id="btn-ap-csv">⬇ CSV</button>
+      <button type="button" id="btn-port-csv" hidden>⬇ CSV</button>
+      <button type="button" id="btn-foto-pptx" hidden>⬇ PowerPoint</button>
+      <button type="submit" class="primary">🖨 Cetak / PDF</button>
+    </footer>
   </form>
 </dialog>
 
@@ -457,13 +473,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=115"></script>
-<script src="assets/common.js?v=115"></script>
-<script src="assets/analisis.js?v=115"></script>
-<script src="assets/peta.js?v=115"></script>
-<script src="assets/katalog.js?v=115"></script>
-<script src="assets/mikrotik.js?v=115"></script>
-<script src="assets/backup.js?v=115"></script>
-<script src="assets/app.js?v=115"></script>
+<script src="vendor/qrcode.min.js?v=116"></script>
+<script src="assets/common.js?v=116"></script>
+<script src="assets/analisis.js?v=116"></script>
+<script src="assets/peta.js?v=116"></script>
+<script src="assets/katalog.js?v=116"></script>
+<script src="assets/mikrotik.js?v=116"></script>
+<script src="assets/backup.js?v=116"></script>
+<script src="assets/app.js?v=116"></script>
 </body>
 </html>

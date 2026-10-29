@@ -1,7 +1,7 @@
 /* Aplikasi Net Plan: daftar event, editor denah, daftar perangkat, topologi, pengaturan proyek, cetak. */
 (function () {
   'use strict';
-  const { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, api, esc, toast, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug } = NP;
+  const { TYPES, TYPE_ORDER, STATUS, MEDIA, KONEKSI, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug } = NP;
   const API = 'api/admin.php';
   const $ = (s, root) => (root || document).querySelector(s);
   const $$ = (s, root) => [...(root || document).querySelectorAll(s)];
@@ -5528,18 +5528,24 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     if (!ada.length) return toast('Belum ada foto bukti untuk dibuat PowerPoint', true);
     const btn = $('#btn-foto-pptx');
     if (btn) btn.disabled = true;
+    // Progress: pustaka 0–5%, denah 5–15%, ringkasan 15–20%, penempatan 20–40%, foto per titik 40–94%, simpan file.
+    dlgPrint.close();
+    progres.buka('Membuat PowerPoint', 'Memuat pustaka PowerPoint…');
     try {
-      toast('Menyiapkan PowerPoint…');
       await muatSkrip('vendor/pptxgenjs.bundle.js?v=3.12.0');
       // Gambar denah per lantai yang berisi perangkat (penempatan & potongan denah titik berfoto).
       const denahImgs = new Map();
-      for (const lid of new Set(semua.map(d => m.lantaiOf(d)))) {
+      const lidDenah = [...new Set(semua.map(d => m.lantaiOf(d)))];
+      for (const [i, lid] of lidDenah.entries()) {
+        progres.set(5 + 10 * i / lidDenah.length, 'Memuat gambar denah…');
         const du = denahUrl(lid);
         if (!du) continue;
         const im = new Image();
         im.src = await keDataUrl(du);
         if (await im.decode().then(() => true, () => false)) denahImgs.set(lid, im);
       }
+      progres.set(15, 'Menyusun sampul & ringkasan…');
+      await progres.jeda();
       const ppt = new window.PptxGenJS();
       ppt.layout = 'LAYOUT_WIDE'; // 13,33 × 7,5 in
       ppt.title = `Laporan pemasangan perangkat — ${p.nama}`;
@@ -5682,11 +5688,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       ];
       const lantaiPakai = m.lantaiList().filter(L => jar.some(d => m.lantaiOf(d) === L.id));
       const warnaLp = colsLp.length ? d => Lof(d).warna : null;
+      const nPen = KELOMPOK.length * lantaiPakai.length;
+      let iPen = 0;
       for (const kel of KELOMPOK) {
         for (const L of lantaiPakai) {
+          progres.set(20 + 20 * iPen++ / nPen, `Penempatan ${kel.nama}${lantaiPakai.length > 1 ? ' · ' + L.nama : ''}…`);
           const ds = jar.filter(d => kel.cocok(d) && m.lantaiOf(d) === L.id);
           if (!ds.length || (kel !== KELOMPOK[0] && ds.length === jar.filter(d => m.lantaiOf(d) === L.id).length)) continue; // kelompok = semua: tidak diulang
-          toast(`Menyiapkan PowerPoint… penempatan ${kel.nama}`);
+          await progres.jeda();
           // Slide gabungan: nama endpoint tidak ditulis (booth padat); namanya ada di slide Endpoint.
           const pt = petaPenempatan(denahImgs.get(L.id) || null, L.id, ds, warnaLp, kel === KELOMPOK[0] ? d => d.jenis === 'endpoint' : null, kel !== KELOMPOK[0]);
           const s = ppt.addSlide();
@@ -5709,7 +5718,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       // 4. Satu slide per titik berfoto.
       for (let k = 0; k < ada.length; k++) {
         const d = ada[k];
-        toast(`Menyiapkan PowerPoint… ${k + 1}/${ada.length}`);
+        progres.set(40 + 54 * k / ada.length, `Slide foto ${k + 1} dari ${ada.length} · ${d.nama}`);
         const fs = fotoOf(d.id);
         // Gabungan beberapa layer: slide pembatas di awal tiap layer.
         if (colsLp.length && (k === 0 || m.lapisanOf(ada[k - 1]) !== m.lapisanOf(d))) {
@@ -5792,11 +5801,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       }
 
       const nama = `laporan-pemasangan-${slug(p.nama)}.pptx`;
+      progres.set(95, 'Menyimpan file PowerPoint…');
+      await progres.jeda();
       await ppt.writeFile({ fileName: nama });
+      progres.set(100, 'Selesai');
+      progres.tutup();
       toast(`${nama} diunduh — ${tot.n} perangkat, ${tot.lan} tarikan LAN, ${ada.length} titik berfoto`);
     } catch (e) {
+      progres.tutup();
       toast(e.message || 'PowerPoint gagal dibuat', true);
     } finally {
+      progres.tutup();
       if (btn) btn.disabled = false;
     }
   }
@@ -7331,15 +7346,26 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     dlgPrint.showModal();
   });
   formPrint.addEventListener('change', syncPrintOpts);
+  /** Penjelasan lengkap jenis laporan terpilih (kartu hanya berisi ringkasan). */
+  const DETAIL_CETAK = {
+    ap: 'Satu kartu per access point: lokasi, IP/VLAN, uplink & port, SSID, password, channel, catatan, dan checklist pemasangan. Acuan teknisi saat setting AP.',
+    lengkap: 'Denah bertitik (per lantai), tabel semua perangkat, kebutuhan perangkat, estimasi kabel, dan hasil pemeriksaan desain.',
+    support: 'Denah khusus titik listrik & peralatan support beserta jalurnya, rekap daya per titik (MCB, terpakai, sisa), perangkat tanpa titik pemasok, dan daftar peralatan support.',
+    port: 'Per switch & router: panel port berwarna, isi tiap port (uplink/WAN, antar switch, AP, titik LAN, endpoint, …), port kosong, media & status kabel, VLAN trunk/access, dan perangkat tanpa nomor port.',
+    foto: 'Cetak: 1–3 foto bukti per perangkat dengan GPS & waktu, ringkasan kelengkapan foto, dan daftar yang belum difoto. PowerPoint: jumlah perangkat & tarikan LAN, penempatan perangkat di denah, dan satu slide foto per titik.',
+  };
   function syncPrintOpts() {
-    const ap = formPrint.elements.jenis.value === 'ap';
-    $('#ap-opts').hidden = !ap;
-    $('#btn-ap-csv').hidden = !ap;
-    $('#btn-foto-pptx').hidden = formPrint.elements.jenis.value !== 'foto';
-    $('#foto-opts').hidden = formPrint.elements.jenis.value !== 'foto';
-    $('#btn-port-csv').hidden = formPrint.elements.jenis.value !== 'port';
+    const j = formPrint.elements.jenis.value;
+    $('#ap-opts').hidden = j !== 'ap';
+    $('#btn-ap-csv').hidden = j !== 'ap';
+    $('#btn-foto-pptx').hidden = j !== 'foto';
+    $('#foto-opts').hidden = j !== 'foto';
+    $('#btn-port-csv').hidden = j !== 'port';
+    $('#print-detail').textContent = DETAIL_CETAK[j] || '';
+    // Panel pengaturan hanya tampil bila ada isinya (pilihan layer / opsi jenis ini).
+    $('#print-set').hidden = $('#print-lapisan').hidden && j !== 'ap' && j !== 'foto';
   }
-  $('#form-print [data-close]').addEventListener('click', () => dlgPrint.close());
+  formPrint.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => dlgPrint.close()));
 
   function apOpts() {
     const f = formPrint.elements;
@@ -7565,13 +7591,25 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       document.head.appendChild(st);
     }
     st.textContent = `@media print { @page { size: ${size}; margin: 10mm; } }`;
-    const imgEl = $('#print image');
-    const doPrint = () => setTimeout(() => window.print(), 50);
-    if (!imgEl) return doPrint();
-    // Pastikan gambar denah sudah dimuat sebelum dialog cetak muncul.
-    const pre = new Image();
-    pre.onload = pre.onerror = doPrint;
-    pre.src = imgEl.getAttribute('href');
+    // Tunggu semua gambar laporan (denah & foto) dimuat sebelum dialog cetak muncul; progress per gambar.
+    const urls = [...new Set([...document.querySelectorAll('#print image')].map(x => x.getAttribute('href'))
+      .concat([...document.querySelectorAll('#print img')].map(x => x.currentSrc || x.src)).filter(Boolean))];
+    if (!urls.length) return setTimeout(() => window.print(), 50);
+    progres.buka('Menyiapkan laporan', `Memuat gambar 0 dari ${urls.length}…`);
+    progres.set(0);
+    let n = 0;
+    Promise.all(urls.map(u => new Promise(res => {
+      const im = new Image();
+      im.onload = im.onerror = () => {
+        n++;
+        progres.set(n / urls.length * 100, `Memuat gambar ${n} dari ${urls.length}…`);
+        res();
+      };
+      im.src = u;
+    }))).then(() => {
+      progres.tutup();
+      setTimeout(() => window.print(), 80);
+    });
   }
 
   function printReport() {

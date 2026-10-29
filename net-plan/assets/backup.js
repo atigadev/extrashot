@@ -7,7 +7,7 @@
  */
 (function () {
   'use strict';
-  const { api, toast, downloadBlob, slug } = NP;
+  const { api, toast, progres, downloadBlob, slug } = NP;
   const API = 'api/admin.php';
   const FORMAT = 'net-plan-backup';
   const VERSI = 1;
@@ -64,9 +64,20 @@
    * (bukan hanya yang dipakai event tersebut).
    */
   async function buat(ids, namaFile, lengkap) {
-    toast(`Menyiapkan backup ${ids.length} event…`);
+    progres.buka('Membuat backup', `Menyiapkan ${ids.length} event…`);
+    try {
+      return await buatIsi(ids, namaFile, lengkap);
+    } finally {
+      progres.tutup();
+    }
+  }
+  async function buatIsi(ids, namaFile, lengkap) {
     const acara = [];
-    for (const id of ids) acara.push(await ambilEvent(id));
+    for (const [i, id] of ids.entries()) {
+      progres.set(90 * i / ids.length, `Mengambil event ${i + 1} dari ${ids.length} (data & gambar denah)…`);
+      acara.push(await ambilEvent(id));
+    }
+    progres.set(92, 'Menyusun katalog & file backup…');
     // Katalog & tipe endpoint: gabungan yang dipakai, atau seluruhnya bila lengkap.
     let katalog, tipe;
     if (lengkap) {
@@ -227,13 +238,22 @@
     }
     if (!acara.length) throw new Error('File backup tidak berisi event');
 
-    toast(`Memulihkan ${acara.length} event…`);
-    const tipeMap = await petaTipe(tipe);
-    const katMap = await petaKatalog(remapKonfigKatalog(katalog, tipeMap));
-    const namaTerpakai = new Set((await api(API + '?action=list')).proyek.map(p => p.nama.toLowerCase()));
-    const hasil = [];
-    for (const a of acara) hasil.push(await pulihkanEvent(a, tipeMap, katMap, namaTerpakai));
-    return hasil;
+    progres.buka('Memulihkan backup', 'Mencocokkan katalog & tipe endpoint…');
+    try {
+      const tipeMap = await petaTipe(tipe);
+      progres.set(5);
+      const katMap = await petaKatalog(remapKonfigKatalog(katalog, tipeMap));
+      progres.set(10);
+      const namaTerpakai = new Set((await api(API + '?action=list')).proyek.map(p => p.nama.toLowerCase()));
+      const hasil = [];
+      for (const [i, a] of acara.entries()) {
+        progres.set(10 + 90 * i / acara.length, `Memulihkan event ${i + 1} dari ${acara.length}: ${(a.proyek && a.proyek.nama) || ''}`);
+        hasil.push(await pulihkanEvent(a, tipeMap, katMap, namaTerpakai));
+      }
+      return hasil;
+    } finally {
+      progres.tutup();
+    }
   }
 
   NP.Backup = { buat, pulihkan, FORMAT };

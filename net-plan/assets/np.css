@@ -1309,3 +1309,55 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 .vs-box tr.vs-kosong b { color: var(--muted); }
 .vs-box select, .vs-box input[type=text] { width: 100%; }
 .vs-box tr.vs-beda td { background: #fff7ed; }
+
+/* ---- Dialog cetak & unduh laporan */
+.dlg-print { width: min(760px, calc(100vw - 24px)); padding: 0; overflow: hidden; }
+.dlg-print[open] { display: flex; }
+.dlg-print form { display: flex; flex-direction: column; width: 100%; max-height: min(88vh, 860px); }
+.pr-dlg-head { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+.pr-dlg-head > div { flex: 1; min-width: 0; }
+.pr-dlg-head h2 { margin: 0; font-size: 18px; }
+.pr-dlg-head p { margin: 2px 0 0; }
+.pr-dlg-body { flex: 1; overflow-y: auto; padding: 14px 20px 18px; overscroll-behavior: contain; }
+.pr-sec { margin: 0 0 8px; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.pr-jenis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pr-jenis label { position: relative; display: flex; gap: 11px; align-items: flex-start; padding: 11px 12px; border: 1.5px solid var(--line); border-radius: 11px; cursor: pointer; background: #fff; transition: border-color .12s, background .12s, box-shadow .12s; }
+.pr-jenis label:hover { border-color: #b9c3d3; }
+.pr-jenis label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.pr-jenis label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pr-jenis input { position: absolute; opacity: 0; pointer-events: none; }
+.pr-jenis label:has(input:checked)::after { content: '✓'; position: absolute; top: 8px; right: 10px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; }
+.pr-ico { flex: none; width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 12%, #fff); }
+.pr-ico svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.pr-jenis span { min-width: 0; padding-right: 18px; }
+.pr-jenis b { display: block; font-size: 14px; line-height: 1.3; }
+.pr-jenis small { display: block; margin-top: 2px; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.pr-jenis em { display: inline-block; margin-top: 6px; font-style: normal; font-size: 11px; font-weight: 600; color: #475569; background: #f1f4f9; border-radius: 999px; padding: 1px 8px; }
+.pr-jenis label:has(input:checked) em { background: #fff; }
+.pr-detail { margin: 10px 0 0; padding: 9px 12px; border-left: 3px solid var(--accent); background: #f8fafc; border-radius: 0 8px 8px 0; font-size: 13px; color: #334155; line-height: 1.5; }
+.pr-set { margin-top: 16px; padding: 12px 14px 4px; border: 1px solid var(--line); border-radius: 11px; background: #fbfcfe; }
+.pr-set .field { margin-bottom: 10px; }
+.pr-set .print-opts { margin: 0 0 6px; }
+.pr-set .print-opts .check { margin-bottom: 8px; }
+.pr-dlg-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid var(--line); background: #fbfcfe; }
+@media (max-width: 640px) {
+  .pr-jenis { grid-template-columns: 1fr; }
+  .pr-dlg-head, .pr-dlg-body, .pr-dlg-foot { padding-left: 14px; padding-right: 14px; }
+  .pr-dlg-foot .spacer { display: none; }
+  .pr-dlg-foot button { flex: 1 1 auto; }
+  .pr-dlg-foot button[type=submit] { flex-basis: 100%; order: -1; }
+}
+
+/* ---- Progress proses panjang (PowerPoint, cetak, backup) */
+.dlg-progres { width: min(420px, calc(100vw - 32px)); padding: 20px 22px 18px; }
+.dlg-progres .pg-judul { font-weight: 700; font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.dlg-progres .pg-judul::before { content: ''; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: pg-putar .8s linear infinite; }
+.dlg-progres .pg-bar { height: 8px; border-radius: 999px; background: #e9eef5; overflow: hidden; position: relative; }
+.dlg-progres .pg-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #3b82f6, #2563eb); transition: width .25s ease; }
+.dlg-progres .pg-bar.tak-tentu i { width: 35% !important; position: absolute; animation: pg-geser 1.1s ease-in-out infinite; }
+.dlg-progres .pg-info { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.dlg-progres .pg-teks { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dlg-progres .pg-pct { color: var(--text, #111827); font-variant-numeric: tabular-nums; }
+@keyframes pg-putar { to { transform: rotate(360deg); } }
+@keyframes pg-geser { 0% { left: -35%; } 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .dlg-progres .pg-bar.tak-tentu i, .dlg-progres .pg-judul::before { animation: none; } }

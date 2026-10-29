@@ -1592,3 +1592,43 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 .kat-tbl .kat-gudang { font-size: 12px; }
 .kat-tbl .kat-gudang.kosong span { font-size: 12px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- Dialog akses tim ---------- */
+.dlg-akses { width: min(640px, calc(100vw - 24px)); padding: 0; overflow: hidden; }
+.dlg-akses[open] { display: flex; }
+.dlg-akses form { display: flex; flex-direction: column; width: 100%; max-height: min(90vh, 900px); }
+.dlg-akses .ak-head { margin: 0; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+.dlg-akses .ak-body { flex: 1; overflow-y: auto; padding: 14px 20px 6px; }
+.dlg-akses .ak-foot { margin: 0; padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+.ak-sec { margin: 14px 0 0; padding-top: 12px; border-top: 1px dashed var(--line); }
+.ak-sec[hidden] { display: none; }
+.ak-sec h3 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; font-size: 13px; }
+.ak-sec h3 small { font-weight: 400; }
+.peran-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.peran-opt { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.peran-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.peran-opt > i { flex: none; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: #eef2f7; font-style: normal; font-size: 16px; }
+.peran-opt b { display: block; font-size: 13.5px; }
+.peran-opt small { display: block; color: var(--muted); font-size: 12px; }
+.peran-opt:hover { border-color: #b9c6dc; }
+.peran-opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+.peran-opt:has(input:checked) > i { background: var(--accent); color: #fff; }
+.peran-opt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.peran-detail ul { list-style: none; margin: 10px 0 0; padding: 8px 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+.peran-detail li { padding: 2px 0 2px 20px; position: relative; }
+.peran-detail li::before { position: absolute; left: 0; font-weight: 700; }
+.peran-detail li.ya::before { content: '✓'; color: #16a34a; }
+.peran-detail li.tdk { color: var(--muted); }
+.peran-detail li.tdk::before { content: '✕'; color: var(--danger); }
+.chip-cek { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-cek label { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 13px; opacity: .6; }
+.chip-cek label:has(input:checked) { opacity: 1; box-shadow: 0 0 0 1.5px currentColor inset; }
+.ak-jenis-grup + .ak-jenis-grup { margin-top: 6px; }
+.ak-jenis-grup .cek-grid { margin-bottom: 4px; }
+.ak-jenis-grup .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.ak-opsi { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.ak-opsi h3 { grid-column: 1 / -1; }
+.ak-opsi .check { margin: 0 0 6px; }
+@media (max-width: 520px) {
+  .peran-grid, .ak-opsi { grid-template-columns: 1fr; }
+}

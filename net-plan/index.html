@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=136">
+<link rel="stylesheet" href="assets/np.css?v=137">
 </head>
 <body>
 
@@ -328,33 +328,48 @@
 </dialog>
 
 <!-- Dialog akses tim -->
-<dialog id="dlg-akses" class="dlg">
+<dialog id="dlg-akses" class="dlg dlg-akses">
   <form method="dialog" id="form-akses" autocomplete="off">
-    <h2 id="dlg-akses-title">Tambah akses tim</h2>
-    <label class="field"><span>Nama tim / anggota *</span>
-      <input type="text" name="nama" maxlength="100" required placeholder="mis. Tim WiFi, Tim Kabel, QA — Budi"></label>
-    <span class="route-lbl">Peran</span>
-    <div class="radio-list">
-      <label><input type="radio" name="peran" value="lihat" checked>
-        <span><b>Lihat saja</b><small>Membaca denah, daftar, topologi, sheet AP, dan riwayat. Tidak bisa mengubah apa pun.</small></span></label>
-      <label><input type="radio" name="peran" value="status">
-        <span><b>Update status</b><small>Bisa mengubah status perangkat (hanya status &amp; kategori yang dicentang di bawah) dan menulis catatan lapangan.</small></span></label>
-      <label><input type="radio" name="peran" value="installer">
-        <span><b>Installer</b><small>Petugas pemasang: semua hak <i>Update status</i>, ditambah bisa <b>menambah alat baru</b> di denah. Alat baru masuk sebagai <i>Usulan baru</i> — Anda yang menentukan bisa dipasang atau tidak.</small></span></label>
-      <label><input type="radio" name="peran" value="cek">
-        <span><b>Checker penempatan</b><small>Mengecek titik alat di lapangan sesuai plan (denah, uplink &amp; port, alat, posisi pasang): tandai <i>Sesuai</i> / <i>Tidak sesuai</i>, ambil 1–3 foto bukti, dan tulis catatan. Tidak bisa mengubah status atau konfigurasi.</small></span></label>
+    <h2 id="dlg-akses-title" class="ak-head">Tambah akses tim</h2>
+    <div class="ak-body">
+      <label class="field"><span>Nama tim / anggota *</span>
+        <input type="text" name="nama" maxlength="100" required placeholder="mis. Tim WiFi, Tim Kabel, QA — Budi"></label>
+
+      <section class="ak-sec">
+        <h3>Peran</h3>
+        <div class="peran-grid">
+          <label class="peran-opt"><input type="radio" name="peran" value="lihat" checked><i>👁</i>
+            <span><b>Lihat saja</b><small>Hanya membaca</small></span></label>
+          <label class="peran-opt"><input type="radio" name="peran" value="status"><i>✎</i>
+            <span><b>Update status</b><small>Status &amp; catatan lapangan</small></span></label>
+          <label class="peran-opt"><input type="radio" name="peran" value="installer"><i>🛠</i>
+            <span><b>Installer</b><small>Pasang &amp; isi data alat</small></span></label>
+          <label class="peran-opt"><input type="radio" name="peran" value="cek"><i>✓</i>
+            <span><b>Checker penempatan</b><small>Cek sesuai plan + foto</small></span></label>
+        </div>
+        <div class="peran-detail" id="akses-detail"></div>
+      </section>
+
+      <section class="ak-sec" id="akses-status">
+        <h3>Status yang boleh diset</h3>
+        <div class="chip-cek" id="akses-status-list"></div>
+      </section>
+
+      <section class="ak-sec">
+        <h3>Kategori tugas <small class="muted">kosong = semua kategori</small>
+          <span class="spacer"></span><button type="button" class="small ghost" data-jenis-semua="1">Centang semua</button><button type="button" class="small ghost" data-jenis-semua="0">Kosongkan</button></h3>
+        <div id="akses-jenis-list"></div>
+      </section>
+
+      <section class="ak-sec ak-opsi">
+        <h3>Opsi link</h3>
+        <label class="check"><input type="checkbox" name="lihat_password">
+          <span>Boleh melihat password<small>WiFi &amp; admin — perlu untuk tim yang menyetel AP / router.</small></span></label>
+        <label class="check"><input type="checkbox" name="aktif" checked>
+          <span>Aktif<small>Matikan untuk mencabut akses tanpa menghapusnya.</small></span></label>
+      </section>
     </div>
-    <fieldset class="print-opts" id="akses-status">
-      <span class="route-lbl">Status yang boleh diset tim ini</span>
-      <div class="cek-grid" id="akses-status-list"></div>
-    </fieldset>
-    <span class="route-lbl">Kategori perangkat tugas tim <small class="muted">(kosong = semua)</small></span>
-    <div class="cek-grid" id="akses-jenis-list"></div>
-    <label class="check"><input type="checkbox" name="lihat_password">
-      <span>Boleh melihat password WiFi / admin<small>Perlu untuk tim yang menyetel AP / router.</small></span></label>
-    <label class="check"><input type="checkbox" name="aktif" checked>
-      <span>Aktif<small>Matikan untuk mencabut akses tanpa menghapusnya.</small></span></label>
-    <div class="btn-row end">
+    <div class="btn-row end ak-foot">
       <button type="button" data-close>Batal</button>
       <button type="submit" class="primary">Simpan</button>
     </div>
@@ -507,13 +522,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=136"></script>
-<script src="assets/common.js?v=136"></script>
-<script src="assets/analisis.js?v=136"></script>
-<script src="assets/peta.js?v=136"></script>
-<script src="assets/katalog.js?v=136"></script>
-<script src="assets/mikrotik.js?v=136"></script>
-<script src="assets/backup.js?v=136"></script>
-<script src="assets/app.js?v=136"></script>
+<script src="vendor/qrcode.min.js?v=137"></script>
+<script src="assets/common.js?v=137"></script>
+<script src="assets/analisis.js?v=137"></script>
+<script src="assets/peta.js?v=137"></script>
+<script src="assets/katalog.js?v=137"></script>
+<script src="assets/mikrotik.js?v=137"></script>
+<script src="assets/backup.js?v=137"></script>
+<script src="assets/app.js?v=137"></script>
 </body>
 </html>

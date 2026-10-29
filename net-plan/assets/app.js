@@ -7853,9 +7853,21 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   // Dialog tambah / ubah akses
   let aksesEdit = null;
   $('#akses-status-list').innerHTML = Object.keys(STATUS).filter(k => k !== 'usulan').map(k =>
-    `<label class="cek"><input type="checkbox" name="status_boleh" value="${k}"> <span class="st st-${k}">${esc(STATUS[k].label)}</span></label>`).join('');
-  $('#akses-jenis-list').innerHTML = TYPE_ORDER.map(j =>
-    `<label class="cek"><input type="checkbox" name="jenis_boleh" value="${j}"> ${esc(TYPES[j].label)}</label>`).join('');
+    `<label class="st st-${k}"><input type="checkbox" name="status_boleh" value="${k}"> ${esc(STATUS[k].label)}</label>`).join('');
+  $('#akses-jenis-list').innerHTML = ['jaringan', 'support'].map(g => `<div class="ak-jenis-grup"><span class="route-lbl">${esc(NP.GRUP[g])}</span>
+    <div class="cek-grid">${TYPE_ORDER.filter(j => NP.grupJenis(j) === g).map(j =>
+      `<label class="cek"><input type="checkbox" name="jenis_boleh" value="${j}"> <i class="dot" style="background:${TYPES[j].color}"></i>${esc(TYPES[j].label)}</label>`).join('')}</div></div>`).join('');
+
+  /** Ringkasan hak tiap peran (dialog akses): yang bisa & yang tidak. */
+  const PERAN_INFO = {
+    lihat: { bisa: ['Membaca denah, daftar, topologi, sheet AP & riwayat'], tidak: ['Mengubah apa pun'] },
+    status: { bisa: ['Mengubah status yang dicentang di bawah', 'Status kabel, ceklis pekerjaan & foto bukti', 'Catatan lapangan'], tidak: ['Mengubah data / konfigurasi perangkat'] },
+    installer: {
+      bisa: ['Semua hak Update status', 'Mengisi tab Identitas, Koneksi, Switch/AP/Router & Unit gudang', 'Mengusulkan alat baru di denah (Anda yang memutuskan)'],
+      tidak: ['Menghapus / memindah titik, kategori, layer & lantai'],
+    },
+    cek: { bisa: ['Menandai Sesuai / Tidak sesuai plan', 'Foto bukti 1–3 & catatan'], tidak: ['Mengubah status atau konfigurasi'] },
+  };
 
   function bukaAkses(a) {
     aksesEdit = a || null;
@@ -7875,9 +7887,16 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     f.elements.nama.focus();
   }
   function syncAkses() {
-    $('#akses-status').hidden = !['status', 'installer'].includes($('#form-akses').elements.peran.value);
+    const peran = $('#form-akses').elements.peran.value;
+    $('#akses-status').hidden = !['status', 'installer'].includes(peran);
+    const info = PERAN_INFO[peran] || PERAN_INFO.lihat;
+    $('#akses-detail').innerHTML = `<ul>${info.bisa.map(x => `<li class="ya">${esc(x)}</li>`).join('')}${info.tidak.map(x => `<li class="tdk">${esc(x)}</li>`).join('')}</ul>`;
   }
   $('#form-akses').addEventListener('change', syncAkses);
+  $('#form-akses').addEventListener('click', e => {
+    const b = e.target.closest('[data-jenis-semua]');
+    if (b) $$('#form-akses [name=jenis_boleh]').forEach(c => { c.checked = b.dataset.jenisSemua === '1'; });
+  });
   $('#form-akses [data-close]').addEventListener('click', () => $('#dlg-akses').close());
   $('#form-akses').addEventListener('submit', async e => {
     e.preventDefault();

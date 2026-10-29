@@ -170,7 +170,65 @@
     return out;
   }
 
-  function openEditor(k) {
+  // ------------------------------------------------------------------------ tipe siap pakai (isi cepat)
+
+  /**
+   * Tipe umum per kategori untuk mengisi cepat spesifikasi & konfigurasi alat baru (merek/tipe tetap diisi sendiri).
+   * Angka contoh praktik umum — sesuaikan dengan datasheet.
+   */
+  const TIPE = {
+    switch: [
+      { nama: 'Unmanaged 8 port', s: { port_lan: '8', kecepatan_port: '1 Gbps', poe_out: 'Tidak', daya_w: '5', pemasangan: 'Desktop' },
+        c: { managed: 'Unmanaged', kecepatan: '1 Gbps', poe: 'Tidak' }, cat: '- Plug & play, tanpa VLAN\n- Hanya untuk ujung jaringan (booth / meja), bukan uplink antar switch' },
+      { nama: 'Unmanaged PoE 8 port', s: { port_lan: '8', kecepatan_port: '1 Gbps', poe_out: '802.3af (PoE)', poe_port: '4', poe_budget_w: '65', pemasangan: 'Desktop' },
+        c: { managed: 'Unmanaged', kecepatan: '1 Gbps', poe: 'PoE (af)', budget_poe: '65' }, cat: '- Cek total daya AP/CCTV ≤ budget PoE\n- Tanpa VLAN: hanya satu jaringan' },
+      { nama: 'Smart PoE+ 8 port + 2 SFP', s: { port_lan: '8', kecepatan_port: '1 Gbps', port_sfp: '2', poe_out: '802.3at (PoE+)', poe_port: '8', poe_budget_w: '120', pemasangan: 'Desktop' },
+        c: { managed: 'Smart / web managed', kecepatan: '1 Gbps', poe: 'PoE+ (at)', budget_poe: '120' }, cat: '- Port uplink: trunk VLAN event\n- Port AP: VLAN manajemen untagged + VLAN SSID tagged\n- Aktifkan loop prevention' },
+      { nama: 'Smart PoE+ 16 port + 2 SFP', s: { port_lan: '16', kecepatan_port: '1 Gbps', port_sfp: '2', poe_out: '802.3at (PoE+)', poe_port: '16', poe_budget_w: '250', pemasangan: 'Rack 19"' },
+        c: { managed: 'Smart / web managed', kecepatan: '1 Gbps', poe: 'PoE+ (at)', budget_poe: '250' }, cat: '- Uplink lewat SFP bila jarak > 90 m (fiber)\n- Aktifkan loop prevention / STP' },
+      { nama: 'Managed L2 24 port + 4 SFP', s: { port_lan: '24', kecepatan_port: '1 Gbps', port_sfp: '4', poe_out: 'Tidak', pemasangan: 'Rack 19"' },
+        c: { managed: 'Managed L2', kecepatan: '1 Gbps', poe: 'Tidak' }, cat: '- RSTP aktif, port edge untuk booth\n- Port booth: access VLAN tenant\n- IP manajemen di VLAN manajemen, ganti password admin' },
+      { nama: 'Managed L2 PoE+ 24 port + 4 SFP', s: { port_lan: '24', kecepatan_port: '1 Gbps', port_sfp: '4', poe_out: '802.3at (PoE+)', poe_port: '24', poe_budget_w: '370', pemasangan: 'Rack 19"' },
+        c: { managed: 'Managed L2', kecepatan: '1 Gbps', poe: 'PoE+ (at)', budget_poe: '370' }, cat: '- RSTP aktif\n- Port AP: trunk VLAN SSID\n- Pantau budget PoE saat semua AP menyala' },
+      { nama: 'Managed L2 48 port + 4 SFP+', s: { port_lan: '48', kecepatan_port: '1 Gbps', port_sfp: '4', poe_out: 'Tidak', pemasangan: 'Rack 19"' },
+        c: { managed: 'Managed L2', kecepatan: '10 Gbps (SFP+)', poe: 'Tidak' }, cat: '- Uplink 10G lewat SFP+ ke core\n- RSTP / loop protection aktif' },
+      { nama: 'Multi-gig 2.5G PoE++ 8 port', s: { port_lan: '8', kecepatan_port: '2.5 Gbps', port_sfp: '2', poe_out: '802.3bt (PoE++)', poe_port: '8', poe_budget_w: '240', pemasangan: 'Desktop' },
+        c: { managed: 'Managed L2', kecepatan: '2.5 Gbps', poe: 'PoE++ (bt)', budget_poe: '240' }, cat: '- Untuk AP WiFi 6E / 7 (port 2.5G)\n- Uplink 10G lewat SFP+' },
+      { nama: 'Core / agregasi L3 24 SFP+', s: { port_lan: '4', kecepatan_port: '10 Gbps', port_sfp: '24', poe_out: 'Tidak', pemasangan: 'Rack 19"' },
+        c: { managed: 'Managed L3', kecepatan: '10 Gbps (SFP+)', poe: 'Tidak' }, cat: '- Pusat semua uplink fiber dari switch hall\n- Inter-VLAN routing bila tidak di router\n- LACP ke router / server' },
+      { nama: 'Outdoor / industrial PoE 8 port', s: { port_lan: '8', kecepatan_port: '1 Gbps', port_sfp: '2', poe_out: '802.3at (PoE+)', poe_port: '8', poe_budget_w: '120', pemasangan: 'Outdoor (IP65+)' },
+        c: { managed: 'Smart / web managed', kecepatan: '1 Gbps', poe: 'PoE+ (at)', budget_poe: '120' }, cat: '- Box tahan air / panel outdoor, grounding\n- Uplink fiber bila jauh dari rak' },
+    ],
+  };
+
+  /** Tombol tipe siap pakai (hanya alat baru & kategori yang punya daftar tipe). */
+  function renderTipe(jenis) {
+    const box = $('#kat-tipe');
+    const daftar = !editId && TIPE[jenis];
+    box.hidden = !daftar;
+    if (!daftar) return;
+    box.innerHTML = `<span>Tipe ${esc((TYPES[jenis] || TYPES.lainnya).label.toLowerCase())} siap pakai <small class="muted">— klik untuk mengisi spesifikasi &amp; konfigurasi standar</small></span>
+      <div class="kat-tipe-list">${daftar.map((t, i) => `<button type="button" class="chip-f" data-tipe="${i}">${esc(t.nama)}</button>`).join('')}</div>`;
+  }
+  $('#kat-tipe').addEventListener('click', e => {
+    const b = e.target.closest('[data-tipe]');
+    if (!b) return;
+    const f = form.elements;
+    const t = TIPE[f.jenis.value][+b.dataset.tipe];
+    // Nama tipe dipakai sebagai tipe/model bila masih kosong (atau masih nama tipe lain); merek tetap diisi sendiri.
+    const namaTipe = TIPE[f.jenis.value].map(x => x.nama);
+    if (!f.model.value.trim() || namaTipe.includes(f.model.value.trim())) f.model.value = t.nama;
+    renderFields(f.jenis.value, Object.assign({}, t.s), Object.assign({}, t.c), collect('b').bandwidth_mbps);
+    if (!f.catatan_konfig.value.trim() || TIPE[f.jenis.value].some(x => x.cat === f.catatan_konfig.value.trim())) f.catatan_konfig.value = t.cat;
+    form.querySelectorAll('[data-tipe]').forEach(x => x.classList.toggle('on', x === b));
+    f.merek.focus();
+  });
+
+  let simpanCb = null; // dipanggil sekali setelah alat tersimpan (mis. dari panel perangkat: langsung dipakai)
+
+  /** Buka dialog tambah / ubah alat; onSaved(katalog) = opsional, dipanggil setelah tersimpan. */
+  function openEditor(k, onSaved) {
+    simpanCb = onSaved || null;
     k = k || {};
     editId = k.id || null;
     form.reset();
@@ -183,6 +241,7 @@
     f.catatan_konfig.value = k.catatan_konfig || '';
     f.keterangan.value = k.keterangan || '';
     renderFields(f.jenis.value, Object.assign({}, k.spesifikasi), Object.assign({}, k.konfigurasi), k.bandwidth_mbps);
+    renderTipe(f.jenis.value);
     dlg.showModal();
     (editId ? f.model : f.merek).focus();
   }
@@ -190,8 +249,10 @@
   $('#kat-jenis').addEventListener('change', () => {
     const b = collect('b');
     renderFields(form.elements.jenis.value, collect('s'), collect('c'), b.bandwidth_mbps);
+    renderTipe(form.elements.jenis.value);
   });
   $('#form-kat [data-close]').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('close', () => { setTimeout(() => { simpanCb = null; }, 0); });
 
   form.addEventListener('submit', async e => {
     e.preventDefault();
@@ -208,10 +269,14 @@
       const old = K.list.find(x => x.id === res.katalog.id);
       if (old) Object.assign(old, res.katalog);
       else K.list.push(Object.assign(res.katalog, { dipakai: 0, dipakai_event: 0 }));
+      const cb = simpanCb;
+      simpanCb = null;
       dlg.close();
-      render();
+      // Halaman katalog bisa belum pernah dibuka (dibuka dari panel perangkat): render daftar hanya bila ada.
+      if ($('#kat-list') && !$('#katalog-page').hidden) render();
       changed();
       toast('Katalog tersimpan');
+      if (cb) cb(old || res.katalog);
     } catch (err) {
       toast(err.message, true);
     } finally {

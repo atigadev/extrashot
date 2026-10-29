@@ -3477,11 +3477,25 @@
     }
     const opt = x => `<option value="${x.id}"${x.id === d.katalog_id ? ' selected' : ''}>${esc(NP.Katalog.label(x))}${x.stok != null ? ` · stok ${x.stok}` : ''}</option>`;
     return `<div class="field wide kat-pick"><span>Pilih dari katalog · ${esc((TYPES[d.jenis] || TYPES.lainnya).label)}</span>
-        <div class="inline"><select data-kat${dis}><option value="">${items.length ? '— isi manual —' : '— katalog kategori ini kosong —'}</option>${items.map(opt).join('')}</select>
-          <a class="btn small" href="#/katalog" title="Kelola katalog perangkat">Katalog</a></div>
+        <div class="inline"><select data-kat${dis}><option value="">${items.length ? '— isi manual —' : '— katalog kategori ini kosong —'}</option>${items.map(opt).join('')}
+            <option value="baru" class="super-only">＋ Tambah alat baru ke katalog…</option></select>
+          <button type="button" class="small super-only" data-act="kat-baru" title="Tambah alat ke katalog tanpa meninggalkan denah">＋ Alat baru</button></div>
         ${k ? `<div class="kat-info"><small>${esc(ringkas || 'Spesifikasi belum diisi di katalog')}</small>
           <button type="button" class="small" data-act="kat-terapkan" title="Timpa isian perangkat dengan konfigurasi standar katalog">Terapkan konfigurasi standar</button></div>` : ''}
       </div>`;
+  }
+
+  /**
+   * Tambah alat ke katalog lewat modal tanpa meninggalkan denah (kategori = jenis perangkat ini). Setelah disimpan,
+   * daftar katalog diperbarui dan alat baru langsung dipakai perangkat d.
+   */
+  function katalogBaru(d) {
+    NP.Katalog.openEditor({ jenis: d.jenis }, k => {
+      S.katalog = NP.Katalog.list.slice();
+      const cur = S.model.byId.get(d.id);
+      if (cur && k.jenis === cur.jenis) pilihKatalog(cur, k.id);
+      else refreshModel({ keepPanel: true });
+    });
   }
 
   /** Pilih / lepas alat katalog. Isian yang masih kosong otomatis diisi konfigurasi standar. */
@@ -4854,6 +4868,7 @@
       case 'pick': return setTool('hubung');
       case 'unlink': return putusKoneksi(id);
       case 'ep-kelola': return bukaKelolaEp();
+      case 'kat-baru': return katalogBaru(S.model.byId.get(id));
       case 'kat-terapkan': {
         const d = S.model.byId.get(id);
         const k = S.model.kat(d);
@@ -4909,6 +4924,11 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   // Simpan otomatis tiap isian berubah.
   $('#panel').addEventListener('change', e => {
     const ks = e.target.closest('[data-kat]');
+    if (ks && S.canEdit && S.sel != null && ks.value === 'baru') {
+      const d = S.model.byId.get(S.sel);
+      ks.value = d.katalog_id != null ? String(d.katalog_id) : '';
+      return katalogBaru(d);
+    }
     if (ks && S.canEdit && S.sel != null) return pilihKatalog(S.model.byId.get(S.sel), ks.value ? +ks.value : null);
     const inp = e.target.closest('[data-f]');
     if (!inp || !S.canEdit || S.sel == null) return;

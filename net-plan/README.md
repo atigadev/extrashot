@@ -641,6 +641,17 @@ sekaligus.
 - **Bar tab**: bila sempit, tombol Cari menjadi ikon saja. Mode **⛶** tetap menyembunyikan header & tab untuk denah
   layar penuh.
 
+**Tambah alat katalog tanpa meninggalkan denah.** Di panel perangkat (tab Identitas) tombol **＋ Alat baru** (atau
+pilihan *＋ Tambah alat baru ke katalog…* di daftar katalog) membuka dialog katalog sebagai modal, dengan kategori
+= jenis perangkat. Setelah disimpan, alat itu langsung dipakai perangkat yang sedang dibuka dan konfigurasi
+standarnya diisikan. Hanya admin utama (katalog berlaku untuk semua event).
+
+**Tipe switch siap pakai.** Saat menambah alat berkategori Switch, dialog menampilkan tipe umum. Klik satu untuk
+mengisi spesifikasi (port, SFP, PoE, budget, pemasangan), konfigurasi standar (tipe managed, PoE, kecepatan), dan
+catatan konfigurasi. Merek/tipe tinggal disesuaikan. Tipe yang tersedia: Unmanaged 8 port, Unmanaged PoE 8 port,
+Smart PoE+ 8 / 16 port, Managed L2 24 port, Managed L2 PoE+ 24 port, Managed L2 48 port + SFP+, Multi-gig 2.5G PoE++,
+Core / agregasi L3 24 SFP+, dan Outdoor / industrial PoE.
+
 **Menu klik kanan.** Klik kanan titik perangkat di denah (sekaligus memilihnya) membuka menu:
 - **Duplikat perangkat** (Ctrl+D);
 - **Salin nama**, **Salin IP**, **Salin info perangkat** (nama, jenis, status, IP/VLAN, uplink & port, SSID, PIC)

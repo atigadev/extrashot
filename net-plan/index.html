@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=125">
+<link rel="stylesheet" href="assets/np.css?v=127">
 </head>
 <body>
 
@@ -111,7 +111,6 @@
       <div class="toolbar" id="toolbar"></div>
       <div class="peta-area">
         <svg id="map" class="map"></svg>
-        <div class="map-hint" id="map-hint" hidden></div>
         <div class="map-filters">
           <div class="view-switch" id="view-switch" role="group" aria-label="Tampilkan perangkat">
             <button type="button" data-view="semua" title="Semua perangkat">Semua</button>
@@ -123,8 +122,10 @@
           <div class="lapisan-switch lantai-switch" id="lantai-switch" role="group" aria-label="Lantai gedung" hidden></div>
           <div class="lapisan-switch" id="lapisan-switch" role="group" aria-label="Layer jaringan" hidden></div>
           <button type="button" class="anot-toggle" id="btn-anot" aria-pressed="true" hidden><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 5h16v10H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Label <b></b></button>
+          <span class="mf-break" aria-hidden="true"></span>
+          <div class="map-hint" id="map-hint" hidden></div>
+          <div class="ep-picker" id="ep-picker" hidden></div>
         </div>
-        <div class="ep-picker" id="ep-picker" hidden></div>
         <div class="map-ctrl">
           <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
           <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
@@ -285,6 +286,7 @@
       <label class="field"><span>Tipe / model *</span><input type="text" name="model" maxlength="120" required placeholder="mis. RB5009UG+S+IN"></label>
       <label class="field"><span>Stok (unit)</span><input type="number" name="stok" min="0" step="1" placeholder="kosong = tidak dicatat"></label>
     </div>
+    <div class="kat-tipe" id="kat-tipe" hidden></div>
     <h3 class="sec-title">Spesifikasi</h3>
     <div class="fgrid3" id="kat-spec"></div>
     <h3 class="sec-title">Konfigurasi standar <small class="muted">diisikan otomatis ke perangkat yang memakai alat ini</small></h3>
@@ -474,13 +476,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=125"></script>
-<script src="assets/common.js?v=125"></script>
-<script src="assets/analisis.js?v=125"></script>
-<script src="assets/peta.js?v=125"></script>
-<script src="assets/katalog.js?v=125"></script>
-<script src="assets/mikrotik.js?v=125"></script>
-<script src="assets/backup.js?v=125"></script>
-<script src="assets/app.js?v=125"></script>
+<script src="vendor/qrcode.min.js?v=127"></script>
+<script src="assets/common.js?v=127"></script>
+<script src="assets/analisis.js?v=127"></script>
+<script src="assets/peta.js?v=127"></script>
+<script src="assets/katalog.js?v=127"></script>
+<script src="assets/mikrotik.js?v=127"></script>
+<script src="assets/backup.js?v=127"></script>
+<script src="assets/app.js?v=127"></script>
 </body>
 </html>

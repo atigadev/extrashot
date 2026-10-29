@@ -1416,3 +1416,18 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 .ctx-menu button kbd { font-size: 11px; color: var(--muted); background: #f1f4f9; border-radius: 5px; padding: 1px 6px; }
 .ctx-menu button.bahaya { color: #b91c1c; }
 .ctx-menu button.bahaya:hover, .ctx-menu button.bahaya:focus-visible { background: #fef2f2; }
+
+/* ---- Petunjuk alat & pemilih endpoint: di alur baris filter (baris baru di bawahnya), tidak tertutup filter */
+.map-filters .mf-break { flex-basis: 100%; height: 0; }
+.map-filters .map-hint, .map-filters .ep-picker { position: static; transform: none; top: auto; left: auto; right: auto; width: fit-content; max-width: 100%; margin: 0; }
+.map-filters .map-hint { text-align: left; pointer-events: none; }
+.map-filters .ep-picker { justify-content: flex-start; }
+@media (max-width: 640px) {
+  .map-filters .map-hint, .map-filters .ep-picker { top: auto !important; left: auto !important; max-width: 100%; }
+}
+
+/* ---- Tipe siap pakai di dialog katalog (isi cepat spesifikasi & konfigurasi) */
+.kat-tipe { margin: 4px 0 10px; padding: 10px 12px; border: 1px dashed #b9c3d3; border-radius: 10px; background: #f8fafc; }
+.kat-tipe > span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.kat-tipe-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.kat-tipe-list .chip-f.on { background: var(--accent); color: #fff; border-color: var(--accent); }

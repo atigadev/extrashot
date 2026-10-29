@@ -601,7 +601,7 @@
       '',
       'LOGIN ADMIN EVENT (hanya bisa mengelola event ini)',
       `Halaman login: ${base}index.html`,
-      `Password: ${password || '(belum diatur — atur di tab Proyek › Keamanan & data)'}`,
+      `Password: ${password || (p.ada_password ? '(tersimpan terenkripsi, tidak bisa ditampilkan ulang — bila lupa, buat password baru di tab Proyek › Keamanan & data)' : '(belum diatur — atur di tab Proyek › Keamanan & data)')}`,
       `Langsung ke event: ${base}index.html#/p/${p.id}/denah`,
       '',
       'LINK LIHAT-SAJA (tanpa login, password WiFi/admin disamarkan)',
@@ -609,12 +609,16 @@
     ].join('\n');
   }
 
-  /** Setelah event dibuat: semua detail langsung disalin ke clipboard, dan tetap ditampilkan untuk disalin ulang. */
-  function eventDibuat(p, password) {
+  /**
+   * Detail event langsung disalin ke clipboard dan tetap ditampilkan untuk disalin ulang (event baru dibuat, password
+   * admin event diganti, atau tombol "Salin detail" di tab Proyek). Password hanya ada saat baru dibuat / diganti.
+   */
+  function salinDetailEvent(p, password, judul) {
     const teks = teksEventBaru(p, password);
     copy(teks);
     $('#eb-teks').value = teks;
-    $('#eb-judul').textContent = `Event "${p.nama}" dibuat`;
+    $('#eb-judul').textContent = judul;
+    $('#eb-pw-note').hidden = !password;
     $('#dlg-event-baru').showModal();
   }
   $('#dlg-event-baru').addEventListener('click', e => {
@@ -646,7 +650,7 @@
         renderTab();
       } else {
         location.hash = `#/p/${res.proyek.id}/denah`;
-        eventDibuat(res.proyek, body.password || '');
+        salinDetailEvent(res.proyek, body.password || '', `Event "${res.proyek.nama}" dibuat`);
       }
     } catch (err) {
       toast(err.message, true);
@@ -7354,7 +7358,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const stat = (v, l, cls) => `<div class="pj-stat${cls ? ' ' + cls : ''}"><b>${v}</b><span>${l}</span></div>`;
     return `<div class="card pj-head">
       <div class="pj-id">
-        <h2>${esc(p.nama)}${admin ? '<span class="spacer"></span><button type="button" class="small" data-p="edit">Ubah info</button><button type="button" class="small" data-p="backup">Backup</button>' : ''}</h2>
+        <h2>${esc(p.nama)}${admin ? '<span class="spacer"></span><button type="button" class="small" data-p="salin-detail" title="Salin nama, tanggal, halaman login &amp; link event untuk PIC">📋 Salin detail</button><button type="button" class="small" data-p="edit">Ubah info</button><button type="button" class="small" data-p="backup">Backup</button>' : ''}</h2>
         <p class="muted">${esc(p.venue || 'Venue belum diisi')}${tgl !== '—' ? ' · ' + esc(tgl) : ''}</p>
       </div>
       <div class="pj-stats">
@@ -8012,7 +8016,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const res = await enqueue(() => api(API, { action: 'proyek_password', id: S.proyek.id, password: pw, lama: e.target.elements.lama ? e.target.elements.lama.value : '' }));
       S.proyek = res.proyek;
       renderProyek();
-      prompt('Password admin event tersimpan. Salin  berikan ke PIC event (tidak bisa dilihat lagi):', pw);
+      salinDetailEvent(S.proyek, pw, 'Password admin event tersimpan');
     } catch (err) {
       setSaveState('error');
       toast(err.message, true);
@@ -8082,6 +8086,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         setTimeout(() => selectDev(id, true), 60);
         return;
       }
+      case 'salin-detail': return salinDetailEvent(p, '', 'Detail event');
       case 'edit': return openProyekDialog(p);
       case 'copy': return copy(b.dataset.link);
       case 'kode-baru':

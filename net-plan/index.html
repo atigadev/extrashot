@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=129">
+<link rel="stylesheet" href="assets/np.css?v=132">
 </head>
 <body>
 
@@ -62,21 +62,23 @@
 </main>
 
 <!-- Katalog perangkat (standar alat untuk semua event) -->
-<main id="katalog-page" class="home" hidden>
-  <div class="home-head">
-    <div>
-      <h1>Katalog perangkat</h1>
-      <p class="muted">Daftar alat standar per kategori: spesifikasi (port, PoE, daya), stok, dan konfigurasi standar. Dipilih saat menaruh perangkat di denah.</p>
+<main id="katalog-page" class="home kat-page" hidden>
+  <div class="kat-head">
+    <div class="kat-judul">
+      <h1>Katalog &amp; gudang perangkat</h1>
+      <p class="muted">Alat standar per kategori (spesifikasi &amp; konfigurasi standar) beserta unit fisiknya di gudang — dipilih saat menaruh perangkat di denah.</p>
     </div>
-    <div class="btn-row">
-      <button type="button" id="kat-ep" class="super-only">Tipe endpoint</button>
-      <button type="button" id="kat-csv">Unduh CSV</button>
-      <button type="button" class="primary super-only" id="kat-new">+ Tambah alat</button>
+    <div class="kat-aksi">
+      <button type="button" id="kat-ep" class="super-only" title="Kelola tipe endpoint (laptop, EDC, printer, …)">Tipe endpoint</button>
+      <button type="button" id="kat-csv" title="Unduh daftar katalog (CSV)">⬇ CSV</button>
+      <button type="button" class="primary super-only" id="kat-new">＋ Tambah alat</button>
     </div>
   </div>
+  <div class="kat-stat" id="kat-stat"></div>
   <div class="kat-tools">
-    <div class="chips" id="kat-chips"></div>
-    <input type="search" id="kat-q" placeholder="Cari merek, tipe, spesifikasi…">
+    <label class="kat-cari"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="search" id="kat-q" placeholder="Cari merek, tipe, spesifikasi, keterangan…" aria-label="Cari katalog"></label>
+    <div class="chips kat-chips" id="kat-chips" role="group" aria-label="Filter kategori"></div>
   </div>
   <div id="kat-list"></div>
 </main>
@@ -486,13 +488,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=129"></script>
-<script src="assets/common.js?v=129"></script>
-<script src="assets/analisis.js?v=129"></script>
-<script src="assets/peta.js?v=129"></script>
-<script src="assets/katalog.js?v=129"></script>
-<script src="assets/mikrotik.js?v=129"></script>
-<script src="assets/backup.js?v=129"></script>
-<script src="assets/app.js?v=129"></script>
+<script src="vendor/qrcode.min.js?v=132"></script>
+<script src="assets/common.js?v=132"></script>
+<script src="assets/analisis.js?v=132"></script>
+<script src="assets/peta.js?v=132"></script>
+<script src="assets/katalog.js?v=132"></script>
+<script src="assets/mikrotik.js?v=132"></script>
+<script src="assets/backup.js?v=132"></script>
+<script src="assets/app.js?v=132"></script>
 </body>
 </html>

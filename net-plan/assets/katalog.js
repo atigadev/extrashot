@@ -42,10 +42,26 @@
     return parts.join(' · ');
   }
 
+  /** Bar stok gudang berwarna (dipakai · tersedia · servis · rusak) + ringkasan teks. */
+  function barGudang(g) {
+    if (!g || !g.total) return '<div class="kat-gudang kosong">📦 <span>Belum ada unit di gudang</span></div>';
+    const seg = [['dipakai', '#2563eb'], ['tersedia', '#16a34a'], ['servis', '#d97706'], ['rusak', '#dc2626']]
+      .filter(([k]) => g[k]).map(([k, c]) => `<i style="flex:${g[k]};background:${c}" title="${g[k]} ${k}"></i>`).join('');
+    return `<div class="kat-gudang"><div class="kg-bar">${seg}</div><span>${esc(ringkasGudang(g))}</span></div>`;
+  }
+
   function render() {
+    // Ringkasan seluruh katalog & gudang.
+    const sum = { alat: K.list.length, unit: 0, tersedia: 0, dipakai: 0, servis: 0 };
+    K.list.forEach(k => { const g = k.gudang; if (g) { sum.unit += g.total; sum.tersedia += g.tersedia; sum.dipakai += g.dipakai; sum.servis += g.servis + g.rusak; } });
+    $('#kat-stat').innerHTML = K.list.length ? [['Alat di katalog', sum.alat, ''], ['Unit di gudang', sum.unit, ''], ['Tersedia', sum.tersedia, 'ok'],
+      ['Dipakai di event', sum.dipakai, 'pakai'], ['Servis / rusak', sum.servis, sum.servis ? 'warn' : '']]
+      .map(([l, n, c]) => `<div class="ks${c ? ' ' + c : ''}"><b>${n}</b><span>${l}</span></div>`).join('') : '';
+
     const counts = {};
     K.list.forEach(k => { counts[k.jenis] = (counts[k.jenis] || 0) + 1; });
-    $('#kat-chips').innerHTML = [['', 'Semua', K.list.length]].concat(TYPE_ORDER.map(j => [j, TYPES[j].label, counts[j] || 0]))
+    // Chip hanya untuk kategori yang ada isinya (plus kategori yang sedang dipilih).
+    $('#kat-chips').innerHTML = [['', 'Semua', K.list.length]].concat(TYPE_ORDER.filter(j => counts[j] || K.filter === j).map(j => [j, TYPES[j].label, counts[j] || 0]))
       .map(([j, l, n]) => `<button type="button" class="chip-f${K.filter === j ? ' on' : ''}" data-f="${j}">${j ? `<i style="background:${TYPES[j].color}"></i>` : ''}${esc(l)} <b>${n}</b></button>`).join('');
 
     if (!K.list.length) {
@@ -62,28 +78,31 @@
       $('#kat-list').innerHTML = '<p class="muted center">Tidak ada alat yang cocok.</p>';
       return;
     }
+    // Tabel per kategori (urut TYPE_ORDER); di layar sempit tabel bisa digeser ke samping.
     $('#kat-list').innerHTML = TYPE_ORDER.filter(j => rows.some(k => k.jenis === j)).map(j => {
       const t = TYPES[j];
+      const isi = rows.filter(k => k.jenis === j).sort((a, b) => label(a).localeCompare(label(b)));
       return `<section class="kat-sec">
-        <h2><i style="background:${t.color}">${esc(t.short)}</i>${esc(t.label)} <span class="muted">${rows.filter(k => k.jenis === j).length}</span></h2>
-        <div class="kat-grid">${rows.filter(k => k.jenis === j).map(k => `
-          <article class="kat-card" data-id="${k.id}">
-            <div class="kat-top">
-              <div class="grow"><b>${esc(label(k))}</b>${k.keterangan ? `<small class="muted">${esc(k.keterangan)}</small>` : ''}</div>
-              <span class="stok" title="${k.gudang ? 'Stok dari unit di gudang (unit rusak tidak dihitung)' : 'Stok diisi manual'}">${k.stok != null ? `stok ${k.stok}` : 'stok —'}</span>
-            </div>
-            <div class="kat-spec">${esc(specSummary(k.spesifikasi)) || '<span class="muted">Spesifikasi belum diisi</span>'}</div>
-            ${konfSummary(k) ? `<div class="kat-konf"><span>Standar:</span> ${esc(konfSummary(k))}</div>` : ''}
-            <div class="kat-gudang">📦 ${k.gudang ? esc(ringkasGudang(k.gudang)) : '<span class="muted">Belum ada unit di gudang</span>'}</div>
-            <div class="kat-foot">
-              <span class="muted small">Dipakai ${k.dipakai} perangkat di semua event</span>
-              <span class="spacer"></span>
-              <button type="button" class="small primary" data-act="gudang">📦 Gudang${k.gudang ? ' (' + k.gudang.total + ')' : ''}</button>
-              <button type="button" class="small super-only" data-act="edit">Ubah</button>
-              <button type="button" class="small super-only" data-act="dup">Duplikat</button>
-              <button type="button" class="small danger super-only" data-act="del">Hapus</button>
-            </div>
-          </article>`).join('')}</div>
+        <h2><i style="background:${t.color}">${esc(t.short)}</i>${esc(t.label)} <span class="muted">${isi.length}</span></h2>
+        <div class="kat-tbl-wrap"><table class="kat-tbl">
+          <thead><tr><th class="c-alat">Alat (merek / tipe)</th><th class="c-spec">Spesifikasi</th><th class="c-konf">Konfigurasi standar</th>
+            <th class="c-stok num">Stok</th><th class="c-gud">Gudang</th><th class="c-pakai num">Dipakai</th><th class="c-aksi"><span class="sr">Aksi</span></th></tr></thead>
+          <tbody>${isi.map(k => {
+            const konf = konfSummary(k);
+            return `<tr class="kat-row" data-id="${k.id}">
+              <td class="c-alat"><b>${esc(label(k))}</b>${k.keterangan ? `<small class="muted">${esc(k.keterangan)}</small>` : ''}</td>
+              <td class="c-spec">${esc(specSummary(k.spesifikasi)) || '<span class="muted">—</span>'}</td>
+              <td class="c-konf">${konf ? `<span class="kat-konf" title="${esc(konf)}">${esc(konf)}</span>` : '<span class="muted">—</span>'}</td>
+              <td class="c-stok num"><span class="stok${k.stok === 0 ? ' habis' : ''}" title="${k.gudang ? 'Stok dari unit di gudang (unit rusak tidak dihitung)' : 'Stok diisi manual'}">${k.stok != null ? k.stok : '—'}</span></td>
+              <td class="c-gud">${barGudang(k.gudang)}</td>
+              <td class="c-pakai num" title="Jumlah titik yang memakai alat ini di semua event">${k.dipakai}</td>
+              <td class="c-aksi"><div class="kat-aksi-row">
+                <button type="button" class="small primary" data-act="gudang">📦 Gudang${k.gudang ? ' · ' + k.gudang.total : ''}</button>
+                <button type="button" class="icon super-only" data-act="edit" title="Ubah alat" aria-label="Ubah ${esc(label(k))}">✎</button>
+                <button type="button" class="icon super-only" data-act="dup" title="Duplikat alat" aria-label="Duplikat ${esc(label(k))}">⧉</button>
+                <button type="button" class="icon danger super-only" data-act="del" title="Hapus alat" aria-label="Hapus ${esc(label(k))}">🗑</button></div></td>
+            </tr>`;
+          }).join('')}</tbody></table></div>
       </section>`;
     }).join('');
   }

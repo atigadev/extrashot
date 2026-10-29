@@ -1632,3 +1632,7 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 @media (max-width: 520px) {
   .peran-grid, .ak-opsi { grid-template-columns: 1fr; }
 }
+
+/* Ringkasan event baru */
+.dlg-event-baru { width: min(560px, calc(100vw - 24px)); }
+.dlg-event-baru textarea { width: 100%; font-size: 12.5px; line-height: 1.5; resize: vertical; background: #f8fafc; }

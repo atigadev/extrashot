@@ -589,6 +589,38 @@
   }
 
   $('#form-proyek [data-close]').addEventListener('click', () => $('#dlg-proyek').close());
+
+  /** Ringkasan event baru (detail, login admin event, link) untuk dibagikan ke PIC event. */
+  function teksEventBaru(p, password) {
+    const base = location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '');
+    const tgl = p.tanggal_mulai ? fmtDate(p.tanggal_mulai) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + fmtDate(p.tanggal_selesai) : '') : '-';
+    return [
+      `EVENT: ${p.nama}`,
+      `Venue: ${p.venue || '-'}`,
+      `Tanggal: ${tgl}`,
+      '',
+      'LOGIN ADMIN EVENT (hanya bisa mengelola event ini)',
+      `Halaman login: ${base}index.html`,
+      `Password: ${password || '(belum diatur — atur di tab Proyek › Keamanan & data)'}`,
+      `Langsung ke event: ${base}index.html#/p/${p.id}/denah`,
+      '',
+      'LINK LIHAT-SAJA (tanpa login, password WiFi/admin disamarkan)',
+      `${base}index.html?lihat=${p.kode_lihat}`,
+    ].join('\n');
+  }
+
+  /** Setelah event dibuat: semua detail langsung disalin ke clipboard, dan tetap ditampilkan untuk disalin ulang. */
+  function eventDibuat(p, password) {
+    const teks = teksEventBaru(p, password);
+    copy(teks);
+    $('#eb-teks').value = teks;
+    $('#eb-judul').textContent = `Event "${p.nama}" dibuat`;
+    $('#dlg-event-baru').showModal();
+  }
+  $('#dlg-event-baru').addEventListener('click', e => {
+    if (e.target.closest('[data-eb-salin]')) copy($('#eb-teks').value);
+    if (e.target.closest('[data-eb-tutup]')) $('#dlg-event-baru').close();
+  });
   $('#form-proyek').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target;
@@ -608,16 +640,13 @@
       const res = await api(API, body);
       if (file) await uploadDenah(res.proyek.id, file, false);
       $('#dlg-proyek').close();
-      if (!editing && body.password) {
-        // Password hanya disimpan sebagai hash: tampilkan sekali lagi agar bisa dicatat.
-        prompt(`Event "${res.proyek.nama}" dibuat.\n\nPassword admin event (salin & simpan — tidak bisa dilihat lagi; bisa diganti di tab Proyek):`, body.password);
-      }
       if (editing) {
         S.proyek = res.proyek;
         renderCrumb();
         renderTab();
       } else {
         location.hash = `#/p/${res.proyek.id}/denah`;
+        eventDibuat(res.proyek, body.password || '');
       }
     } catch (err) {
       toast(err.message, true);

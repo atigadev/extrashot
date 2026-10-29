@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex">
   <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
   <title>Net Plan — Perencanaan Jaringan Event</title>
-  <link rel="stylesheet" href="assets/np.css?v=138">
+  <link rel="stylesheet" href="assets/np.css?v=139">
 </head>
 
 <body>
@@ -444,6 +444,18 @@
     </form>
   </dialog>
 
+  <!-- Dialog ringkasan event baru (otomatis disalin ke clipboard) -->
+  <dialog id="dlg-event-baru" class="dlg dlg-event-baru">
+    <h2 id="eb-judul">Event dibuat</h2>
+    <p class="ok-text small"><b>✓ Detail event sudah disalin ke clipboard</b> — tempel (Ctrl+V) ke WhatsApp / catatan untuk PIC event.</p>
+    <textarea id="eb-teks" class="mono" rows="13" readonly onclick="this.select()"></textarea>
+    <p class="muted small">Password admin event hanya tampil sekarang (disimpan terenkripsi) — bisa diganti di tab Proyek › Keamanan &amp; data.</p>
+    <div class="btn-row end">
+      <button type="button" data-eb-salin>Salin lagi</button>
+      <button type="button" class="primary" data-eb-tutup>Selesai</button>
+    </div>
+  </dialog>
+
   <!-- Dialog akses tim -->
   <dialog id="dlg-akses" class="dlg dlg-akses">
     <form method="dialog" id="form-akses" autocomplete="off">
@@ -687,14 +699,14 @@
 
   <div id="print" class="print"></div>
 
-  <script src="vendor/qrcode.min.js?v=138"></script>
-  <script src="assets/common.js?v=138"></script>
-  <script src="assets/analisis.js?v=138"></script>
-  <script src="assets/peta.js?v=138"></script>
-  <script src="assets/katalog.js?v=138"></script>
-  <script src="assets/mikrotik.js?v=138"></script>
-  <script src="assets/backup.js?v=138"></script>
-  <script src="assets/app.js?v=138"></script>
+  <script src="vendor/qrcode.min.js?v=139"></script>
+  <script src="assets/common.js?v=139"></script>
+  <script src="assets/analisis.js?v=139"></script>
+  <script src="assets/peta.js?v=139"></script>
+  <script src="assets/katalog.js?v=139"></script>
+  <script src="assets/mikrotik.js?v=139"></script>
+  <script src="assets/backup.js?v=139"></script>
+  <script src="assets/app.js?v=139"></script>
 </body>
 
 </html>

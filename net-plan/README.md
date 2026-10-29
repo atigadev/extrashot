@@ -75,6 +75,10 @@ Setelah diganti, login lain yang memakai password lama otomatis keluar, sedangka
 Lupa password admin utama? Jalankan `php net-plan/api/reset-admin.php` lewat SSH: login kembali memakai
 `NP_ADMIN_PASS` (atau `admin` dari localhost), lalu segera ganti lagi. Skrip ini tidak bisa dibuka dari browser.
 
+**Ingat saya.** Centang *Ingat saya* di halaman login agar tidak perlu memasukkan password lagi: admin utama diingat
+**1 minggu**, admin event diingat **sampai tanggal event selesai** (minimal 1 minggu, maksimal 60 hari). Disimpan di cookie
+bertanda tangan (HttpOnly); *Keluar* menghapusnya, dan mengganti password langsung membatalkan semua login yang diingat.
+
 **Akses tim** (tab Proyek → *Akses tim*) memberi project manager link khusus per tim/anggota, tanpa membagikan password
 admin.
 - **Lihat saja**: membaca denah, daftar, topologi, sheet AP, dan riwayat.

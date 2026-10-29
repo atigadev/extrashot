@@ -389,10 +389,11 @@
     btn.disabled = true;
     $('#login-err').hidden = true;
     try {
-      const res = await api(API, { action: 'login', password: $('#login-pass').value });
+      const res = await api(API, { action: 'login', password: $('#login-pass').value, ingat: $('#login-ingat').checked });
       $('#login').hidden = true;
       $('#login-pass').value = '';
       setPeran(res.peran, res.proyek);
+      if (res.ingat_sampai) toast('Login diingat sampai ' + new Date(res.ingat_sampai * 1000).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
       // Admin satu event: langsung buka eventnya.
       if (res.peran === 'event' && res.proyek.length === 1 && !location.hash.startsWith('#/p/')) location.hash = `#/p/${res.proyek[0]}/denah`;
       else route();

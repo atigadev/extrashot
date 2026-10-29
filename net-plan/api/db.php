@@ -179,7 +179,91 @@ function start_admin_session()
         'samesite' => 'Strict',
     ]);
     session_start();
-    return sesi_valid();
+    // Sesi PHP sudah habis / browser ditutup: pulihkan dari cookie "ingat saya" (bila masih berlaku).
+    $dariIngat = false;
+    if (empty($_SESSION['np_admin']) && empty($_SESSION['np_proyek'])) {
+        $s = ingat_baca();
+        if ($s) {
+            session_regenerate_id(true);
+            $_SESSION = $s;
+            $dariIngat = true;
+        }
+    }
+    $ok = sesi_valid();
+    if ($dariIngat && !$ok) {
+        ingat_hapus(); // password sudah diganti -> cookie lama tidak berguna lagi
+    }
+    return $ok;
+}
+
+/*
+ * "Ingat saya" di halaman login: cookie npingat berisi isi sesi admin (peran + versi / sidik password) dan batas waktu,
+ * ditandatangani HMAC dengan kunci acak di np_meta. Isinya sama dengan sesi biasa, jadi sesi_valid() tetap mengecek
+ * versi password tiap request: mengganti password langsung membatalkan cookie lama.
+ */
+const NP_INGAT_COOKIE = 'npingat';
+const NP_INGAT_HARI = 7;        // "ingat saya": admin utama 1 minggu
+const NP_INGAT_MAKS_HARI = 60;  // admin event: sampai event selesai bila lebih dari 1 minggu, maks. 60 hari
+
+function ingat_kunci()
+{
+    $k = meta_get('ingat_kunci');
+    if ($k === '') {
+        $k = rand_hex(32);
+        meta_set('ingat_kunci', $k);
+    }
+    return $k;
+}
+
+function ingat_cookie($nilai, $sampai)
+{
+    setcookie(NP_INGAT_COOKIE, $nilai, [
+        'expires' => $sampai,
+        'path' => app_path(),
+        'secure' => is_https(),
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+}
+
+/** Simpan sesi admin $sesi di cookie sampai timestamp $sampai. */
+function ingat_set($sesi, $sampai)
+{
+    $data = rtrim(strtr(base64_encode(json_encode(['s' => $sesi, 'e' => (int) $sampai])), '+/', '-_'), '=');
+    ingat_cookie($data . '.' . hash_hmac('sha256', $data, ingat_kunci()), (int) $sampai);
+}
+
+function ingat_hapus()
+{
+    if (isset($_COOKIE[NP_INGAT_COOKIE])) {
+        ingat_cookie('', time() - 3600);
+    }
+}
+
+/** Isi sesi dari cookie ingat saya yang sah & belum kedaluwarsa, atau null. */
+function ingat_baca()
+{
+    $c = isset($_COOKIE[NP_INGAT_COOKIE]) ? (string) $_COOKIE[NP_INGAT_COOKIE] : '';
+    $p = explode('.', $c);
+    if (count($p) !== 2 || !hash_equals(hash_hmac('sha256', $p[0], ingat_kunci()), $p[1])) {
+        return null;
+    }
+    $isi = json_decode((string) base64_decode(strtr($p[0], '-_', '+/')), true);
+    if (!is_array($isi) || !isset($isi['e'], $isi['s']) || (int) $isi['e'] < time() || !is_array($isi['s'])) {
+        return null;
+    }
+    $s = $isi['s'];
+    if (!empty($s['np_admin'])) {
+        return ['np_admin' => 1, 'np_admin_v' => isset($s['np_admin_v']) ? (string) $s['np_admin_v'] : '0', 'np_ingat' => (int) $isi['e']];
+    }
+    if (isset($s['np_proyek']) && is_array($s['np_proyek']) && $s['np_proyek']) {
+        $proyek = [];
+        foreach ($s['np_proyek'] as $id => $sidik) {
+            $proyek[(int) $id] = (string) $sidik;
+        }
+        return ['np_proyek' => $proyek, 'np_ingat' => (int) $isi['e']];
+    }
+    return null;
 }
 
 /**

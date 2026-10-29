@@ -3,7 +3,7 @@
  * API admin Net Plan (wajib login).
  *
  * GET  ?action=me                          -> {"ok":true,"login":bool}
- * POST {"action":"login","password":"..."}
+ * POST {"action":"login","password":"..","ingat":true} -> ingat_sampai: cookie ingat saya (1 minggu / sampai event selesai)
  * POST {"action":"logout"}
  * GET  ?action=list                        -> daftar proyek + jumlah perangkat
  * GET  ?action=get&id=N                    -> {proyek, perangkat:[...]}
@@ -82,10 +82,11 @@ if ($action === 'me') {
 }
 
 if ($action === 'login' && $method === 'POST') {
-    login(isset($req['password']) ? (string) $req['password'] : '');
+    login(isset($req['password']) ? (string) $req['password'] : '', !empty($req['ingat']));
 }
 
 if ($action === 'logout' && $method === 'POST') {
+    ingat_hapus();
     $_SESSION = [];
     session_destroy();
     json_out(['ok' => true]);
@@ -919,7 +920,7 @@ json_error('Aksi tidak dikenal', 404);
  * Login: password admin utama (NP_ADMIN_PASS, atau "admin" dari localhost bila belum diatur) -> semua event;
  * password admin event -> hanya event yang passwordnya cocok.
  */
-function login($password)
+function login($password, $ingat = false)
 {
     $local = in_array($_SERVER['REMOTE_ADDR'], ['127.0.0.1', '::1'], true);
     db(); // struktur tabel dibuat/diperbarui otomatis di db() (lihat np_migrasi_otomatis)
@@ -930,20 +931,29 @@ function login($password)
     if ($super) {
         $_SESSION['np_admin'] = 1;
         $_SESSION['np_admin_v'] = meta_get('admin_versi', '0');
-        json_out(['ok' => true, 'login' => true, 'peran' => 'super']);
+        $sampai = $ingat ? time() + NP_INGAT_HARI * 86400 : null;
+        $sampai ? ingat_set($_SESSION, $sampai) : ingat_hapus();
+        json_out(['ok' => true, 'login' => true, 'peran' => 'super', 'ingat_sampai' => $sampai]);
     }
     // Password admin event (bisa cocok dengan lebih dari satu event).
     $cocok = [];
+    $selesai = 0; // akhir tanggal event terakhir yang cocok
     if ($password !== '') {
-        foreach (db()->query('SELECT id, admin_hash FROM np_proyek WHERE admin_hash IS NOT NULL')->fetchAll() as $r) {
+        // Akhir event dihitung di MySQL agar zona waktunya sama dengan data tanggal event.
+        foreach (db()->query("SELECT id, admin_hash, UNIX_TIMESTAMP(CONCAT(COALESCE(tanggal_selesai, tanggal_mulai), ' 23:59:59')) AS selesai
+            FROM np_proyek WHERE admin_hash IS NOT NULL")->fetchAll() as $r) {
             if (password_verify($password, $r['admin_hash'])) {
                 $cocok[(int) $r['id']] = sidik_password($r['admin_hash']);
+                $selesai = max($selesai, (int) $r['selesai']);
             }
         }
     }
     if ($cocok) {
         $_SESSION['np_proyek'] = $cocok;
-        json_out(['ok' => true, 'login' => true, 'peran' => 'event', 'proyek' => array_keys($cocok)]);
+        // Admin event: diingat 1 minggu, atau sampai event selesai bila lebih lama (maks. NP_INGAT_MAKS_HARI).
+        $sampai = $ingat ? min(max(time() + NP_INGAT_HARI * 86400, $selesai), time() + NP_INGAT_MAKS_HARI * 86400) : null;
+        $sampai ? ingat_set($_SESSION, $sampai) : ingat_hapus();
+        json_out(['ok' => true, 'login' => true, 'peran' => 'event', 'proyek' => array_keys($cocok), 'ingat_sampai' => $sampai]);
     }
     usleep(800000); // perlambat tebak-tebakan password
     if (!$superDiatur && !$local) {

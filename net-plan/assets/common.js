@@ -315,6 +315,27 @@
     dites: { label: 'Sudah dites OK', short: 'Dites OK', color: '#16a34a', icon: '✓', step: 3, aksi: 'Tandai sudah dites OK' },
     bermasalah: { label: 'Kabel bermasalah', short: 'Bermasalah', color: '#e11d48', icon: '⚠', step: -1 },
   };
+  /**
+   * Gudang: data unit fisik per alat katalog (np_unit). Katalog = seri (kategori + merek + tipe); unit = barang fisik
+   * di gudang yang dipasang ke titik di venue. pass_admin disamarkan untuk link lihat-saja / admin event.
+   */
+  const UNIT_FIELDS = [
+    { k: 'sn', label: 'Nomor seri (SN)', ph: 'mis. G1PD4A0012345' },
+    { k: 'mac', label: 'MAC address', ph: 'mis. 30:0D:9E:AA:BB:01' },
+    { k: 'firmware', label: 'Firmware terpasang', ph: 'mis. 11.9(6)B1 / RouterOS 7.16' },
+    { k: 'aset', label: 'No. aset / inventaris', ph: 'mis. BSI-AP-0031' },
+    { k: 'ip_mgmt', label: 'IP manajemen', ph: 'mis. 10.10.99.23' },
+    { k: 'user_admin', label: 'User admin' },
+    { k: 'pass_admin', label: 'Password admin', type: 'password' },
+    { k: 'lokasi', label: 'Lokasi di gudang', ph: 'mis. Rak B2 / box AP-03' },
+  ];
+  const UNIT_KONDISI = {
+    baik: { label: 'Baik', color: '#16a34a' },
+    servis: { label: 'Servis', color: '#d97706' },
+    rusak: { label: 'Rusak', color: '#dc2626' },
+  };
+  const macNorm = s => String(s || '').toLowerCase().replace(/[^0-9a-f]/g, '');
+
   /** Warna label anotasi denah: kotak (bg), teks (fg), garis tepi (tepi). Kunci sama dengan NP_ANOT_WARNA di api. */
   const ANOT_WARNA = {
     hijau: { label: 'Hijau', bg: '#16a34a', fg: '#ffffff', tepi: '#15803d' },
@@ -675,5 +696,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, ANOT_WARNA, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, ANOT_WARNA, UNIT_FIELDS, UNIT_KONDISI, macNorm, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

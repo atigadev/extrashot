@@ -15,6 +15,7 @@
   async function load(proyekId) {
     const res = await api(API + '?action=katalog_list' + (proyekId ? '&proyek_id=' + proyekId : ''));
     K.list = res.katalog;
+    K.list.forEach(terapkanStokGudang);
     return K.list;
   }
 
@@ -69,13 +70,15 @@
           <article class="kat-card" data-id="${k.id}">
             <div class="kat-top">
               <div class="grow"><b>${esc(label(k))}</b>${k.keterangan ? `<small class="muted">${esc(k.keterangan)}</small>` : ''}</div>
-              <span class="stok" title="Jumlah unit tersedia">${k.stok != null ? `stok ${k.stok}` : 'stok —'}</span>
+              <span class="stok" title="${k.gudang ? 'Stok dari unit di gudang (unit rusak tidak dihitung)' : 'Stok diisi manual'}">${k.stok != null ? `stok ${k.stok}` : 'stok —'}</span>
             </div>
             <div class="kat-spec">${esc(specSummary(k.spesifikasi)) || '<span class="muted">Spesifikasi belum diisi</span>'}</div>
             ${konfSummary(k) ? `<div class="kat-konf"><span>Standar:</span> ${esc(konfSummary(k))}</div>` : ''}
+            <div class="kat-gudang">📦 ${k.gudang ? esc(ringkasGudang(k.gudang)) : '<span class="muted">Belum ada unit di gudang</span>'}</div>
             <div class="kat-foot">
               <span class="muted small">Dipakai ${k.dipakai} perangkat di semua event</span>
               <span class="spacer"></span>
+              <button type="button" class="small primary" data-act="gudang">📦 Gudang${k.gudang ? ' (' + k.gudang.total + ')' : ''}</button>
               <button type="button" class="small super-only" data-act="edit">Ubah</button>
               <button type="button" class="small super-only" data-act="dup">Duplikat</button>
               <button type="button" class="small danger super-only" data-act="del">Hapus</button>
@@ -113,6 +116,7 @@
       case 'new': return openEditor({ jenis: K.filter || 'switch' });
       case 'template': return isiTemplate();
       case 'edit': return openEditor(k);
+      case 'gudang': return bukaGudang(k);
       case 'dup': return openEditor(Object.assign({}, k, { id: null, model: k.model + ' (salinan)' }));
       case 'del':
         if (!confirm(`Hapus "${label(k)}" dari katalog?` + (k.dipakai ? `\n\n${k.dipakai} perangkat di event yang memakainya tetap ada (nama alat & konfigurasinya tidak berubah), hanya dilepas dari katalog.` : ''))) return;
@@ -362,5 +366,276 @@
     return patch;
   }
 
-  NP.Katalog = { load, show, render, openEditor, patchUntuk, label, konfSummary, get list() { return K.list; } };
+  // ------------------------------------------------------------------------ gudang: unit fisik per alat
+
+  const superAdmin = () => !document.body.classList.contains('peran-event');
+  const ukuran = n => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B');
+  const waktu = s => { const t = s ? new Date(String(s).replace(' ', 'T')) : null; return t && !isNaN(t) ? t.toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''; };
+  /** Status unit: tersedia di gudang / dipakai (event · titik) / servis / rusak. */
+  function statusUnit(u) {
+    if (u.perangkat_id) return `<span class="us-st dipakai" title="${esc(u.proyek_nama || '')}">Dipakai · ${esc(u.perangkat_nama || '')}<small>${esc(u.proyek_nama || '')}</small></span>`;
+    const kd = NP.UNIT_KONDISI[u.kondisi] || NP.UNIT_KONDISI.baik;
+    return u.kondisi === 'baik' ? '<span class="us-st ada">Tersedia</span>' : `<span class="us-st" style="--c:${kd.color}">${esc(kd.label)}</span>`;
+  }
+  /** Ringkasan stok gudang satu alat, mis. "12 unit · 5 tersedia · 6 dipakai · 1 servis". */
+  function ringkasGudang(g) {
+    if (!g || !g.total) return '';
+    return [`${g.total} unit`, `${g.tersedia} tersedia`, g.dipakai ? `${g.dipakai} dipakai` : '', g.servis ? `${g.servis} servis` : '', g.rusak ? `${g.rusak} rusak` : ''].filter(Boolean).join(' · ');
+  }
+
+  function dialog(id, cls) {
+    let d = document.getElementById(id);
+    if (!d) {
+      d = document.createElement('dialog');
+      d.id = id;
+      d.className = 'dlg ' + cls;
+      document.body.appendChild(d);
+    }
+    return d;
+  }
+
+  const G = { k: null, units: [], q: '', onChange: null };
+
+  /** Dialog gudang satu alat katalog: daftar unit, tambah (satu / massal), ubah, hapus. onChange(units) opsional. */
+  async function bukaGudang(k, onChange) {
+    G.k = k;
+    G.q = '';
+    G.onChange = onChange || null;
+    const d = dialog('dlg-gudang', 'dlg-wide dlg-gudang');
+    d.innerHTML = '<p class="muted">Memuat…</p>';
+    if (!d.open) d.showModal();
+    try {
+      G.units = (await api(API + '?action=unit_list&katalog_id=' + k.id)).unit;
+    } catch (e) {
+      d.innerHTML = `<p class="err-text">${esc(e.message)}</p><div class="btn-row end"><button type="button" data-g-tutup>Tutup</button></div>`;
+      return;
+    }
+    renderGudang();
+  }
+
+  function renderGudang() {
+    const d = dialog('dlg-gudang', 'dlg-wide dlg-gudang');
+    const k = G.k;
+    const ed = superAdmin();
+    const q = G.q.trim().toLowerCase();
+    const rows = G.units.filter(u => !q || [u.sn, u.mac, u.firmware, u.aset, u.lokasi, u.perangkat_nama, u.proyek_nama].join(' ').toLowerCase().includes(q));
+    const g = { total: G.units.length, tersedia: G.units.filter(u => !u.perangkat_id && u.kondisi === 'baik').length, dipakai: G.units.filter(u => u.perangkat_id).length,
+      servis: G.units.filter(u => !u.perangkat_id && u.kondisi === 'servis').length, rusak: G.units.filter(u => !u.perangkat_id && u.kondisi === 'rusak').length };
+    const t = TYPES[k.jenis] || TYPES.lainnya;
+    d.innerHTML = `<div class="g-head"><i style="background:${t.color}">${esc(t.short)}</i><div><h2>Gudang · ${esc(label(k))}</h2>
+        <p class="muted small">${esc(t.label)} · ${esc(ringkasGudang(g) || 'belum ada unit')} — unit fisik alat ini; dipasang ke titik di event lewat tab 📦 Unit panel perangkat.</p></div>
+        <button type="button" class="icon" data-g-tutup aria-label="Tutup">✕</button></div>
+      <div class="g-tools"><input type="search" data-g-q placeholder="Cari SN, MAC, aset, lokasi, event…" value="${esc(G.q)}">
+        ${ed ? '<button type="button" class="primary small" data-g-baru>＋ Tambah unit</button><button type="button" class="small" data-g-massal>Tambah massal</button>' : ''}</div>
+      <div class="g-isi">${G.units.length ? `<table class="mini us-tbl"><tr><th>SN</th><th>MAC</th><th>Firmware</th><th>No. aset</th><th>Lokasi</th><th>Status</th><th>File</th><th></th></tr>
+        ${rows.map(u => `<tr data-u="${u.id}"><td class="mono">${esc(u.sn) || '—'}</td><td class="mono">${esc(u.mac) || '—'}</td><td>${esc(u.firmware) || '—'}</td>
+          <td>${esc(u.aset) || '—'}</td><td>${esc(u.lokasi) || '—'}</td><td>${statusUnit(u)}</td><td>${u.berkas.length ? '📄 ' + u.berkas.length : '—'}</td>
+          <td class="g-aksi"><button type="button" class="small" data-g-ubah>${ed ? 'Ubah' : 'Lihat'}</button></td></tr>`).join('') || '<tr><td colspan="8" class="muted">Tidak ada unit yang cocok.</td></tr>'}</table>`
+        : `<div class="empty-big"><b>Belum ada unit di gudang.</b><br>Catat setiap unit fisik alat ini (SN, MAC, firmware, no. aset) agar bisa dipasang ke titik di event dan dilacak pemakaiannya.</div>`}</div>
+      <div class="btn-row end"><button type="button" data-g-tutup>Tutup</button></div>`;
+  }
+
+  document.addEventListener('click', async e => {
+    const d = e.target.closest('#dlg-gudang');
+    if (!d) return;
+    if (e.target.closest('[data-g-tutup]')) return d.close();
+    if (e.target.closest('[data-g-baru]')) return bukaUnit({ katalog_id: G.k.id, kondisi: 'baik', berkas: [] }, G.k, simpanGudang);
+    if (e.target.closest('[data-g-massal]')) return bukaMassal();
+    const tr = e.target.closest('[data-g-ubah]') && e.target.closest('[data-u]');
+    if (tr) bukaUnit(G.units.find(u => u.id === +tr.dataset.u), G.k, simpanGudang);
+  });
+  document.addEventListener('input', e => {
+    if (!e.target.matches('#dlg-gudang [data-g-q]')) return;
+    G.q = e.target.value;
+    const pos = e.target.selectionStart;
+    renderGudang();
+    const i = document.querySelector('#dlg-gudang [data-g-q]');
+    i.focus();
+    i.setSelectionRange(pos, pos);
+  });
+
+  /** Unit tersimpan / dihapus dari editor: perbarui daftar gudang & stok katalog. */
+  function simpanGudang(u, hapus) {
+    const i = G.units.findIndex(x => x.id === (u && u.id));
+    if (hapus) G.units = G.units.filter(x => x.id !== u.id);
+    else if (i >= 0) G.units[i] = u;
+    else G.units.push(u);
+    perbaruiStok(G.k.id, G.units);
+    if (document.getElementById('dlg-gudang') && document.getElementById('dlg-gudang').open) renderGudang();
+    if (G.onChange) G.onChange(G.units);
+  }
+
+  /** Stok katalog mengikuti unit gudang (unit rusak tidak dihitung). */
+  function perbaruiStok(katId, units) {
+    const k = K.list.find(x => x.id === katId);
+    if (!k) return;
+    const g = { total: units.length, tersedia: 0, dipakai: 0, servis: 0, rusak: 0 };
+    units.forEach(u => { if (u.perangkat_id) g.dipakai++; else g[u.kondisi === 'servis' ? 'servis' : u.kondisi === 'rusak' ? 'rusak' : 'tersedia']++; });
+    k.gudang = g.total ? g : null;
+    terapkanStokGudang(k);
+    if ($('#kat-list') && !$('#katalog-page').hidden) render();
+    changed();
+  }
+  /** Alat yang punya daftar unit: stok = jumlah unit yang tidak rusak (isian stok manual diabaikan). */
+  function terapkanStokGudang(k) {
+    if (k.gudang && k.gudang.total) k.stok = k.gudang.total - k.gudang.rusak;
+  }
+
+  /** Editor satu unit: data, kondisi, catatan konfigurasi & file. onSaved(unit, hapus) dipanggil setelah berubah. */
+  function bukaUnit(u, k, onSaved) {
+    const d = dialog('dlg-unit-ed', 'dlg-unit-ed');
+    const baru = !u.id;
+    // Admin event: hanya unit yang sedang dipakai di eventnya (server menolak yang lain); tanpa hapus unit.
+    const ed = superAdmin() || !!u.perangkat_id;
+    const dis = ed ? '' : ' disabled';
+    const kd = u.kondisi || 'baik';
+    d.innerHTML = `<form autocomplete="off" data-ue>
+      <h2>${baru ? 'Tambah unit' : 'Unit ' + esc(u.sn || u.aset || '#' + u.id)} <small class="muted">${esc(label(k))}</small></h2>
+      ${baru ? '' : `<p class="small" style="margin:-4px 0 10px">${statusUnit(u)}</p>`}
+      <div class="fgrid3">${NP.UNIT_FIELDS.map(f => `<label class="field"><span>${esc(f.label)}</span>${f.type === 'password'
+        ? `<div class="inline"><input type="password" name="${f.k}" value="${esc(u[f.k] || '')}" autocomplete="new-password"${dis}><button type="button" class="small" data-ue-lihat title="Tampilkan">👁</button></div>`
+        : `<input type="text" name="${f.k}" value="${esc(u[f.k] || '')}" placeholder="${esc(f.ph || '')}"${dis}>`}</label>`).join('')}
+        <label class="field"><span>Kondisi</span><select name="kondisi"${dis}>${Object.keys(NP.UNIT_KONDISI).map(x => `<option value="${x}"${x === kd ? ' selected' : ''}>${esc(NP.UNIT_KONDISI[x].label)}</option>`).join('')}</select></label></div>
+      <label class="field"><span>Catatan konfigurasi unit <small class="muted">(yang dipakai unit ini: SSID/VLAN khusus, channel dikunci, perubahan dari standar)</small></span>
+        <textarea name="catatan" rows="4" class="mono"${dis}>${esc(u.catatan || '')}</textarea></label>
+      ${baru ? '<p class="muted small">File konfigurasi / backup bisa diunggah setelah unit disimpan.</p>' : `<div class="ue-file">
+        <h3 class="sec-title">File konfigurasi / backup <small class="muted">${u.berkas.length}/10 · maks. 10 MB per file</small></h3>
+        ${u.berkas.length ? `<ul class="berkas-list">${u.berkas.map(b => `<li><a href="api/berkas.php?id=${b.id}" download>📄 <b>${esc(b.nama)}</b></a>
+          <small class="muted">${esc(ukuran(b.ukuran))} · ${esc(waktu(b.created_at))}${b.oleh ? ' · ' + esc(b.oleh) : ''}</small>
+          ${ed ? `<button type="button" class="icon" data-ue-fhapus="${b.id}" aria-label="Hapus ${esc(b.nama)}">✕</button>` : ''}</li>`).join('')}</ul>` : '<p class="muted small">Belum ada file.</p>'}
+        ${ed && u.berkas.length < 10 ? `<label class="btn small"><input type="file" data-ue-file hidden accept=".cfg,.conf,.config,.rsc,.backup,.bak,.txt,.json,.xml,.ini,.yaml,.yml,.csv,.log,.bin,.img,.dat,.tar,.tgz,.gz,.zip,.7z,.pdf">⬆ Unggah file konfigurasi</label>` : ''}
+      </div>`}
+      <div class="btn-row end">
+        ${!baru && superAdmin() ? '<button type="button" class="danger" data-ue-hapus>Hapus unit</button><span class="spacer"></span>' : ''}
+        <button type="button" data-ue-batal>${ed ? 'Batal' : 'Tutup'}</button>
+        ${ed ? '<button type="submit" class="primary">Simpan</button>' : ''}
+      </div></form>`;
+    d._u = u;
+    d._k = k;
+    d._cb = onSaved;
+    if (!d.open) d.showModal();
+    const first = d.querySelector('input[name=sn]');
+    if (first && ed) first.focus();
+  }
+
+  async function kirimUnit(d, extra) {
+    const f = d.querySelector('[data-ue]');
+    const body = Object.assign({ action: 'unit_save', id: d._u.id || null, katalog_id: d._k.id }, extra);
+    [...f.elements].forEach(el => { if (el.name) body[el.name] = el.value; });
+    const res = await api(API, body);
+    return res.unit;
+  }
+
+  document.addEventListener('submit', async e => {
+    const f = e.target.closest('#dlg-unit-ed [data-ue]');
+    if (!f) return;
+    e.preventDefault();
+    const d = f.closest('dialog');
+    const btn = f.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      const u = await kirimUnit(d);
+      d.close();
+      toast('Unit tersimpan');
+      if (d._cb) d._cb(u);
+    } catch (err) {
+      toast(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  document.addEventListener('click', async e => {
+    const d = e.target.closest('#dlg-unit-ed');
+    if (!d) return;
+    if (e.target.closest('[data-ue-batal]')) return d.close();
+    const lihat = e.target.closest('[data-ue-lihat]');
+    if (lihat) {
+      const i = lihat.previousElementSibling;
+      i.type = i.type === 'password' ? 'text' : 'password';
+      return;
+    }
+    if (e.target.closest('[data-ue-hapus]')) {
+      const u = d._u;
+      if (!confirm(`Hapus unit ${u.sn || u.aset || '#' + u.id} dari gudang?${u.perangkat_id ? `\nUnit ini sedang dipakai ${u.perangkat_nama} (${u.proyek_nama}) — titik itu menjadi tanpa unit.` : ''}${u.berkas.length ? `\n${u.berkas.length} file konfigurasinya ikut terhapus.` : ''}`)) return;
+      try {
+        await api(API, { action: 'unit_delete', id: u.id });
+        d.close();
+        toast('Unit dihapus dari gudang');
+        if (d._cb) d._cb(u, true);
+      } catch (err) {
+        toast(err.message, true);
+      }
+      return;
+    }
+    const fh = e.target.closest('[data-ue-fhapus]');
+    if (fh) {
+      const b = d._u.berkas.find(x => x.id === +fh.dataset.ueFhapus);
+      if (!b || !confirm(`Hapus file "${b.nama}"?`)) return;
+      try {
+        const u = (await api(API, { action: 'berkas_hapus', id: b.id })).unit;
+        if (d._cb) d._cb(u);
+        bukaUnit(u, d._k, d._cb);
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+  });
+  document.addEventListener('change', async e => {
+    const inp = e.target.closest('#dlg-unit-ed [data-ue-file]');
+    if (!inp || !inp.files[0]) return;
+    const d = inp.closest('dialog');
+    const fd = new FormData();
+    fd.append('action', 'berkas_upload');
+    fd.append('id', d._u.id);
+    fd.append('berkas', inp.files[0]);
+    toast('Mengunggah file…');
+    try {
+      const u = (await api(API, fd)).unit;
+      toast('File tersimpan');
+      if (d._cb) d._cb(u);
+      bukaUnit(u, d._k, d._cb);
+    } catch (err) {
+      toast(err.message, true);
+      inp.value = '';
+    }
+  });
+
+  /** Tambah massal: tempel daftar (satu unit per baris: SN, MAC, no. aset — dipisah koma / tab / titik koma). */
+  function bukaMassal() {
+    const d = dialog('dlg-unit-ed', 'dlg-unit-ed');
+    d.innerHTML = `<form data-um>
+      <h2>Tambah unit massal <small class="muted">${esc(label(G.k))}</small></h2>
+      <p class="muted small">Satu unit per baris: <b>SN, MAC, no. aset</b> (kolom MAC & aset boleh kosong; pemisah koma, tab, atau titik koma — bisa ditempel langsung dari Excel / packing list). SN / MAC yang sudah ada di gudang dilewati.</p>
+      <textarea name="baris" rows="10" class="mono" placeholder="G1PD4A001, 30:0D:9E:AA:BB:01, BSI-AP-0031&#10;G1PD4A002, 30:0D:9E:AA:BB:02, BSI-AP-0032"></textarea>
+      <div class="fgrid3"><label class="field"><span>Firmware (semua unit)</span><input type="text" name="firmware"></label>
+        <label class="field"><span>Lokasi di gudang (semua unit)</span><input type="text" name="lokasi" placeholder="mis. Rak B2"></label></div>
+      <div class="btn-row end"><button type="button" data-um-batal>Batal</button><button type="submit" class="primary">Tambahkan</button></div></form>`;
+    if (!d.open) d.showModal();
+    d.querySelector('textarea').focus();
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('#dlg-unit-ed [data-um-batal]')) e.target.closest('dialog').close();
+  });
+  document.addEventListener('submit', async e => {
+    const f = e.target.closest('#dlg-unit-ed [data-um]');
+    if (!f) return;
+    e.preventDefault();
+    const fw = f.elements.firmware.value.trim(), lok = f.elements.lokasi.value.trim();
+    const baris = f.elements.baris.value.split(/\r?\n/).map(l => l.split(/\t|;|,/).map(s => s.trim())).filter(c => c.some(Boolean))
+      .map(c => ({ sn: c[0] || '', mac: c[1] || '', aset: c[2] || '', firmware: fw, lokasi: lok }));
+    if (!baris.length) return toast('Isi minimal satu baris', true);
+    try {
+      const res = await api(API, { action: 'unit_massal', katalog_id: G.k.id, baris });
+      f.closest('dialog').close();
+      G.units = res.unit;
+      perbaruiStok(G.k.id, G.units);
+      renderGudang();
+      if (G.onChange) G.onChange(G.units);
+      toast(`${res.jumlah} unit ditambahkan${res.dilewati.length ? ` · ${res.dilewati.length} dilewati (sudah ada): ${res.dilewati.slice(0, 3).join('; ')}` : ''}`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  NP.Katalog = { load, show, render, openEditor, patchUntuk, label, konfSummary, bukaGudang, bukaUnit, statusUnit, ringkasGudang, get list() { return K.list; } };
 })();

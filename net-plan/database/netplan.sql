@@ -161,3 +161,43 @@ CREATE TABLE IF NOT EXISTS np_foto (
   KEY idx_np_foto_perangkat (perangkat_id),
   CONSTRAINT fk_np_foto_proyek FOREIGN KEY (proyek_id) REFERENCES np_proyek (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Gudang: unit fisik per alat katalog (kategori + merek + tipe). Data unit (SN, MAC, firmware, akses, file konfigurasi)
+-- tersimpan di sini, bukan di event. perangkat_id = unit sedang dipakai titik itu di event (NULL = tersedia di gudang);
+-- otomatis lepas (NULL) bila perangkatnya / eventnya dihapus.
+CREATE TABLE IF NOT EXISTS np_unit (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  katalog_id      INT UNSIGNED NOT NULL,
+  sn              VARCHAR(80)  NOT NULL DEFAULT '',  -- nomor seri
+  mac             VARCHAR(40)  NOT NULL DEFAULT '',
+  firmware        VARCHAR(80)  NOT NULL DEFAULT '',
+  aset            VARCHAR(80)  NOT NULL DEFAULT '',  -- no. aset / inventaris
+  ip_mgmt         VARCHAR(80)  NOT NULL DEFAULT '',  -- IP manajemen
+  user_admin      VARCHAR(80)  NOT NULL DEFAULT '',
+  pass_admin      VARCHAR(160) NOT NULL DEFAULT '',
+  kondisi         VARCHAR(10)  NOT NULL DEFAULT 'baik', -- baik | servis | rusak
+  lokasi          VARCHAR(120) NOT NULL DEFAULT '',  -- lokasi di gudang / rak / box
+  catatan         TEXT NULL,                         -- konfigurasi khusus unit ini
+  perangkat_id    INT UNSIGNED NULL,
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_np_unit_perangkat (perangkat_id),
+  KEY idx_np_unit_katalog (katalog_id),
+  CONSTRAINT fk_np_unit_katalog FOREIGN KEY (katalog_id) REFERENCES np_katalog (id) ON DELETE CASCADE,
+  CONSTRAINT fk_np_unit_perangkat FOREIGN KEY (perangkat_id) REFERENCES np_perangkat (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- File konfigurasi / backup milik unit gudang (.cfg/.rsc/.backup/...): di uploads/, dibaca lewat api/berkas.php.
+CREATE TABLE IF NOT EXISTS np_berkas (
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  unit_id         INT UNSIGNED NOT NULL,
+  file            VARCHAR(60)  NOT NULL,             -- nama simpan: berkas_<hex>.bin
+  nama            VARCHAR(160) NOT NULL,             -- nama file asli (untuk unduh)
+  ukuran          INT UNSIGNED NOT NULL DEFAULT 0,
+  oleh            VARCHAR(100) NOT NULL DEFAULT '',
+  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_np_berkas_unit (unit_id),
+  CONSTRAINT fk_np_berkas_unit FOREIGN KEY (unit_id) REFERENCES np_unit (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

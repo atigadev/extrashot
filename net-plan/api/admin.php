@@ -22,6 +22,11 @@
  * POST multipart action=lantai_denah, id=N, lantai_id=F2, denah=<file>, sesuaikan=1|0 -> denah lantai
  * POST {"action":"lantai_skala","id":N,"lantai_id":"F2","skala":0.05} -> skala denah lantai
  * POST {"action":"anotasi_save","id":N,"anotasi":[{id:"A1",teks,warna,x,y,tx,ty,ke,lantai,panah}]} -> label & panah denah
+ * GET  ?action=unit_list&katalog_id=N -> unit gudang satu alat (stok, dipakai di event mana, file konfigurasi)
+ * POST {"action":"unit_save","id":N|null,"katalog_id":N,sn,mac,firmware,aset,ip_mgmt,user_admin,pass_admin,kondisi,lokasi,catatan}
+ * POST {"action":"unit_massal","katalog_id":N,"baris":[{sn,mac,aset,firmware,lokasi}]} / {"action":"unit_delete","id":N}
+ * POST {"action":"unit_pasang","perangkat_id":N,"unit_id":M} / {"action":"unit_lepas","perangkat_id":N}
+ * POST multipart action=berkas_upload, id=unit, berkas=<file> / {"action":"berkas_hapus","id":N} -> file konfigurasi unit
  * POST multipart action=foto_upload, id=N (perangkat), foto=<jpeg>, lat, lng, akurasi, waktu -> {foto:[...]} (maks. 3 per perangkat)
  * POST {"action":"foto_hapus","id":N (foto),"proyek_id":N} -> {foto:[...]}
  * POST {"action":"perangkat_verif","id":N,"hasil":"sesuai"|"tidak"|"","catatan":"..."} -> hasil pengecekan penempatan
@@ -234,8 +239,112 @@ switch ($method . ' ' . $action) {
     case 'POST foto_hapus':
         json_out(['ok' => true, 'foto' => hapus_foto(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0, $id)]);
 
+    // ---- Gudang: unit fisik per alat katalog. Admin event hanya bisa membaca stok, memasang/melepas unit di eventnya,
+    // dan mengubah unit yang sedang dipakai eventnya (lihat izin_admin_event).
+    case 'GET unit_list':
+        find_katalog(isset($req['katalog_id']) ? (int) $req['katalog_id'] : 0);
+        json_out(['ok' => true, 'unit' => unit_list(['katalog' => (int) $req['katalog_id']], !is_super())]);
+
+    case 'POST unit_save':
+        $u = $id ? find_unit($id) : null;
+        $katId = $u ? (int) $u['katalog_id'] : (int) (isset($req['katalog_id']) ? $req['katalog_id'] : 0);
+        find_katalog($katId);
+        $v = unit_isian($req, $u);
+        unit_cek_unik($v, $id);
+        if ($u) {
+            $pdo->prepare('UPDATE np_unit SET sn = ?, mac = ?, firmware = ?, aset = ?, ip_mgmt = ?, user_admin = ?, pass_admin = ?, kondisi = ?,
+                lokasi = ?, catatan = ? WHERE id = ?')->execute([$v['sn'], $v['mac'], $v['firmware'], $v['aset'], $v['ip_mgmt'], $v['user_admin'],
+                $v['pass_admin'], $v['kondisi'], $v['lokasi'], $v['catatan'], $id]);
+        } else {
+            $pdo->prepare('INSERT INTO np_unit (katalog_id, sn, mac, firmware, aset, ip_mgmt, user_admin, pass_admin, kondisi, lokasi, catatan)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([$katId, $v['sn'], $v['mac'], $v['firmware'], $v['aset'], $v['ip_mgmt'],
+                $v['user_admin'], $v['pass_admin'], $v['kondisi'], $v['lokasi'], $v['catatan']]);
+            $id = (int) $pdo->lastInsertId();
+        }
+        json_out(['ok' => true, 'unit' => unit_list(['id' => $id])[0]]);
+
+    case 'POST unit_massal':
+        // Tambah banyak unit sekaligus (mis. tempel daftar SN / MAC dari packing list). Baris dobel dilewati.
+        $katId = (int) (isset($req['katalog_id']) ? $req['katalog_id'] : 0);
+        find_katalog($katId);
+        $baris = isset($req['baris']) && is_array($req['baris']) ? array_slice($req['baris'], 0, 500) : [];
+        $masuk = 0;
+        $lewat = [];
+        $ins = $pdo->prepare('INSERT INTO np_unit (katalog_id, sn, mac, firmware, aset, lokasi) VALUES (?, ?, ?, ?, ?, ?)');
+        foreach ($baris as $b) {
+            $v = unit_isian(is_array($b) ? $b : [], null);
+            if ($v['sn'] === '' && $v['mac'] === '' && $v['aset'] === '') {
+                continue;
+            }
+            $dobel = unit_dobel($v, 0);
+            if ($dobel) {
+                $lewat[] = $dobel;
+                continue;
+            }
+            $ins->execute([$katId, $v['sn'], $v['mac'], $v['firmware'], $v['aset'], $v['lokasi']]);
+            $masuk++;
+        }
+        json_out(['ok' => true, 'jumlah' => $masuk, 'dilewati' => $lewat, 'unit' => unit_list(['katalog' => $katId])]);
+
+    case 'POST unit_delete':
+        find_unit($id);
+        hapus_berkas_unit([$id]);
+        $pdo->prepare('DELETE FROM np_unit WHERE id = ?')->execute([$id]);
+        json_out(['ok' => true]);
+
+    case 'POST unit_pasang':
+        // Pasang unit gudang ke perangkat event (satu unit = satu titik; unit lama perangkat itu kembali ke gudang).
+        $pid = (int) (isset($req['perangkat_id']) ? $req['perangkat_id'] : 0);
+        $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ?');
+        $st->execute([$pid]);
+        $d = $st->fetch();
+        if (!$d) {
+            json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+        }
+        $u = find_unit(isset($req['unit_id']) ? (int) $req['unit_id'] : 0);
+        if ((int) $u['katalog_id'] !== (int) $d['katalog_id']) {
+            json_error('Unit ini dari alat katalog lain — pilih alat katalog yang sama di tab Identitas dulu');
+        }
+        if ($u['perangkat_id'] !== null && (int) $u['perangkat_id'] !== $pid) {
+            json_error('Unit ini sedang dipakai perangkat lain — lepas dulu di sana');
+        }
+        if ($u['kondisi'] === 'rusak') {
+            json_error('Unit ini berstatus rusak — tidak bisa dipasang');
+        }
+        $pdo->beginTransaction();
+        $pdo->prepare('UPDATE np_unit SET perangkat_id = NULL WHERE perangkat_id = ?')->execute([$pid]);
+        $pdo->prepare('UPDATE np_unit SET perangkat_id = ? WHERE id = ?')->execute([$pid, $u['id']]);
+        $pdo->commit();
+        json_out(['ok' => true, 'unit' => unit_list(['proyek' => (int) $d['proyek_id']])]);
+
+    case 'POST unit_lepas':
+        $pid = (int) (isset($req['perangkat_id']) ? $req['perangkat_id'] : 0);
+        $st = $pdo->prepare('SELECT proyek_id FROM np_perangkat WHERE id = ?');
+        $st->execute([$pid]);
+        $proyekId = (int) $st->fetchColumn();
+        $pdo->prepare('UPDATE np_unit SET perangkat_id = NULL WHERE perangkat_id = ?')->execute([$pid]);
+        json_out(['ok' => true, 'unit' => unit_list(['proyek' => $proyekId])]);
+
+    case 'POST berkas_upload':
+        // File konfigurasi / backup milik unit (multipart: id = unit, berkas).
+        $u = find_unit($id);
+        simpan_berkas($u, is_super() ? 'Admin' : 'Admin event');
+        json_out(['ok' => true, 'unit' => unit_list(['id' => $id])[0]]);
+
+    case 'POST berkas_hapus':
+        $unitId = hapus_berkas($id);
+        json_out(['ok' => true, 'unit' => unit_list(['id' => $unitId])[0]]);
+
     case 'POST perangkat_save':
-        json_out(['ok' => true, 'perangkat' => simpan_perangkat($req)]);
+        $simpan = simpan_perangkat($req);
+        // Unit gudang hanya cocok untuk alat katalog yang sama: ganti / lepas alat katalog = unit kembali ke gudang.
+        try {
+            $pdo->prepare('UPDATE np_unit SET perangkat_id = NULL WHERE perangkat_id = ? AND katalog_id <> ?')
+                ->execute([$simpan['id'], (int) $simpan['katalog_id']]);
+        } catch (PDOException $e) {
+            // tabel gudang belum ada
+        }
+        json_out(['ok' => true, 'perangkat' => $simpan]);
 
     case 'POST perangkat_delete':
         $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
@@ -259,11 +368,13 @@ switch ($method . ' ' . $action) {
             FROM np_katalog k ORDER BY k.jenis, k.merek, k.model');
         $st->execute([$pid]);
         $out = [];
+        $gudang = unit_ringkas(); // stok unit fisik per alat (null = alat belum punya daftar unit)
         foreach ($st->fetchAll() as $r) {
             $pakai = (int) $r['dipakai'];
             $pakaiEvent = (int) $r['dipakai_event'];
             unset($r['dipakai'], $r['dipakai_event']);
-            $out[] = katalog_row($r) + ['dipakai' => $pakai, 'dipakai_event' => $pakaiEvent];
+            $out[] = katalog_row($r) + ['dipakai' => $pakai, 'dipakai_event' => $pakaiEvent,
+                'gudang' => isset($gudang[(int) $r['id']]) ? $gudang[(int) $r['id']] : null];
         }
         json_out(['ok' => true, 'katalog' => $out]);
 
@@ -306,6 +417,14 @@ switch ($method . ' ' . $action) {
     case 'POST katalog_delete':
         find_katalog($id);
         $pdo->beginTransaction();
+        // Unit gudang alat ini ikut terhapus (baris lewat foreign key; file konfigurasinya dihapus di sini).
+        $st = $pdo->prepare('SELECT id FROM np_unit WHERE katalog_id = ?');
+        try {
+            $st->execute([$id]);
+            hapus_berkas_unit($st->fetchAll(PDO::FETCH_COLUMN));
+        } catch (PDOException $e) {
+            // tabel gudang belum ada
+        }
         // Perangkat di event tetap ada (nama alat & konfigurasi tidak berubah), hanya lepas dari katalog.
         $pdo->prepare('UPDATE np_perangkat SET katalog_id = NULL WHERE katalog_id = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM np_katalog WHERE id = ?')->execute([$id]);
@@ -858,7 +977,27 @@ function izin_admin_event($aksi, $req, $id)
         case 'GET list':
         case 'GET katalog_list':
         case 'GET endpoint_tipe_list':
-            return; // daftar event difilter di aksinya; katalog & tipe endpoint hanya dibaca
+        case 'GET unit_list':
+            return; // daftar event difilter di aksinya; katalog, tipe endpoint & stok gudang hanya dibaca (password tersamar)
+        case 'POST unit_pasang':
+        case 'POST unit_lepas':
+            return $proyekPerangkat([isset($req['perangkat_id']) ? (int) $req['perangkat_id'] : 0]);
+        case 'POST unit_save':
+        case 'POST berkas_upload':
+        case 'POST berkas_hapus':
+            // Hanya unit yang sedang dipakai di event milik login ini (mis. update firmware / backup di venue).
+            $unitId = $id;
+            if ($aksi === 'POST berkas_hapus') {
+                $st = $pdo->prepare('SELECT unit_id FROM np_berkas WHERE id = ?');
+                $st->execute([$id]);
+                $unitId = (int) $st->fetchColumn();
+            }
+            if (!$unitId) {
+                $tolak('Akses ditolak: menambah unit ke gudang hanya untuk admin utama');
+            }
+            $st = $pdo->prepare('SELECT d.proyek_id FROM np_unit u JOIN np_perangkat d ON d.id = u.perangkat_id WHERE u.id = ?');
+            $st->execute([$unitId]);
+            return $cekProyek((int) $st->fetchColumn());
         case 'GET get':
         case 'GET akses_list':
         case 'GET log_list':
@@ -1225,6 +1364,58 @@ function cek_uplink($proyekId, $selfId, $uplinkId)
 
 
 /**
+ * Isian unit gudang dari request (dipangkas & dibatasi panjangnya). $lama = baris unit saat ini: password yang tidak
+ * diubah (tidak dikirim / tersamar "••••••") dipertahankan.
+ */
+function unit_isian($req, $lama)
+{
+    $teks = function ($k, $max) use ($req) {
+        return mb_substr(trim(isset($req[$k]) ? (string) $req[$k] : ''), 0, $max);
+    };
+    $pass = isset($req['pass_admin']) ? (string) $req['pass_admin'] : null;
+    $kondisi = isset($req['kondisi']) && in_array($req['kondisi'], NP_UNIT_KONDISI, true) ? $req['kondisi'] : ($lama ? $lama['kondisi'] : 'baik');
+    return [
+        'sn' => $teks('sn', 80), 'mac' => strtoupper($teks('mac', 40)), 'firmware' => $teks('firmware', 80), 'aset' => $teks('aset', 80),
+        'ip_mgmt' => $teks('ip_mgmt', 80), 'user_admin' => $teks('user_admin', 80),
+        'pass_admin' => $pass === null || $pass === '••••••' ? ($lama ? $lama['pass_admin'] : '') : mb_substr($pass, 0, 160),
+        'kondisi' => $kondisi, 'lokasi' => $teks('lokasi', 120),
+        'catatan' => mb_substr(isset($req['catatan']) ? (string) $req['catatan'] : '', 0, 4000),
+    ];
+}
+
+/** Unit lain yang SN / MAC-nya sama dengan $v (di seluruh gudang): pesan, atau '' bila tidak ada. */
+function unit_dobel($v, $kecuali)
+{
+    $pdo = db();
+    if ($v['sn'] !== '') {
+        $st = $pdo->prepare('SELECT k.merek, k.model FROM np_unit u JOIN np_katalog k ON k.id = u.katalog_id WHERE UPPER(u.sn) = UPPER(?) AND u.id <> ? LIMIT 1');
+        $st->execute([$v['sn'], (int) $kecuali]);
+        if ($r = $st->fetch()) {
+            return 'SN ' . $v['sn'] . ' sudah tercatat di ' . trim($r['merek'] . ' ' . $r['model']);
+        }
+    }
+    $mac = preg_replace('/[^0-9a-f]/', '', strtolower($v['mac']));
+    if ($mac !== '') {
+        $st = $pdo->prepare("SELECT k.merek, k.model FROM np_unit u JOIN np_katalog k ON k.id = u.katalog_id
+            WHERE LOWER(REPLACE(REPLACE(REPLACE(REPLACE(u.mac, ':', ''), '-', ''), '.', ''), ' ', '')) = ? AND u.id <> ? LIMIT 1");
+        $st->execute([$mac, (int) $kecuali]);
+        if ($r = $st->fetch()) {
+            return 'MAC ' . $v['mac'] . ' sudah tercatat di ' . trim($r['merek'] . ' ' . $r['model']);
+        }
+    }
+    return '';
+}
+
+/** Tolak simpan bila SN / MAC sudah dipakai unit lain (satu unit fisik hanya dicatat sekali). */
+function unit_cek_unik($v, $kecuali)
+{
+    $dobel = unit_dobel($v, $kecuali);
+    if ($dobel) {
+        json_error($dobel . ' — satu unit fisik hanya dicatat sekali');
+    }
+}
+
+/**
  * Label & panah denah -> JSON tervalidasi atau NULL (kosong). Tiap label {id: "A1".., teks (maks. 500), warna,
  * x, y (posisi kotak), tx, ty (ujung panah), ke (id perangkat yang ditunjuk | null), lantai ("F1".. | ""),
  * panah (false = tanpa panah), kunci (true = posisi tidak bisa digeser)}; maks. 500 label.
@@ -1495,13 +1686,13 @@ function duplikat_proyek($p)
     $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE proyek_id = ? ORDER BY id');
     $st->execute([$p['id']]);
     $rows = $st->fetchAll();
+    $peta = []; // id perangkat lama -> baru (untuk panah label)
     if ($rows) {
         $list = array_map(function ($r) {
             $r['atribut'] = json_decode((string) $r['atribut'], true);
             $r['jalur'] = json_decode((string) $r['jalur'], true);
             return $r;
         }, $rows);
-        $peta = [];
         salin_perangkat($newId, $list, false, $peta);
     }
     // Label & panah ikut disalin; panah yang menunjuk perangkat dipetakan ke perangkat salinannya.

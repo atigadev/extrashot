@@ -41,7 +41,7 @@ const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 13;
+const NP_SCHEMA = 14;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -613,9 +613,193 @@ function proyek_lengkap($proyek, $sembunyikanRahasia = false)
             // Tabel katalog belum dibuat (belum ada login admin sejak update): tampilkan tanpa katalog.
         }
     }
+    // Unit gudang yang dipakai perangkat event ini (password & file konfigurasi hanya untuk admin).
     return ['proyek' => proyek_row($proyek), 'perangkat' => $list, 'katalog' => $katalog, 'endpoint_tipe' => endpoint_tipe_list(),
-        'foto' => foto_list($proyek['id'])];
+        'foto' => foto_list($proyek['id']), 'unit' => unit_list(['proyek' => (int) $proyek['id']], $sembunyikanRahasia)];
 }
+
+// ------------------------------------------------------------------------------------------- gudang: unit fisik
+
+/** Kondisi unit gudang. */
+const NP_UNIT_KONDISI = ['baik', 'servis', 'rusak'];
+/** Jenis file konfigurasi yang boleh diunggah (backup router/switch/AP, ekspor teks, arsip). */
+const NP_BERKAS_EKSTENSI = ['cfg', 'conf', 'config', 'rsc', 'backup', 'bak', 'txt', 'json', 'xml', 'ini', 'yaml', 'yml',
+    'csv', 'log', 'bin', 'img', 'dat', 'tar', 'tgz', 'gz', 'zip', '7z', 'pdf'];
+const NP_BERKAS_MAKS = 10; // file per unit
+const NP_BERKAS_UKURAN = 10 * 1024 * 1024; // 10 MB per file
+
+/**
+ * Daftar unit gudang beserta tempat pemakaiannya (event & titik) dan file konfigurasinya.
+ * $saring: ['katalog' => id] semua unit satu alat | ['proyek' => id] unit yang dipakai event itu | ['id' => id].
+ * $samarkan: password disamarkan & file tidak disertakan (link lihat-saja / tim / admin event untuk unit di luar eventnya).
+ */
+function unit_list($saring, $samarkan = false)
+{
+    $sql = 'SELECT u.*, d.nama AS perangkat_nama, d.proyek_id, p.nama AS proyek_nama FROM np_unit u
+        LEFT JOIN np_perangkat d ON d.id = u.perangkat_id LEFT JOIN np_proyek p ON p.id = d.proyek_id WHERE ';
+    if (isset($saring['katalog'])) {
+        $sql .= 'u.katalog_id = ?';
+        $arg = $saring['katalog'];
+    } elseif (isset($saring['proyek'])) {
+        $sql .= 'd.proyek_id = ?';
+        $arg = $saring['proyek'];
+    } else {
+        $sql .= 'u.id = ?';
+        $arg = isset($saring['id']) ? $saring['id'] : 0;
+    }
+    try {
+        $st = db()->prepare($sql . ' ORDER BY u.katalog_id, u.sn, u.id');
+        $st->execute([(int) $arg]);
+        $rows = $st->fetchAll();
+    } catch (PDOException $e) {
+        return []; // tabel belum dibuat (migrasi belum jalan)
+    }
+    $berkas = [];
+    if ($rows && !$samarkan) {
+        $ids = array_map(function ($r) { return (int) $r['id']; }, $rows);
+        $st = db()->prepare('SELECT id, unit_id, nama, ukuran, oleh, created_at FROM np_berkas WHERE unit_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY id');
+        $st->execute($ids);
+        foreach ($st->fetchAll() as $b) {
+            foreach (['id', 'unit_id', 'ukuran'] as $k) {
+                $b[$k] = (int) $b[$k];
+            }
+            $berkas[$b['unit_id']][] = $b;
+        }
+    }
+    return array_map(function ($r) use ($samarkan, $berkas) {
+        foreach (['id', 'katalog_id'] as $k) {
+            $r[$k] = (int) $r[$k];
+        }
+        foreach (['perangkat_id', 'proyek_id'] as $k) {
+            $r[$k] = $r[$k] === null ? null : (int) $r[$k];
+        }
+        $r['catatan'] = (string) $r['catatan'];
+        if ($samarkan && $r['pass_admin'] !== '') {
+            $r['pass_admin'] = '••••••';
+        }
+        $r['berkas'] = $samarkan ? [] : (isset($berkas[$r['id']]) ? $berkas[$r['id']] : []);
+        return $r;
+    }, $rows);
+}
+
+/** Satu unit (baris mentah) atau error 404. */
+function find_unit($id)
+{
+    $st = db()->prepare('SELECT u.*, d.proyek_id FROM np_unit u LEFT JOIN np_perangkat d ON d.id = u.perangkat_id WHERE u.id = ?');
+    $st->execute([(int) $id]);
+    $u = $st->fetch();
+    if (!$u) {
+        json_error('Unit tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    return $u;
+}
+
+/** Ringkasan stok per alat katalog: [katalog_id => [total, tersedia, dipakai, servis, rusak]]. */
+function unit_ringkas()
+{
+    $out = [];
+    try {
+        $rows = db()->query('SELECT katalog_id, kondisi, perangkat_id IS NOT NULL AS dipakai, COUNT(*) AS n FROM np_unit GROUP BY katalog_id, kondisi, dipakai')->fetchAll();
+    } catch (PDOException $e) {
+        return $out;
+    }
+    foreach ($rows as $r) {
+        $k = (int) $r['katalog_id'];
+        if (!isset($out[$k])) {
+            $out[$k] = ['total' => 0, 'tersedia' => 0, 'dipakai' => 0, 'servis' => 0, 'rusak' => 0];
+        }
+        $n = (int) $r['n'];
+        $out[$k]['total'] += $n;
+        if ($r['dipakai']) {
+            $out[$k]['dipakai'] += $n;
+        } elseif ($r['kondisi'] === 'baik') {
+            $out[$k]['tersedia'] += $n;
+        } else {
+            $out[$k][$r['kondisi'] === 'servis' ? 'servis' : 'rusak'] += $n;
+        }
+    }
+    return $out;
+}
+
+function hapus_file_berkas($file)
+{
+    if ($file && preg_match('/^berkas_[a-f0-9]+\.bin$/', $file) && is_file(NP_UPLOAD_DIR . '/' . $file)) {
+        @unlink(NP_UPLOAD_DIR . '/' . $file);
+    }
+}
+
+/** Hapus file konfigurasi milik unit-unit tertentu (dipanggil sebelum unit / alat katalog dihapus). */
+function hapus_berkas_unit($unitIds)
+{
+    $unitIds = array_values(array_filter(array_map('intval', (array) $unitIds)));
+    if (!$unitIds) {
+        return;
+    }
+    try {
+        $st = db()->prepare('SELECT file FROM np_berkas WHERE unit_id IN (' . implode(',', array_fill(0, count($unitIds), '?')) . ')');
+        $st->execute($unitIds);
+        foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $f) {
+            hapus_file_berkas($f);
+        }
+    } catch (PDOException $e) {
+        // tabel belum ada
+    }
+}
+
+/** Simpan file konfigurasi (multipart "berkas") untuk unit $u. Maks. NP_BERKAS_MAKS file per unit. */
+function simpan_berkas($u, $oleh)
+{
+    $f = isset($_FILES['berkas']) ? $_FILES['berkas'] : null;
+    if (!$f || is_array($f['error']) || $f['error'] !== UPLOAD_ERR_OK) {
+        json_error($f && !is_array($f['error']) && in_array($f['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)
+            ? 'File terlalu besar untuk server (batas ' . ini_get('upload_max_filesize') . ')' : 'File gagal diunggah, coba lagi', 400);
+    }
+    if ($f['size'] > NP_BERKAS_UKURAN) {
+        json_error('File maksimal 10 MB', 413);
+    }
+    $nama = trim(preg_replace('/[\x00-\x1f\/\\\\:*?"<>|]+/', '_', (string) $f['name']));
+    $nama = mb_substr($nama !== '' ? $nama : 'konfigurasi.txt', -150);
+    $ext = strtolower(pathinfo($nama, PATHINFO_EXTENSION));
+    if (!in_array($ext, NP_BERKAS_EKSTENSI, true)) {
+        json_error('Jenis file tidak didukung. Pakai file konfigurasi/backup: ' . implode(', ', NP_BERKAS_EKSTENSI));
+    }
+    $pdo = db();
+    $pdo->beginTransaction();
+    $st = $pdo->prepare('SELECT id FROM np_unit WHERE id = ? FOR UPDATE');
+    $st->execute([$u['id']]);
+    $st = $pdo->prepare('SELECT COUNT(*) FROM np_berkas WHERE unit_id = ?');
+    $st->execute([$u['id']]);
+    if ((int) $st->fetchColumn() >= NP_BERKAS_MAKS) {
+        $pdo->rollBack();
+        json_error('Unit ini sudah punya ' . NP_BERKAS_MAKS . ' file. Hapus yang lama untuk menambah.');
+    }
+    if (!is_dir(NP_UPLOAD_DIR)) {
+        mkdir(NP_UPLOAD_DIR, 0755, true);
+    }
+    $simpan = 'berkas_' . rand_hex(12) . '.bin';
+    if (!move_uploaded_file($f['tmp_name'], NP_UPLOAD_DIR . '/' . $simpan)) {
+        $pdo->rollBack();
+        json_error('Tidak bisa menyimpan file di folder uploads/', 500);
+    }
+    $pdo->prepare('INSERT INTO np_berkas (unit_id, file, nama, ukuran, oleh) VALUES (?, ?, ?, ?, ?)')
+        ->execute([$u['id'], $simpan, $nama, (int) $f['size'], $oleh]);
+    $pdo->commit();
+}
+
+/** Hapus satu file konfigurasi; hasil: id unit pemiliknya. */
+function hapus_berkas($berkasId)
+{
+    $st = db()->prepare('SELECT * FROM np_berkas WHERE id = ?');
+    $st->execute([(int) $berkasId]);
+    $r = $st->fetch();
+    if (!$r) {
+        json_error('File tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    db()->prepare('DELETE FROM np_berkas WHERE id = ?')->execute([$r['id']]);
+    hapus_file_berkas($r['file']);
+    return (int) $r['unit_id'];
+}
+
 
 // ------------------------------------------------------------------------------------------- lantai (multi denah)
 

@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=127">
+<link rel="stylesheet" href="assets/np.css?v=129">
 </head>
 <body>
 
@@ -172,6 +172,7 @@
         <button type="button" class="small ghost" id="list-reset" hidden>Reset filter</button>
         <span class="spacer"></span>
         <span class="muted small" id="list-count"></span>
+        <button type="button" id="btn-unit-seri" title="Data unit fisik (SN, MAC, firmware, file backup) per merek &amp; seri">📦 Unit per seri</button>
         <button type="button" id="btn-csv">Unduh CSV</button>
         <details class="menu">
           <summary class="btn">Lainnya ▾</summary>
@@ -431,6 +432,15 @@
   </form>
 </dialog>
 
+<!-- Data unit fisik per merek & seri -->
+<dialog id="dlg-unit" class="dlg dlg-wide dlg-unit" aria-labelledby="us-judul">
+  <div class="us-head"><div><h2 id="us-judul">Unit per seri</h2>
+    <p class="muted small">Titik di event ini per alat katalog, beserta unit fisik dari gudang yang terpasang. Klik nama titik untuk memasang / mengganti unit (tab 📦 Unit); tombol 📦 Gudang membuka stok alat itu.</p></div>
+    <button type="button" class="icon" data-close aria-label="Tutup">✕</button></div>
+  <div class="us-isi"></div>
+  <div class="btn-row end"><button type="button" data-us-csv>⬇ Unduh CSV</button><button type="button" class="primary" data-close>Tutup</button></div>
+</dialog>
+
 <!-- Cari cepat (Ctrl+K): perangkat + perintah -->
 <dialog id="dlg-cari" class="dlg dlg-cari" aria-label="Cari perangkat dan perintah">
   <div class="cari-box">
@@ -476,13 +486,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=127"></script>
-<script src="assets/common.js?v=127"></script>
-<script src="assets/analisis.js?v=127"></script>
-<script src="assets/peta.js?v=127"></script>
-<script src="assets/katalog.js?v=127"></script>
-<script src="assets/mikrotik.js?v=127"></script>
-<script src="assets/backup.js?v=127"></script>
-<script src="assets/app.js?v=127"></script>
+<script src="vendor/qrcode.min.js?v=129"></script>
+<script src="assets/common.js?v=129"></script>
+<script src="assets/analisis.js?v=129"></script>
+<script src="assets/peta.js?v=129"></script>
+<script src="assets/katalog.js?v=129"></script>
+<script src="assets/mikrotik.js?v=129"></script>
+<script src="assets/backup.js?v=129"></script>
+<script src="assets/app.js?v=129"></script>
 </body>
 </html>

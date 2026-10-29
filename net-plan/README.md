@@ -641,6 +641,32 @@ sekaligus.
 - **Bar tab**: bila sempit, tombol Cari menjadi ikon saja. Mode **⛶** tetap menyembunyikan header & tab untuk denah
   layar penuh.
 
+**Gudang: unit fisik per alat katalog.** Katalog menyimpan *seri* (kategori + merek + tipe, spesifikasi, konfigurasi
+standar); di dalamnya ada **gudang**: daftar unit fisik alat itu yang nanti dipakai di venue.
+- Halaman Katalog → tombol **📦 Gudang** di tiap alat: daftar unit dengan SN, MAC, firmware, no. aset, lokasi di gudang,
+  status (*Tersedia* / *Dipakai · titik · event* / *Servis* / *Rusak*), dan jumlah file. Tambah satu per satu atau
+  **Tambah massal** (tempel daftar `SN, MAC, no. aset` per baris dari Excel / packing list).
+- Data tiap unit: SN, MAC, firmware, no. aset, IP manajemen, user & password admin, kondisi, lokasi, **catatan
+  konfigurasi unit**, dan **file konfigurasi / backup** (.cfg, .rsc, .backup, .json, .txt, .zip, …; maks. 10 × 10 MB).
+- SN dan MAC unik di seluruh gudang (huruf besar/kecil & format MAC diabaikan): unit yang sama tidak bisa dicatat dua kali.
+- **Stok otomatis**: alat yang punya daftar unit, stoknya = jumlah unit yang tidak rusak; kartu katalog menampilkan
+  "12 unit · 5 tersedia · 6 dipakai · 1 servis".
+
+**Memasang unit di venue.** Panel perangkat → tab **📦 Unit** (perangkat harus memakai alat katalog yang sama):
+- pilih unit yang *tersedia* di gudang → **Pasang**; satu unit hanya bisa dipakai satu titik di semua event;
+- setelah terpasang tampil data unit + file konfigurasinya, dengan tombol **Data & file unit** (ubah / unggah file),
+  **Ganti unit**, dan **Lepas ke gudang**;
+- unit otomatis kembali *tersedia* bila dilepas, alat katalog titiknya diganti, titiknya dihapus, atau eventnya dihapus
+  (data & file unit tetap di gudang).
+
+Tombol **📦 Unit per seri** (tab Daftar perangkat): titik event per alat katalog dengan unit yang terpasang (SN, MAC,
+firmware, IP, aset, file), "unit terpasang n/m", ringkasan stok gudang, dan CSV. Kartu hover menampilkan SN & firmware.
+
+Hak akses: admin utama mengelola gudang. Admin event melihat stok (password tersamar), memasang / melepas unit di
+eventnya, dan mengubah data & file unit yang sedang dipakai eventnya. File konfigurasi hanya bisa diunduh admin
+(`api/berkas.php`), tidak tersedia di link lihat-saja / tim. Tabel `np_unit` & `np_berkas` (skema 14). Duplikat
+event tidak memasang unit (satu unit hanya di satu titik).
+
 **Tambah alat katalog tanpa meninggalkan denah.** Di panel perangkat (tab Identitas) tombol **＋ Alat baru** (atau
 pilihan *＋ Tambah alat baru ke katalog…* di daftar katalog) membuka dialog katalog sebagai modal, dengan kategori
 = jenis perangkat. Setelah disimpan, alat itu langsung dipakai perangkat yang sedang dibuka dan konfigurasi

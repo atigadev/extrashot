@@ -5370,6 +5370,92 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     return cv.toDataURL('image/png');
   }
 
+  /**
+   * Denah penempatan satu lantai (PNG data URL): gambar denah pudar (opacity 20%) + titik perangkat ds berwarna per
+   * jenis (lingkaran; endpoint = kotak) dengan singkatan & nama. img = gambar denah yang sudah dimuat (null = kanvas
+   * polos). warnaLp(d) = warna cincin layer (null = putih); tanpaLabel(d) = true: nama tidak ditulis (denah padat).
+   */
+  function petaPenempatan(img, lid, ds, warnaLp, tanpaLabel, potong) {
+    const { W, H } = ukuranLantai(lid);
+    // potong: zoom ke area perangkat (kotak pembatas + margin), rasio mengikuti area slide (≈ 2 : 1), min. 30% denah.
+    let [vx, vy, vw, vh] = [0, 0, W, H];
+    if (potong && ds.length) {
+      const pad = Math.max(W, H) * 0.06;
+      let x0 = Math.min(...ds.map(d => d.x)) - pad, x1 = Math.max(...ds.map(d => d.x)) + pad;
+      let y0 = Math.min(...ds.map(d => d.y)) - pad, y1 = Math.max(...ds.map(d => d.y)) + pad * 1.4; // ruang label di bawah
+      let w = Math.max(x1 - x0, W * 0.3), h = Math.max(y1 - y0, H * 0.3);
+      const rasio = 2.05;
+      if (w / h > rasio) h = w / rasio; else w = h * rasio;
+      w = Math.min(w, W);
+      h = Math.min(h, H);
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      vx = Math.max(0, Math.min(W - w, cx - w / 2));
+      vy = Math.max(0, Math.min(H - h, cy - h / 2));
+      vw = w;
+      vh = h;
+    }
+    const cw = 2400, ch = Math.round(cw * vh / vw);
+    const k = cw / vw;
+    const cv = document.createElement('canvas');
+    cv.width = cw;
+    cv.height = ch;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, cw, ch);
+    if (img) {
+      const kx = img.naturalWidth / W, ky = img.naturalHeight / H;
+      g.globalAlpha = 0.2;
+      g.drawImage(img, vx * kx, vy * ky, vw * kx, vh * ky, 0, 0, cw, ch);
+      g.globalAlpha = 1;
+    }
+    const r = 20;
+    const urut = ds.slice().sort((a, b) => TYPE_ORDER.indexOf(b.jenis) - TYPE_ORDER.indexOf(a.jenis)); // infrastruktur di atas
+    for (const d of urut) {
+      const t = NP.tampil(d);
+      const x = (d.x - vx) * k, y = (d.y - vy) * k;
+      const sk = d.jenis === 'ap' && NP.sektor(d);
+      if (sk) {
+        // AP sektoral: kipas arah pancaran.
+        const a0 = (sk.arah - sk.lebar / 2 - 90) * Math.PI / 180, a1 = (sk.arah + sk.lebar / 2 - 90) * Math.PI / 180;
+        g.fillStyle = t.color;
+        g.globalAlpha = 0.3;
+        g.beginPath();
+        g.moveTo(x, y);
+        g.arc(x, y, r * 2.6, a0, a1);
+        g.closePath();
+        g.fill();
+        g.globalAlpha = 1;
+      }
+      const kotak = d.jenis === 'endpoint';
+      const bentuk = (rr) => {
+        g.beginPath();
+        if (kotak) g.roundRect(x - rr, y - rr, rr * 2, rr * 2, rr * 0.35);
+        else g.arc(x, y, rr, 0, Math.PI * 2);
+      };
+      g.fillStyle = (warnaLp && warnaLp(d)) || '#fff';
+      bentuk(r + 4);
+      g.fill();
+      g.fillStyle = t.color;
+      bentuk(r);
+      g.fill();
+      g.fillStyle = '#fff';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = `bold ${Math.round(r * (t.short.length > 2 ? 0.62 : 0.8))}px Arial, sans-serif`;
+      g.fillText(t.short, x, y + 1);
+      if (tanpaLabel && tanpaLabel(d)) continue;
+      g.font = `bold ${Math.round(r * 0.95)}px Arial, sans-serif`;
+      g.textBaseline = 'top';
+      g.lineWidth = Math.max(4, r * 0.3);
+      g.lineJoin = 'round';
+      g.strokeStyle = '#fff';
+      g.strokeText(d.nama, x, y + r + 6);
+      g.fillStyle = '#111827';
+      g.fillText(d.nama, x, y + r + 6);
+    }
+    return { data: cv.toDataURL('image/png'), w: cw, h: ch };
+  }
+
   /** Isian jenis yang bukan spesifikasi alat (setelan jaringan router / data layanan) — tidak masuk laporan. */
   const BUKAN_SPEK = ['subnet_lan', 'dhcp', 'lease', 'dns', 'qos', 'user_admin', 'mode_wan', 'hotspot', 'id_layanan', 'kontak_noc',
     'ip_publik', 'gateway', 'mounting', 'lokasi_rak', 'tipe_endpoint', 'vlan_trunk', 'kontak'];
@@ -5445,9 +5531,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     try {
       toast('Menyiapkan PowerPoint…');
       await muatSkrip('vendor/pptxgenjs.bundle.js?v=3.12.0');
-      // Gambar denah per lantai (hanya lantai yang punya titik berfoto).
+      // Gambar denah per lantai yang berisi perangkat (penempatan & potongan denah titik berfoto).
       const denahImgs = new Map();
-      for (const lid of new Set(ada.map(d => m.lantaiOf(d)))) {
+      for (const lid of new Set(semua.map(d => m.lantaiOf(d)))) {
         const du = denahUrl(lid);
         if (!du) continue;
         const im = new Image();
@@ -5583,7 +5669,44 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         });
       });
 
-      // 3. Satu slide per titik berfoto.
+      // 3. Penempatan perangkat di denah (pudar 20%): semua perangkat jaringan (seluruh denah), lalu per kelompok jenis
+      //    (zoom ke area perangkatnya); per lantai.
+      const jar = semua.filter(d => !NP.nonJaringan(d));
+      const KELOMPOK = [
+        { nama: 'Semua perangkat jaringan', cocok: () => true },
+        { nama: 'Router & Sumber WAN', cocok: d => d.jenis === 'router' || d.jenis === 'isp' },
+        { nama: 'Switch', cocok: d => d.jenis === 'switch' },
+        { nama: 'Access Point', cocok: d => d.jenis === 'ap' || d.jenis === 'bridge' },
+        { nama: 'Endpoint (laptop, EDC, printer, …)', cocok: d => d.jenis === 'endpoint' },
+        { nama: 'Perangkat lain (titik LAN, server, CCTV, …)', cocok: d => !['router', 'isp', 'switch', 'ap', 'bridge', 'endpoint'].includes(d.jenis) },
+      ];
+      const lantaiPakai = m.lantaiList().filter(L => jar.some(d => m.lantaiOf(d) === L.id));
+      const warnaLp = colsLp.length ? d => Lof(d).warna : null;
+      for (const kel of KELOMPOK) {
+        for (const L of lantaiPakai) {
+          const ds = jar.filter(d => kel.cocok(d) && m.lantaiOf(d) === L.id);
+          if (!ds.length || (kel !== KELOMPOK[0] && ds.length === jar.filter(d => m.lantaiOf(d) === L.id).length)) continue; // kelompok = semua: tidak diulang
+          toast(`Menyiapkan PowerPoint… penempatan ${kel.nama}`);
+          // Slide gabungan: nama endpoint tidak ditulis (booth padat); namanya ada di slide Endpoint.
+          const pt = petaPenempatan(denahImgs.get(L.id) || null, L.id, ds, warnaLp, kel === KELOMPOK[0] ? d => d.jenis === 'endpoint' : null, kel !== KELOMPOK[0]);
+          const s = ppt.addSlide();
+          s.addText([{ text: 'Penempatan ' + kel.nama, options: { bold: true } }, ...(lantaiPakai.length > 1 ? [{ text: ' · ' + L.nama, options: { color: '7C3AED' } }] : [])],
+            { x: 0.4, y: 0.2, w: 9.2, h: 0.55, fontFace: F, fontSize: 22, color: GELAP, valign: 'middle', fit: 'shrink' });
+          // Rincian jumlah per jenis di kanan judul.
+          const perJenis = TYPE_ORDER.map(j => [j, ds.filter(d => d.jenis === j).length]).filter(x => x[1]);
+          s.addText(perJenis.map(([j, n]) => `${j === 'lainnya' ? 'Lain' : (TYPES[j] || TYPES.lainnya).short} ${n}`).join(' · ') + ` · total ${ds.length}`,
+            { x: 9.6, y: 0.2, w: 3.3, h: 0.55, align: 'right', fontFace: F, fontSize: 11, color: ABU, valign: 'middle', fit: 'shrink' });
+          const kotak = pasKotak(pt.w, pt.h, 0.4, 0.85, 12.5, colsLp.length ? 5.85 : 6.1);
+          s.addImage({ data: pt.data, ...kotak, line: { color: GARIS } });
+          if (colsLp.length) {
+            s.addText(colsLp.map(Lp => [{ text: '● ', options: { color: Lp.warna.slice(1) } }, { text: Lp.nama + '    ', options: { color: '334155' } }]).flat(),
+              { x: 0.4, y: 6.72, w: 12.5, h: 0.3, fontFace: F, fontSize: 10 });
+          }
+          kaki(s, `${p.nama} · Penempatan perangkat`);
+        }
+      }
+
+      // 4. Satu slide per titik berfoto.
       for (let k = 0; k < ada.length; k++) {
         const d = ada[k];
         toast(`Menyiapkan PowerPoint… ${k + 1}/${ada.length}`);

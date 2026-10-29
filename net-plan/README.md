@@ -359,6 +359,11 @@ dan tarikan LAN**, tanpa status pemasangan, progres foto, dan hasil pengecekan:
   total.
 - **Daftar titik per jenis** (urut WAN → router → switch → AP → …): titik, alat (merek/model; endpoint: tipe), uplink /
   port, media, dan tarikan LAN (m). Jenis besar dibagi rata maks. 19 baris per slide; jenis kecil digabung selama muat.
+- **Penempatan perangkat** (sebelum slide foto): denah pudar (opacity 20%) dengan titik berwarna per jenis + nama.
+  - Slide pertama *Semua perangkat jaringan* (seluruh denah; nama endpoint tidak ditulis karena padat).
+  - Lalu satu slide per kelompok: Router & Sumber WAN, Switch, Access Point, Endpoint (laptop, EDC, printer, …), dan
+    Perangkat lain (titik LAN, server, CCTV, …). Slide kelompok di-zoom ke area perangkatnya.
+  - Event multi-lantai: per lantai. Multi-layer: cincin titik berwarna layer + legenda layer.
 - **Satu slide per titik berfoto**:
   - 1–3 foto bercap, utuh tanpa terpotong, disusun 1 besar / 2 / 3 kolom mengikuti rasio foto;
   - keterangan tiap foto: waktu, pengambil, dan koordinat yang bisa diklik ke Google Maps;

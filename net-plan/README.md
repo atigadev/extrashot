@@ -641,6 +641,20 @@ sekaligus.
 - **Bar tab**: bila sempit, tombol Cari menjadi ikon saja. Mode **⛶** tetap menyembunyikan header & tab untuk denah
   layar penuh.
 
+**Port LAN gedung (jaringan existing venue).** Jenis perangkat **Port LAN gedung** (singkatan WP, *wall port*) untuk
+outlet LAN yang sudah tertanam di dinding/lantai venue dan tersambung ke ruang server gedung.
+- **Kabel uplink-nya dianggap tertanam**: tidak digambar di denah maupun laporan cetak, tidak masuk estimasi kabel /
+  tarikan LAN / progres kabel, dan tidak punya status kabel atau ceklis penarikan. Panel menulis *Tertanam di gedung*.
+- **Tanpa uplink** = sumber jaringan gedung: perangkat di bawahnya dianggap terhubung internet, tanpa peringatan
+  "belum punya uplink".
+- **Dengan uplink** ke switch / router (atau Sumber WAN) di ruang server venue yang digambar: jalur internet, VLAN, dan
+  pemakaian port switch tetap terhitung.
+- Berperilaku seperti Titik LAN: endpoint baru otomatis tersambung ke titik/port LAN terdekat, jumlah port outlet
+  dicek, dan hanya satu VLAN untagged.
+- Isian: kode/label port (mis. B2-15), tersambung ke (ruang server / rak / port), jumlah port, mode IP, peruntukan,
+  dan PIC IT venue. Ceklis: port aktif, IP/internet dari jaringan gedung, kode port dicatat.
+- Ada di akhir daftar jenis perangkat, jadi pintasan tambah perangkat 1–9 tidak bergeser.
+
 **Layer jaringan (beberapa jaringan dalam satu denah).** Untuk venue yang sama dengan jaringan terpisah, mis. EXPO LINE dan
 BSI LINE: sumber WAN berbeda dan tarikan kabel ke endpoint yang berbeda pula.
 - **Kelola** di *Proyek → Layer jaringan*: tambah layer, ganti nama & warna, hapus layer kosong.

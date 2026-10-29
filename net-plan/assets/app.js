@@ -853,10 +853,10 @@
    */
   function lanUntukEndpoint(x, y) {
     const pilih = S.parentCtx != null && S.model.byId.get(S.parentCtx);
-    if (pilih && pilih.jenis === 'lan') return { lan: pilih, cara: 'dipilih' };
+    if (pilih && NP.titikLan(pilih.jenis)) return { lan: pilih, cara: 'dipilih' };
     let best = null;
     for (const d of S.list) {
-      if (d.jenis !== 'lan' || (multiLantai() && S.model.lantaiOf(d) !== S.lantai)) continue; // titik LAN di lantai yang tampil
+      if (!NP.titikLan(d.jenis) || (multiLantai() && S.model.lantaiOf(d) !== S.lantai)) continue; // titik LAN / port LAN gedung di lantai yang tampil
       const jarak = Math.hypot(d.x - x, d.y - y);
       if (!best || jarak < best.jarak) best = { lan: d, jarak };
     }
@@ -884,7 +884,7 @@
   function mediaWajar(jenis, P, sekarang) {
     if (!P) return sekarang || 'utp';
     const radio = P.jenis === 'ap' || P.jenis === 'bridge';
-    if (P.jenis === 'ap' && !['switch', 'router', 'lan', 'isp', 'ap'].includes(jenis)) return 'wireless';
+    if (P.jenis === 'ap' && !['switch', 'router', 'lan', 'lan_gedung', 'isp', 'ap'].includes(jenis)) return 'wireless';
     if (P.jenis === 'bridge' && jenis === 'bridge') return 'wireless';
     if (!radio && sekarang === 'wireless') return 'utp';
     return sekarang || 'utp';
@@ -1369,9 +1369,9 @@
       const ep = tool === 'tambah:endpoint' && (NP.ET.find(x => x.id === S.epTipe) || NP.ET[0]);
       const t = ep ? { label: ep.nama } : TYPES[tool.slice(7)];
       const par = S.parentCtx != null && S.model && S.model.byId.get(S.parentCtx);
-      const adaLan = S.list.some(d => d.jenis === 'lan');
+      const adaLan = S.list.some(d => NP.titikLan(d.jenis));
       h = `Klik di denah untuk menaruh <b>${esc(t.label)}</b>` +
-        (ep ? (par && par.jenis === 'lan' ? ` · tersambung ke <b>${esc(par.nama)}</b> <span class="muted">(pilih titik LAN lain untuk mengganti)</span>`
+        (ep ? (par && NP.titikLan(par.jenis) ? ` · tersambung ke <b>${esc(par.nama)}</b> <span class="muted">(pilih titik LAN lain untuk mengganti)</span>`
           : adaLan ? ' · tersambung otomatis ke <b>titik LAN terdekat</b>'
             : par ? ` · belum ada titik LAN, tersambung ke <b>${esc(par.nama)}</b>` : ' · <span class="muted">taruh titik LAN dulu agar endpoint tersambung otomatis</span>')
           : tool !== 'tambah:isp' ? (par ? ` · uplink otomatis: <b>${esc(par.nama)}</b> <span class="muted">(pilih perangkat lain untuk mengganti)</span>` : ' · <span class="muted">pilih router/switch dulu agar uplink terisi otomatis</span>') : '') +
@@ -3687,7 +3687,11 @@
     if (bw.mbps != null) {
       h += `<div class="kv"><span>Bandwidth maks.</span><b>${fmtBw(bw.mbps)}${bw.gabung ? ` <span class="muted">(gabungan ${bw.gabung} ${bw.at && bw.at.jenis === 'switch' ? 'uplink' : 'WAN'})</span>` : bw.at && bw.at.id !== d.id ? ` <span class="muted">(dibatasi ${esc(bw.at.nama)})</span>` : ''}</b></div>`;
     }
-    if (m.parentOf(d)) {
+    if (m.parentOf(d) && NP.kabelTertanam(d)) {
+      h += `<div class="kv"><span>Kabel ke uplink</span><b>Tertanam di gedung <span class="muted">(jaringan existing ke ${esc(m.parentOf(d).nama)}, tidak ditarik)</span></b></div>`;
+    } else if (!m.parentOf(d) && d.jenis === 'lan_gedung') {
+      h += `<div class="kv"><span>Sumber</span><b>Jaringan gedung / venue${(d.atribut || {}).ruang_server ? ` <span class="muted">(${esc(d.atribut.ruang_server)})</span>` : ''}</b></div>`;
+    } else if (m.parentOf(d)) {
       const berbelok = m.routePts(d).length > 2;
       h += `<div class="kv"><span>${d.media === 'wireless' ? 'Jarak link' : 'Kabel ke uplink'}</span><b>${jarak == null
         ? '<span class="muted">kalibrasi skala dulu</span>'
@@ -5883,6 +5887,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     ap: { label: 'Access point', color: '#059669' },
     bridge: { label: 'Wireless bridge', color: '#0891b2' },
     lan: { label: 'Titik LAN', color: '#d97706' },
+    lan_gedung: { label: 'Port LAN gedung', color: '#92400e' },
     endpoint: { label: 'Endpoint', color: '#ea580c' },
     cctv: { label: 'CCTV', color: '#be185d' },
     server: { label: 'Server', color: '#475569' },
@@ -7306,7 +7311,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     for (const d of m.list) {
       const p = m.parentOf(d);
       const riser = p && multiLantai() && m.bedaLantai(d, p);
-      if (!p || !utama(d) || !(riser ? lolos(p) : utama(p))) continue;
+      if (!p || NP.kabelTertanam(d) || !utama(d) || !(riser ? lolos(p) : utama(p))) continue;
       const md = MEDIA[d.media] || MEDIA.utp;
       const kl = m.koneksiLink(d);
       const color = kl === 'online' ? md.color || '#0369a1' : KONEKSI[kl].color;

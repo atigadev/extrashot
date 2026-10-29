@@ -290,7 +290,7 @@
       set('pola_antena', s.pola_antena);
       if (/^sektor/i.test(s.pola_antena || '')) set('lebar_sektor', s.lebar_beam);
     }
-    if (d.jenis === 'lan' && s.port_lan) set('jumlah_port', s.port_lan);
+    if (NP.titikLan(d.jenis) && s.port_lan) set('jumlah_port', s.port_lan);
     const patch = { katalog_id: k.id, model: label(k), atribut: atr };
     if (k.bandwidth_mbps != null && (timpa || d.bandwidth_mbps == null)) patch.bandwidth_mbps = k.bandwidth_mbps;
     if (k.catatan_konfig && (timpa || !d.catatan)) patch.catatan = k.catatan_konfig;

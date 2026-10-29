@@ -115,7 +115,7 @@
       }));
       for (const d of m.list) {
         const p = m.parentOf(d);
-        if (!p) continue;
+        if (!p || NP.kabelTertanam(d)) continue; // kabel tertanam di gedung (Port LAN gedung) tidak digambar
         const media = MEDIA[d.media] || MEDIA.utp;
         const err = errLink.get(d.id);
         // Garis = tepi putih (kontras di atas denah) + garis berwarna media. Garis yang belum membawa internet
@@ -407,7 +407,7 @@
       const m = st.model;
       if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || !st.layers.garis || st.layers.kabel) return null; // lapisan kabel: klik garis = ubah status, bukan bentuk jalur
       const d = m.byId.get(st.sel);
-      return d && m.parentOf(d) && !tersembunyi(d) ? d : null;
+      return d && m.parentOf(d) && !tersembunyi(d) && !NP.kabelTertanam(d) ? d : null;
     }
 
     /** Perangkat terpilih yang jalur kabelnya bisa dibentuk (punya uplink, bukan wireless). */

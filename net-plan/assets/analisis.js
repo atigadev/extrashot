@@ -161,6 +161,7 @@
 
     /** Estimasi panjang kabel ke uplink = panjang jalur + tambahan (naik-turun, sisa). Wireless: null. */
     function kabelM(d) {
+      if (NP.kabelTertanam(d)) return null; // Port LAN gedung: kabel tertanam (existing), tidak ditarik
       const j = jalurM(d);
       if (j == null || d.media === 'wireless') return null;
       return j * (1 + (proyek.slack_kabel || 0) / 100);
@@ -271,6 +272,9 @@
       return r;
     }
 
+    /** Akar yang menjadi sumber internet: Sumber WAN/ISP, atau Port LAN gedung tanpa uplink (jaringan gedung). */
+    const sumberAkar = d => !!d && (d.jenis === 'isp' || d.jenis === 'lan_gedung');
+
     /** Sumber WAN utama (akar jalur uplink) atau null. */
     function wanOf(d) {
       const p = path(d);
@@ -313,7 +317,7 @@
       if (jejak.has(d.id)) return 'offline';
       jejak.add(d.id);
       const p = parentOf(d);
-      const opsi = [p ? koneksi(p, jejak) : d.jenis === 'isp' ? 'online' : 'offline'];
+      const opsi = [p ? koneksi(p, jejak) : sumberAkar(d) ? 'online' : 'offline'];
       for (const w of [...wanLain(d), ...uplinkLain(d)]) opsi.push(koneksi(w.dev, jejak));
       let r = opsi.includes('online') ? 'online' : opsi.includes('gangguan') ? 'gangguan' : 'offline';
       if (r !== 'offline' && d.status === 'bermasalah') r = 'gangguan';
@@ -627,7 +631,7 @@
           add('warn', p, `${p.nama} unmanaged meneruskan VLAN tanpa pemisahan port — cek kebutuhan VLAN di bawahnya`);
         }
         // Titik LAN dinding (pasif) hanya bisa membawa satu VLAN untagged.
-        if (d.jenis === 'lan' && lv.butuh.length > 1) add('warn', d, `${d.nama}: endpoint di titik LAN ini memakai ${lv.butuh.length} VLAN (${lv.butuh.join(', ')}) — titik LAN pasif hanya satu VLAN; pasang switch kecil managed`);
+        if (NP.titikLan(d.jenis) && lv.butuh.length > 1) add('warn', d, `${d.nama}: endpoint di titik LAN ini memakai ${lv.butuh.length} VLAN (${lv.butuh.join(', ')}) — titik LAN pasif hanya satu VLAN; pasang switch kecil managed`);
         if (lv.mode === 'trunk' && !lv.auto && lv.butuh.some(v => !lv.tagged.includes(v))) {
           add('warn', d, `${d.nama}: trunk manual tidak membawa VLAN ${lv.butuh.filter(v => !lv.tagged.includes(v)).join(', ')} yang dibutuhkan perangkat di bawahnya`);
         }
@@ -653,7 +657,7 @@
           continue;
         }
         if (P.jenis === 'isp') {
-          const tanpaRouter = ch.filter(c => !['router', 'bridge'].includes(c.jenis));
+          const tanpaRouter = ch.filter(c => !['router', 'bridge', 'lan_gedung'].includes(c.jenis)); // port gedung: router ada di ruang server venue
           if (tanpaRouter.length) add('warn', [P].concat(tanpaRouter), `${nm(tanpaRouter)} tersambung langsung ke ${P.nama} tanpa router — tidak ada NAT, DHCP, dan firewall. Pasang router di antaranya`);
         }
         // Media wireless hanya ke perangkat yang punya radio.
@@ -665,11 +669,11 @@
           // AP umumnya hanya punya port uplink; klien kabel perlu switch.
           const kabel = ch.filter(c => c.media && c.media !== 'wireless' && !['ap', 'switch'].includes(c.jenis));
           if (kabel.length) add('warn', [P].concat(kabel), `${P.nama}: ${kabel.length} perangkat tersambung kabel (${nm(kabel)}) — klien AP seharusnya wireless; ubah media, atau sambungkan ke switch bila memang kabel`);
-          const infra = ch.filter(c => ['router', 'lan'].includes(c.jenis));
+          const infra = ch.filter(c => c.jenis === 'router' || NP.titikLan(c.jenis));
           if (infra.length) add('warn', [P].concat(infra), `${nm(infra)} di bawah AP ${P.nama} — ${infra.map(lbl).join(' / ')} seharusnya dari switch/router`);
         }
-        if (P.jenis === 'lan') {
-          const salah = ch.filter(c => ['router', 'lan'].includes(c.jenis));
+        if (NP.titikLan(P.jenis)) {
+          const salah = ch.filter(c => c.jenis === 'router' || NP.titikLan(c.jenis));
           if (salah.length) add('warn', [P].concat(salah), `${nm(salah)} di bawah titik LAN ${P.nama} — titik LAN pasif hanya untuk perangkat ujung / AP / switch kecil`);
         }
         if (P.jenis === 'bridge') {
@@ -688,7 +692,11 @@
         if (d.jenis === 'lan' && !['switch', 'router', 'bridge', 'lan'].includes(p.jenis) && !UJUNG.includes(p.jenis)) {
           add('warn', [d, p], `${d.nama}: titik LAN seharusnya ditarik dari switch / router (sekarang dari ${p.nama})`);
         }
-        if (['switch', 'router', 'lan'].includes(d.jenis) && d.media === 'wireless' && RADIO.includes(p.jenis)) {
+        // Port LAN gedung tersambung ke ruang server venue: switch / router gedung, atau langsung Sumber WAN gedung.
+        if (d.jenis === 'lan_gedung' && !['switch', 'router', 'isp'].includes(p.jenis) && !UJUNG.includes(p.jenis)) {
+          add('warn', [d, p], `${d.nama}: port LAN gedung seharusnya tersambung ke switch / router ruang server venue (sekarang ${p.nama}) — atau kosongkan uplink bila jaringan gedung tidak digambar`);
+        }
+        if ((['switch', 'router'].includes(d.jenis) || NP.titikLan(d.jenis)) && d.media === 'wireless' && RADIO.includes(p.jenis)) {
           add('err', [d, p], `${d.nama}: ${lbl(d)} tidak punya radio — sambungkan dengan kabel ke ${p.nama}${p.jenis === 'ap' ? ', atau pakai wireless bridge' : ''}`);
         }
         // Fiber butuh port SFP di kedua sisi (bila jumlah port diketahui).
@@ -859,9 +867,9 @@
         const t = TYPES[d.jenis] || TYPES.lainnya;
         const p = parentOf(d);
         const a = d.atribut || {};
-        if (!p && d.jenis !== 'isp' && !NP.nonJaringan(d)) {
+        if (!p && !sumberAkar(d) && !NP.nonJaringan(d)) {
           add(list.length > 1 ? 'warn' : 'info', d, `${d.nama}: belum punya uplink (tidak tersambung ke sumber WAN)`);
-        } else if (p && !wans(d).length) {
+        } else if (p && !wans(d).length && !sumberAkar(path(d).slice(-1)[0])) {
           add('warn', d, `${d.nama}: jalur uplink tidak berujung di Sumber WAN/ISP`);
         }
         // Multi-WAN: pemberitahuan bila WAN utama tidak sampai ke ISP (hanya WAN tambahan yang aktif).
@@ -918,7 +926,7 @@
           add('err', d, `${d.nama}: ${ch.length + (p ? 1 : 0) + ekstra} koneksi (termasuk uplink) melebihi ${nPort} port`);
         }
         // Titik LAN: jumlah port = jumlah perangkat (laptop, printer, ...) yang bisa dicolok langsung.
-        if (d.jenis === 'lan' && nPort > 0 && ch.length > nPort) {
+        if (NP.titikLan(d.jenis) && nPort > 0 && ch.length > nPort) {
           add('warn', [d].concat(ch), `${d.nama}: ${ch.length} endpoint tersambung, titik LAN hanya ${nPort} port — tambah kabel/port atau switch kecil`);
         }
         // Port: satu port dipakai lebih dari satu perangkat ("ether5" = "5"), atau nomor port di luar jumlah port.
@@ -1064,7 +1072,7 @@
       const tot = {};
       let tanpaSkala = 0;
       for (const d of list) {
-        if (!parentOf(d) || d.media === 'wireless') continue;
+        if (!parentOf(d) || d.media === 'wireless' || NP.kabelTertanam(d)) continue;
         const k = kabelM(d);
         if (k == null) {
           tanpaSkala++;

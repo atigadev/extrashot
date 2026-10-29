@@ -137,6 +137,20 @@
         { k: 'fungsi', label: 'Fungsi', ph: 'mis. printer, mesin EDC, UPS' },
       ],
     },
+    // Port LAN gedung: outlet LAN di dinding/lantai yang sudah tertanam & tersambung ke ruang server venue (jaringan
+    // existing). Kabel uplink-nya tidak digambar & tidak dihitung (tertanam). Tanpa uplink = sumber jaringan gedung.
+    lan_gedung: {
+      label: 'Port LAN gedung', short: 'WP', prefix: 'WP', color: '#92400e', parent: true, tertanam: true,
+      bwLabel: 'Kapasitas / limit (Mbps)',
+      fields: [
+        { k: 'kode_port', label: 'Kode / label port', ph: 'mis. B2-15 pada faceplate' },
+        { k: 'ruang_server', label: 'Tersambung ke', ph: 'mis. Ruang server lt.1, rak IDF-2 port 24' },
+        { k: 'jumlah_port', label: 'Jumlah port di outlet', type: 'number' },
+        { k: 'mode_ip', label: 'Mode IP', type: 'select', options: ['', 'DHCP', 'Statis', 'DHCP reserved'] },
+        { k: 'peruntukan', label: 'Peruntukan', ph: 'mis. Booth BSI, kasir, registrasi' },
+        { k: 'pic_venue', label: 'PIC IT venue', ph: 'nama & nomor' },
+      ],
+    },
     // Titik listrik: berdiri sendiri (bukan perangkat jaringan, tanpa uplink). Perangkat jaringan bisa memilih titik
     // listrik pemasoknya -> beban (watt) dihitung terhadap kapasitas.
     listrik: {
@@ -166,7 +180,8 @@
       ],
     },
   };
-  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'endpoint', 'lainnya', 'listrik', 'support'];
+  // lan_gedung di akhir kelompok jaringan agar pintasan tambah perangkat 1–9 (WAN … Endpoint) tidak bergeser.
+  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'endpoint', 'lainnya', 'lan_gedung', 'listrik', 'support'];
 
   /** Kelompok perangkat: 'jaringan' (default) atau 'support' (titik listrik & peralatan support). */
   const grupJenis = j => ((TYPES[j] || {}).grup === 'support' ? 'support' : 'jaringan');
@@ -203,6 +218,7 @@
       ['sinyal', 'Uji sinyal & speedtest']],
     bridge: [['mode', 'Mode AP/station & SSID'], ['align', 'Alignment antena'], ['link', 'Uji link (RSSI/CCQ, throughput)']],
     lan: [['tes_port', 'Uji koneksi port (link up)']],
+    lan_gedung: [['aktif', 'Port aktif dari ruang server (link up)'], ['ip', 'IP / DHCP & internet dari jaringan gedung'], ['label', 'Kode port dicatat / dilabel']],
     server: [['os', 'OS & layanan berjalan'], ['ip', 'IP statis & akses remote']],
     cctv: [['stream', 'Stream / rekaman ke NVR'], ['sudut', 'Sudut & fokus kamera']],
     endpoint: [['ip', 'IP / DHCP didapat'], ['internet', 'Uji koneksi internet']],
@@ -300,7 +316,11 @@
     bermasalah: { label: 'Kabel bermasalah', short: 'Bermasalah', color: '#e11d48', icon: '⚠', step: -1 },
   };
   /** Perangkat yang butuh kabel ke uplink: punya uplink & bukan wireless. */
-  const perluKabel = d => !!d && d.uplink_id != null && d.media !== 'wireless';
+  /** Kabel uplink perangkat tertanam di gedung (Port LAN gedung): tidak digambar, tidak dihitung, tanpa status kabel. */
+  const kabelTertanam = d => !!d && !!(TYPES[d.jenis] || {}).tertanam;
+  /** Titik LAN pasif tempat endpoint dicolok: titik LAN tarikan event atau port LAN gedung. */
+  const titikLan = j => j === 'lan' || j === 'lan_gedung';
+  const perluKabel = d => !!d && d.uplink_id != null && d.media !== 'wireless' && !kabelTertanam(d);
   const kabelSt = d => (d && d.atribut && KABEL[d.atribut.kabel] ? d.atribut.kabel : 'belum');
 
   /** Hasil pengecekan penempatan oleh checker (atribut "verif" JSON {h, c, t, o}). */
@@ -646,5 +666,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

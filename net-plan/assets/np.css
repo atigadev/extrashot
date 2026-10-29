@@ -1361,3 +1361,26 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 @keyframes pg-putar { to { transform: rotate(360deg); } }
 @keyframes pg-geser { 0% { left: -35%; } 100% { left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .dlg-progres .pg-bar.tak-tentu i, .dlg-progres .pg-judul::before { animation: none; } }
+
+/* ---- Label & panah (anotasi) di denah */
+.map .anot { cursor: move; }
+.map.readonly .anot { cursor: default; }
+.map .anot .an-box rect { stroke-width: 1.5px; filter: drop-shadow(0 1px 2px rgba(15, 23, 42, .25)); }
+.map .anot .an-box text { font: 600 12.5px system-ui, sans-serif; text-anchor: middle; pointer-events: none; }
+.map .anot .an-case { stroke: #fff; stroke-width: 5px; stroke-linecap: round; opacity: .9; }
+.map .anot .an-ln { stroke-width: 2.4px; stroke-linecap: round; }
+.map .anot .an-head { stroke: none; }
+.map .anot.sel .an-box rect { stroke: #0f172a; stroke-width: 2.5px; stroke-dasharray: 5 3; }
+.map .anot .an-tip { fill: #fff; stroke: #0f172a; stroke-width: 2px; cursor: crosshair; }
+.map[data-tool="label"] { cursor: crosshair; }
+.anot-ed textarea { width: 100%; min-height: 84px; resize: vertical; font: inherit; }
+.anot-warna { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.anot-warna button { width: 30px; height: 30px; border-radius: 8px; border: 2px solid transparent; padding: 0; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.anot-warna button.on { border-color: #0f172a; box-shadow: 0 0 0 2px #fff inset; }
+
+.anot-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 9px; background: #fff; box-shadow: var(--shadow); font-size: 12.5px; font-weight: 600; color: #15803d; }
+.anot-toggle b { min-width: 16px; padding: 0 5px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 11px; }
+.anot-toggle b:empty { display: none; }
+.anot-toggle.off { color: var(--muted); text-decoration: none; }
+.anot-toggle.off svg { opacity: .5; }
+.anot-toggle.off b { background: #eef1f5; color: var(--muted); }

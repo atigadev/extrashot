@@ -32,6 +32,7 @@
       <g class="world"><g class="bg"></g><g class="cov"></g></g>
       <g class="links"></g>
       <g class="nodes"></g>
+      <g class="anots"></g>
       <g class="handles"></g>
       <g class="tool"></g>`;
     const gWorld = svg.querySelector('.world');
@@ -40,13 +41,15 @@
     const gLinks = svg.querySelector('.links');
     const gNodes = svg.querySelector('.nodes');
     const gTool = svg.querySelector('.tool');
+    const gAnot = svg.querySelector('.anots');
     const gHandles = svg.querySelector('.handles');
 
     const st = {
       model: null, W: DEFAULT_W, H: DEFAULT_H, img: null,
       z: 1, tx: 0, ty: 0, fitted: false,
       tool: 'pilih', sel: null, canEdit: true,
-      layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true, kabel: false, listrik: false },
+      layers: { label: true, garis: true, jarak: false, cakupan: true, internet: true, kabel: false, listrik: false, anotasi: true },
+      anot: [], anotSel: null, anotLantai: 'F1', // label & panah (dibagi dengan app; dimutasi langsung saat digeser)
       hidden: new Set(), // jenis yang disembunyikan
       redup: null, // fn(d) -> true: perangkat digambar samar & tidak bisa diklik (mis. layer jaringan lain)
       saring: null, // fn(d) -> true: perangkat tidak digambar (mis. di lantai lain)
@@ -218,6 +221,7 @@
       }
       buildCoverage();
       applyClasses();
+      buildAnot();
     }
 
     function buildCoverage() {
@@ -340,8 +344,92 @@
         if (mk) mk.setAttribute('transform', `translate(${mid.x.toFixed(1)},${mid.y.toFixed(1)})`);
         posRiser(w.g, pts);
       }
+      layoutAnot();
       drawHandles();
       drawTool();
+    }
+
+    // ------------------------------------------------------------------ label & panah (anotasi)
+    // Label: kotak berwarna berisi teks (bisa beberapa baris) di (x, y) = titik tengah kotak, dengan panah ke (tx, ty)
+    // atau ke perangkat `ke` (panah ikut saat perangkat digeser). Ukuran kotak & teks tetap saat zoom.
+
+    const ANOT_PAD = 8;
+    const anotTampil = () => (st.layers.anotasi ? st.anot.filter(a => (a.lantai || 'F1') === st.anotLantai) : []);
+    /** Ujung panah label (koordinat denah); dev = perangkat yang ditunjuk (bila masih ada). */
+    function ujungAnot(a) {
+      const d = a.ke != null && st.model && st.model.byId.get(a.ke);
+      return d ? { x: d.x, y: d.y, dev: d } : { x: a.tx, y: a.ty, dev: null };
+    }
+
+    function buildAnot() {
+      gAnot.textContent = '';
+      for (const a of anotTampil()) {
+        const W = NP.ANOT_WARNA[a.warna] || NP.ANOT_WARNA.hijau;
+        const baris = String(a.teks || '').split('\n').slice(0, 12);
+        const g = el('g', { class: 'anot' + (a.id === st.anotSel ? ' sel' : ''), 'data-anot': a.id });
+        g.innerHTML = (a.panah !== false ? `<line class="an-case"/><line class="an-ln" stroke="${W.tepi}"/><path class="an-head" fill="${W.tepi}"/>` : '') +
+          `<g class="an-box"><rect rx="6" fill="${W.bg}" stroke="${W.tepi}"/><text fill="${W.fg}">${baris.map((t, i) =>
+            `<tspan x="0" dy="${i ? '1.3em' : '0'}">${esc(t) || (baris.length === 1 ? 'Label' : ' ')}</tspan>`).join('')}</text></g>` +
+          (a.id === st.anotSel && st.canEdit && a.panah !== false ? '<circle class="an-tip" r="7"><title>Tarik ujung panah · lepas di atas perangkat agar menempel</title></circle>' : '') +
+          (st.canEdit ? '<title>Geser untuk memindah · klik ganda untuk mengubah teks</title>' : '');
+        gAnot.appendChild(g);
+      }
+      layoutAnot();
+    }
+
+    function layoutAnot() {
+      for (const g of gAnot.children) {
+        const a = st.anot.find(x => x.id === g.dataset.anot);
+        if (!a) continue;
+        const box = g.querySelector('.an-box');
+        const text = box.querySelector('text');
+        // Teks tepat di tengah kotak (horizontal: text-anchor middle; vertikal: dari kotak pembatas teks).
+        const bb = text.getBBox();
+        const w = Math.max(36, bb.width + ANOT_PAD * 2.5), h = bb.height + ANOT_PAD * 1.4;
+        const cx = sx(a.x), cy = sy(a.y);
+        box.setAttribute('transform', `translate(${(cx - w / 2).toFixed(1)},${(cy - h / 2).toFixed(1)})`);
+        const rect = box.querySelector('rect');
+        rect.setAttribute('width', w.toFixed(1));
+        rect.setAttribute('height', h.toFixed(1));
+        text.setAttribute('transform', `translate(${(w / 2).toFixed(1)},${(h / 2 - bb.y - bb.height / 2).toFixed(1)})`);
+        if (a.panah === false) continue;
+        // Panah keluar dari tengah sisi kotak yang menghadap ujung (atas/bawah/kiri/kanan), berhenti di tepi titik
+        // bila menunjuk perangkat; garis berhenti di pangkal kepala panah agar ujungnya runcing.
+        const u = ujungAnot(a);
+        let ex = sx(u.x), ey = sy(u.y);
+        const ddx = ex - cx, ddy = ey - cy;
+        const datar = Math.abs(ddx) / (w / 2) > Math.abs(ddy) / (h / 2);
+        const bx = datar ? cx + Math.sign(ddx) * w / 2 : cx, by = datar ? cy : cy + Math.sign(ddy) * h / 2;
+        let dx = ex - bx, dy = ey - by, len = Math.hypot(dx, dy) || 1;
+        if (u.dev) { ex -= dx / len * (R + 5); ey -= dy / len * (R + 5); dx = ex - bx; dy = ey - by; len = Math.hypot(dx, dy) || 1; }
+        const k = 15;
+        const dalam = (Math.abs(ddx) <= w / 2 && Math.abs(ddy) <= h / 2) || len < k + 6; // ujung di dalam / terlalu dekat kotak
+        const lx = ex - dx / len * k * 0.85, ly = ey - dy / len * k * 0.85;
+        for (const ln of g.querySelectorAll('line')) {
+          ln.setAttribute('x1', bx.toFixed(1)); ln.setAttribute('y1', by.toFixed(1));
+          ln.setAttribute('x2', lx.toFixed(1)); ln.setAttribute('y2', ly.toFixed(1));
+          ln.style.display = dalam ? 'none' : '';
+        }
+        const ux = dx / len, uy = dy / len;
+        const head = g.querySelector('.an-head');
+        head.setAttribute('d', `M${ex.toFixed(1)} ${ey.toFixed(1)}L${(ex - ux * k - uy * k * 0.55).toFixed(1)} ${(ey - uy * k + ux * k * 0.55).toFixed(1)}L${(ex - ux * k + uy * k * 0.55).toFixed(1)} ${(ey - uy * k - ux * k * 0.55).toFixed(1)}Z`);
+        head.style.display = dalam ? 'none' : '';
+        const tip = g.querySelector('.an-tip');
+        if (tip) { tip.setAttribute('cx', sx(u.x).toFixed(1)); tip.setAttribute('cy', sy(u.y).toFixed(1)); }
+      }
+    }
+
+    /** Perangkat yang titiknya ada di bawah posisi layar p (untuk menempelkan ujung panah). */
+    function nodeDekat(p) {
+      if (!st.model) return null;
+      let best = null;
+      for (const [id, g] of nodeEls) {
+        if (g.style.display === 'none') continue;
+        const d = st.model.byId.get(id);
+        const j = Math.hypot(sx(d.x) - p.x, sy(d.y) - p.y);
+        if (j <= R + 8 && (!best || j < best.j)) best = { d, j };
+      }
+      return best && best.d;
     }
 
     /** Penanda riser (kabel ke lantai lain) di ujung garis, label di sebelah kanannya. */
@@ -664,6 +752,15 @@
       }
       const hit = nodeIdAt(e);
       const middle = e.button === 1;
+      // Label & panah: geser kotak, atau tarik ujung panah (pegangan bulat saat label terpilih).
+      const an = !middle && (st.tool === 'pilih' || st.tool === 'label') && e.target.closest && e.target.closest('.anot');
+      const a = an && st.anot.find(x => x.id === an.dataset.anot);
+      if (a) {
+        const tip = !!e.target.closest('.an-tip');
+        gesture = { type: tip ? 'anotTip' : 'anot', id: a.id, start: p, moved: false, edit: st.canEdit,
+          orig: { x: a.x, y: a.y, tx: a.tx, ty: a.ty, ke: a.ke } };
+        return;
+      }
       const rot = !middle && e.target.closest && e.target.closest('.rot');
       const sd = rot && sektorDev();
       if (sd) {
@@ -742,6 +839,26 @@
       }
       const dx = p.x - gesture.start.x, dy = p.y - gesture.start.y;
       if (!gesture.moved && Math.hypot(dx, dy) < 5) return;
+      if (gesture.type === 'anot' || gesture.type === 'anotTip') {
+        if (!gesture.edit) return;
+        gesture.moved = true;
+        const a = st.anot.find(x => x.id === gesture.id);
+        if (!a) return;
+        if (gesture.type === 'anot') {
+          a.x = gesture.orig.x + dx / st.z;
+          a.y = gesture.orig.y + dy / st.z;
+        } else {
+          // Ujung panah mengikuti pointer; menempel ke perangkat di bawahnya saat dilepas.
+          const w = toWorld(p);
+          const d = nodeDekat(p);
+          a.ke = null;
+          a.tx = d ? d.x : clampX(w.x);
+          a.ty = d ? d.y : clampY(w.y);
+          gesture.nempel = d ? d.id : null;
+        }
+        layoutAnot();
+        return;
+      }
       gesture.moved = true;
       if (gesture.type === 'pan') {
         st.userView = true;
@@ -802,6 +919,20 @@
       gesture = null;
       st.dragging = false;
       svg.classList.remove('dragging');
+      if (g.type === 'anot' || g.type === 'anotTip') {
+        const a = st.anot.find(x => x.id === g.id);
+        if (!a) return;
+        if (g.moved && e.type === 'pointercancel') {
+          Object.assign(a, g.orig);
+          layoutAnot();
+        } else if (g.moved) {
+          if (g.type === 'anotTip') a.ke = g.nempel != null ? g.nempel : null;
+          cb.onAnot && cb.onAnot(a, g.orig);
+        } else {
+          selectAnot(a.id, true);
+        }
+        return;
+      }
       if (g.type === 'rot') {
         const d = st.model.byId.get(g.id);
         if (g.moved && e.type !== 'pointercancel') {
@@ -860,7 +991,11 @@
       e.preventDefault();
       removeBend(e);
     });
-    svg.addEventListener('dblclick', removeBend);
+    svg.addEventListener('dblclick', e => {
+      const an = e.target.closest && e.target.closest('.anot');
+      if (an) return cb.onAnotEdit && cb.onAnotEdit(an.dataset.anot);
+      removeBend(e);
+    });
 
     /** Hapus satu lekukan (klik ganda / klik kanan pada kotak lekukan). */
     function removeBend(e) {
@@ -926,6 +1061,11 @@
         st.measure = st.measure.length >= 2 ? [pt] : st.measure.concat([pt]);
         drawTool();
         cb.onMeasure && cb.onMeasure(st.measure.slice());
+      } else if (tool === 'label') {
+        // Klik titik / perangkat yang ditunjuk: label dibuat di kanan atas dengan panah ke sana.
+        const d = hit && hit.kind === 'node' ? st.model.byId.get(hit.id) : null;
+        const tx = d ? d.x : clampX(w.x), ty = d ? d.y : clampY(w.y);
+        cb.onAnotBaru && cb.onAnotBaru({ tx, ty, ke: d ? d.id : null, x: clampX(tx + 90 / st.z), y: clampY(ty - 60 / st.z) });
       } else if (tool.startsWith('tambah:')) {
         if (hit && hit.kind === 'node') {
           select(hit.id, true);
@@ -933,6 +1073,18 @@
         }
         cb.onPlace(tool.slice(7), clampX(w.x), clampY(w.y));
       }
+    }
+
+    /** Pilih label (null = lepas); fromUser = beri tahu app (panel editor label). Pilihan perangkat dilepas. */
+    function selectAnot(id, fromUser) {
+      st.anotSel = id;
+      if (id != null && st.sel != null) {
+        st.sel = null;
+        applyClasses();
+        buildCoverage();
+      }
+      buildAnot();
+      if (fromUser && cb.onAnotSelect) cb.onAnotSelect(id);
     }
 
     const clampX = x => Math.max(0, Math.min(st.W, x));
@@ -966,6 +1118,7 @@
 
     function select(id, fromUser) {
       st.sel = id;
+      if (st.anotSel != null && (id != null || fromUser)) { st.anotSel = null; buildAnot(); } // pilih perangkat / klik area kosong melepas pilihan label
       applyClasses();
       buildCoverage();
       if (fromUser) cb.onSelect(id);
@@ -982,6 +1135,7 @@
 
     function setLayer(k, v) {
       st.layers[k] = v;
+      if (k === 'anotasi') buildAnot();
       buildCoverage();
       applyClasses();
       layout();
@@ -1008,7 +1162,10 @@
 
 
     return {
-      setData, select, setTool, setLayer, setHidden, setRedup, setSaring, fit, zoomBy, centerOn, flash,
+      setData, select, setTool, setLayer, setHidden, setRedup, setSaring, fit, zoomBy, centerOn, flash, selectAnot,
+      /** Daftar label (array yang sama dengan milik app) & lantai yang tampil. */
+      setAnotasi(list, lantai) { st.anot = list || []; st.anotLantai = lantai || 'F1'; if (st.anotSel && !st.anot.some(a => a.id === st.anotSel)) st.anotSel = null; buildAnot(); },
+      get anotSel() { return st.anotSel; },
       setEditable(v) { st.canEdit = v; applyClasses(); },
       setOpacity(v) {
         st.opacity = v;

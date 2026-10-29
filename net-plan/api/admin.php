@@ -21,6 +21,7 @@
  * POST {"action":"lantai_save","id":N,"lantai":[{id:"F1",nama,tinggi},..]}  -> daftar lantai (bawah -> atas)
  * POST multipart action=lantai_denah, id=N, lantai_id=F2, denah=<file>, sesuaikan=1|0 -> denah lantai
  * POST {"action":"lantai_skala","id":N,"lantai_id":"F2","skala":0.05} -> skala denah lantai
+ * POST {"action":"anotasi_save","id":N,"anotasi":[{id:"A1",teks,warna,x,y,tx,ty,ke,lantai,panah}]} -> label & panah denah
  * POST multipart action=foto_upload, id=N (perangkat), foto=<jpeg>, lat, lng, akurasi, waktu -> {foto:[...]} (maks. 3 per perangkat)
  * POST {"action":"foto_hapus","id":N (foto),"proyek_id":N} -> {foto:[...]}
  * POST {"action":"perangkat_verif","id":N,"hasil":"sesuai"|"tidak"|"","catatan":"..."} -> hasil pengecekan penempatan
@@ -640,6 +641,13 @@ switch ($method . ' ' . $action) {
         $pdo->prepare('UPDATE np_proyek SET lantai = ? WHERE id = ?')->execute([json_encode($daftar, JSON_UNESCAPED_UNICODE), $p['id']]);
         json_out(['ok' => true, 'proyek' => proyek_row(find_proyek($p['id']))]);
 
+    case 'POST anotasi_save':
+        // Label & panah di denah (daftar lengkap menggantikan yang lama).
+        $p = find_proyek($id);
+        $json = anotasi_json(isset($req['anotasi']) ? $req['anotasi'] : []);
+        $pdo->prepare('UPDATE np_proyek SET anotasi = ? WHERE id = ?')->execute([$json, $p['id']]);
+        json_out(['ok' => true]);
+
     case 'POST lapisan_impor':
         // Salin semua perangkat event lain (sumber_id) ke event ini sebagai layer lapisan_id. Posisi & jalur kabel
         // diskalakan mengikuti ukuran denah; foto bukti ikut disalin (file baru). Event sumber tidak diubah.
@@ -727,8 +735,9 @@ switch ($method . ' ' . $action) {
         if (!$list || count($list) > 2000) {
             json_error('File tidak berisi daftar perangkat');
         }
-        $n = salin_perangkat((int) $p['id'], $list);
-        json_out(['ok' => true, 'jumlah' => $n] + proyek_lengkap(find_proyek((int) $p['id'])));
+        $petaImpor = [];
+        $n = salin_perangkat((int) $p['id'], $list, false, $petaImpor);
+        json_out(['ok' => true, 'jumlah' => $n, 'peta_id' => (object) $petaImpor] + proyek_lengkap(find_proyek((int) $p['id'])));
 
     case 'POST perangkat_pulihkan':
         // Batalkan hapus (Ctrl+Z): perangkat kembali dengan id semula, lalu perangkat lain yang tadinya terhubung
@@ -861,6 +870,7 @@ function izin_admin_event($aksi, $req, $id)
         case 'POST lantai_save':
         case 'POST lantai_denah':
         case 'POST lantai_skala':
+        case 'POST anotasi_save':
         case 'POST perangkat_hapus_semua':
             return $cekProyek($id);
         case 'POST lapisan_impor':
@@ -981,9 +991,7 @@ function hapus_file_denah($file)
     }
 }
 
-/** Syarat SQL: perangkat di lantai utama F1 (atribut tanpa "lantai", atau "lantai":"F1"). */
-const SQL_LANTAI_UTAMA = '(atribut IS NULL OR atribut NOT LIKE \'%"lantai":%\' OR atribut LIKE \'%"lantai":"F1"%\')';
-/** Syarat SQL: perangkat di lantai $id (bukan F1). */
+/** Syarat SQL: perangkat di lantai $id (bukan F1). Lantai utama: konstanta SQL_LANTAI_UTAMA di db.php. */
 function sql_lantai($id)
 {
     return 'atribut LIKE ' . db()->quote('%"lantai":"' . $id . '"%');
@@ -1213,6 +1221,39 @@ function cek_uplink($proyekId, $selfId, $uplinkId)
         }
         $cur = isset($parent[$cur]) ? $parent[$cur] : null;
     }
+}
+
+
+/**
+ * Label & panah denah -> JSON tervalidasi atau NULL (kosong). Tiap label {id: "A1".., teks (maks. 500), warna,
+ * x, y (posisi kotak), tx, ty (ujung panah), ke (id perangkat yang ditunjuk | null), lantai ("F1".. | ""),
+ * panah (false = tanpa panah)}; maks. 500 label.
+ */
+function anotasi_json($arr)
+{
+    $out = [];
+    $ids = [];
+    foreach (is_array($arr) ? array_slice($arr, 0, 500) : [] as $a) {
+        $id = is_array($a) && isset($a['id']) ? (string) $a['id'] : '';
+        if (!preg_match('/^A\d{1,6}$/', $id) || isset($ids[$id])) {
+            continue;
+        }
+        $ids[$id] = true;
+        $teks = mb_substr(trim(isset($a['teks']) ? (string) $a['teks'] : ''), 0, 500);
+        $num = function ($k) use ($a) {
+            return isset($a[$k]) && is_numeric($a[$k]) ? round(max(-50000, min(50000, (float) $a[$k])), 1) : 0;
+        };
+        $out[] = [
+            'id' => $id,
+            'teks' => $teks,
+            'warna' => isset($a['warna']) && in_array($a['warna'], NP_ANOT_WARNA, true) ? $a['warna'] : 'hijau',
+            'x' => $num('x'), 'y' => $num('y'), 'tx' => $num('tx'), 'ty' => $num('ty'),
+            'ke' => isset($a['ke']) && is_numeric($a['ke']) && (int) $a['ke'] > 0 ? (int) $a['ke'] : null,
+            'lantai' => isset($a['lantai']) && preg_match('/^F\d{1,3}$/', (string) $a['lantai']) ? (string) $a['lantai'] : '',
+            'panah' => !isset($a['panah']) || $a['panah'] !== false,
+        ];
+    }
+    return $out ? json_encode($out, JSON_UNESCAPED_UNICODE) : null;
 }
 
 /**
@@ -1459,7 +1500,17 @@ function duplikat_proyek($p)
             $r['jalur'] = json_decode((string) $r['jalur'], true);
             return $r;
         }, $rows);
-        salin_perangkat($newId, $list);
+        $peta = [];
+        salin_perangkat($newId, $list, false, $peta);
+    }
+    // Label & panah ikut disalin; panah yang menunjuk perangkat dipetakan ke perangkat salinannya.
+    $anot = json_decode((string) (isset($p['anotasi']) ? $p['anotasi'] : ''), true);
+    if (is_array($anot) && $anot) {
+        foreach ($anot as &$a) {
+            $a['ke'] = !empty($a['ke']) && isset($peta[(int) $a['ke']]) ? $peta[(int) $a['ke']] : null;
+        }
+        unset($a);
+        $pdo->prepare('UPDATE np_proyek SET anotasi = ? WHERE id = ?')->execute([anotasi_json($anot), $newId]);
     }
     return find_proyek($newId);
 }

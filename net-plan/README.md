@@ -641,6 +641,25 @@ sekaligus.
 - **Bar tab**: bila sempit, tombol Cari menjadi ikon saja. Mode **⛶** tetap menyembunyikan header & tab untuk denah
   layar penuh.
 
+**Label & panah di denah.** Kotak berwarna berisi keterangan bebas (bawaan hijau, teks putih; bisa beberapa baris)
+dengan panah ke titik di denah atau ke perangkat.
+- **Membuat**: alat **Label** di toolbar (pintasan **T**). Klik titik atau perangkat yang ditunjuk; label muncul di
+  kanan atasnya dan isiannya langsung bisa diketik di panel. Klik perangkat → teks awal = nama perangkat.
+- **Mengatur**:
+  - geser kotak untuk memindah;
+  - tarik ujung panah (bulatan saat label terpilih); lepas di atas perangkat agar panah **menempel** dan ikut saat
+    perangkat digeser;
+  - klik ganda label untuk mengubah teks.
+- **Panel label**: isi teks, warna (hijau, biru, kuning, merah, ungu, abu), *Panah ke* (titik bebas / tanpa panah /
+  perangkat tertentu), **Hapus label** (atau tombol Delete).
+- **Tampilkan / sembunyikan**: tombol **Label (n)** di atas peta. Pilihan disimpan per event di browser; label yang
+  disembunyikan juga tidak ikut di laporan cetak.
+- Per lantai, tampil di laporan cetak (denah lengkap, support, potongan denah), dan bisa dilihat di link lihat-saja /
+  tim (hanya admin yang bisa mengubah).
+- **Penyimpanan**: kolom `np_proyek.anotasi` (JSON, migrasi otomatis skema 13), maks. 500 label & 500 karakter per
+  label. Ikut duplikat event dan backup / pulihkan (panah ke perangkat dipetakan ke perangkat salinan / pulihan).
+- Perubahan label belum masuk riwayat Ctrl+Z.
+
 **Port LAN gedung (jaringan existing venue).** Jenis perangkat **Port LAN gedung** (singkatan WP, *wall port*) untuk
 outlet LAN yang sudah tertanam di dinding/lantai venue dan tersambung ke ruang server gedung.
 - **Kabel uplink-nya dianggap tertanam**: tidak digambar di denah maupun laporan cetak, tidak masuk estimasi kabel /

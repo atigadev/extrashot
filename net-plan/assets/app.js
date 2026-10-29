@@ -191,6 +191,7 @@
     if (!S.model.lantaiList().some(l => l.id === S.lantai)) S.lantai = 'F1';
     peta.setData(S.model, denahUrl(S.lantai), lantaiAktif());
     terapkanLantai();
+    terapkanAnot();
     terapkanLapisan();
     peta.select(S.sel);
     if (S.tab === 'denah') {
@@ -237,6 +238,7 @@
     if (changed) {
       S.sel = null;
       S.parentCtx = null;
+      S.anotSel = null;
       resetRiwayat();
       // Layer jaringan terakhir yang dipilih di event ini.
       try { S.lapisan = localStorage.getItem(kunciLapisan()) || 'semua'; } catch (err) { S.lapisan = 'semua'; }
@@ -723,7 +725,23 @@
 
   const peta = NP.Peta($('#map'), {
     onSelect(id) {
+      if (id == null && S.anotSel != null) S.anotSel = null; // klik area kosong: lepas label juga
       selectDev(id, false);
+    },
+    // Label & panah (anotasi): peta sudah mengubah objek label saat digeser; app hanya menyimpan.
+    onAnotBaru(a) {
+      if (!S.canEdit) return;
+      buatAnot(a);
+    },
+    onAnot() {
+      simpanAnot();
+      if (S.anotSel != null) renderPanel(); // "Panah ke" ikut perangkat tempat ujung panah dilepas
+    },
+    onAnotSelect(id) {
+      pilihAnot(id);
+    },
+    onAnotEdit(id) {
+      pilihAnot(id, true);
     },
     onPlace(jenis, x, y) {
       addDev(jenis, x, y);
@@ -788,6 +806,7 @@
       try { localStorage.setItem(kunciLantai(), S.lantai); } catch (err) { /* abaikan */ }
       peta.setData(S.model, denahUrl(S.lantai), lantaiAktif());
       terapkanLantai();
+      terapkanAnot();
     }
     if (d && TYPES[d.jenis] && TYPES[d.jenis].parent) S.parentCtx = id;
     peta.select(id);
@@ -1326,6 +1345,7 @@
       { t: 'pilih', key: 'V', label: 'Pilih / geser', icon: '<path d="M5 3l14 8-6 2-3 6z"/>' },
       { t: 'hubung', key: 'L', label: 'Hubungkan ke uplink', icon: '<circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8 16L16 8" stroke-width="2.2"/>', edit: true },
       { t: 'ukur', key: 'M', label: 'Ukur jarak / kalibrasi skala', icon: '<path d="M3 17L17 3l4 4L7 21z" fill="none" stroke-width="1.8"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2" stroke-width="1.6"/>' },
+      { t: 'label', key: 'T', label: 'Label & panah (klik titik yang ditunjuk)', icon: '<path d="M4 4h12v8H9l-5 4z" fill="none" stroke-width="1.9" stroke-linejoin="round"/><path d="M14 14l6 6M20 15v5h-5" fill="none" stroke-width="1.9" stroke-linecap="round"/>', edit: true },
     ];
     let h = tools.map(x => `<button type="button" class="tool${x.edit ? ' edit-only' : ''}" data-tool="${x.t}" title="${x.label} (${x.key})">
         <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="currentColor">${x.icon}</svg><span>${x.label.split(' ')[0]}</span></button>`).join('');
@@ -1615,6 +1635,7 @@
     }
     peta.setData(S.model, denahUrl(id), lantaiAktif());
     terapkanLantai();
+    terapkanAnot();
     if (S.tab === 'denah') renderPanel();
     updateHint();
   }
@@ -1622,6 +1643,151 @@
     const b = e.target.closest('[data-lantai]');
     if (b) setLantai(b.dataset.lantai);
   });
+  // ------------------------------------------------------------------------ label & panah (anotasi denah)
+
+  /** Daftar label event (objek yang sama dipakai peta; dimutasi langsung lalu disimpan utuh). */
+  function anotList() {
+    if (!S.proyek) return [];
+    if (!Array.isArray(S.proyek.anotasi)) S.proyek.anotasi = [];
+    return S.proyek.anotasi;
+  }
+  const kunciAnot = () => 'np-anot-' + (S.proyek ? S.proyek.id : '');
+  /** Tampilkan label di peta (pilihan per event, disimpan di browser). */
+  function terapkanAnot() {
+    let tampil = true;
+    try { tampil = localStorage.getItem(kunciAnot()) !== '0'; } catch (err) { /* abaikan */ }
+    peta.setLayer('anotasi', tampil);
+    peta.setAnotasi(anotList(), S.lantai || 'F1');
+    const b = $('#btn-anot');
+    const n = anotList().filter(a => (a.lantai || 'F1') === (S.lantai || 'F1')).length;
+    if (b) {
+      b.hidden = !anotList().length && !S.canEdit;
+      b.classList.toggle('off', !tampil);
+      b.setAttribute('aria-pressed', String(tampil));
+      b.querySelector('b').textContent = n ? String(n) : '';
+      b.title = tampil ? 'Sembunyikan label & panah' : 'Tampilkan label & panah';
+    }
+  }
+  $('#btn-anot').addEventListener('click', () => {
+    const tampil = !peta.layers.anotasi;
+    try { localStorage.setItem(kunciAnot(), tampil ? '1' : '0'); } catch (err) { /* abaikan */ }
+    if (!tampil && S.anotSel != null) pilihAnot(null);
+    terapkanAnot();
+  });
+
+  function buatAnot(posisi) {
+    const list = anotList();
+    if (list.length >= 500) return toast('Maksimal 500 label per event', true);
+    const no = Math.max(0, ...list.map(a => +String(a.id).slice(1) || 0)) + 1;
+    const d = posisi.ke != null && S.model.byId.get(posisi.ke);
+    const a = Object.assign({ id: 'A' + no, teks: d ? d.nama : '', warna: 'hijau', lantai: S.lantai || 'F1', panah: true }, posisi);
+    list.push(a);
+    // Label tampil walau sebelumnya disembunyikan, lalu langsung bisa diketik.
+    try { localStorage.setItem(kunciAnot(), '1'); } catch (err) { /* abaikan */ }
+    setTool('pilih');
+    pilihAnot(a.id, true);
+    terapkanAnot();
+    simpanAnot();
+  }
+
+  /** Pilih label (null = lepas); ketik = fokus ke isian teks. */
+  function pilihAnot(id, ketik) {
+    S.anotSel = id;
+    if (id != null) {
+      S.sel = null;
+      openSheet();
+    }
+    peta.selectAnot(id, false);
+    renderPanel();
+    if (ketik && id != null) {
+      const t = $('#panel [data-anot-teks]');
+      if (t) { t.focus(); t.select(); }
+    }
+  }
+
+  let anotTimer = null;
+  /** Simpan semua label (ditunda sebentar agar ketikan / geseran beruntun jadi satu permintaan). */
+  function simpanAnot() {
+    clearTimeout(anotTimer);
+    anotTimer = setTimeout(() => {
+      // Label yang menunjuk perangkat: simpan juga posisi perangkat saat ini sebagai cadangan ujung panah.
+      const list = anotList();
+      list.forEach(a => {
+        const d = a.ke != null && S.model.byId.get(a.ke);
+        if (d) { a.tx = d.x; a.ty = d.y; } else if (a.ke != null) a.ke = null;
+      });
+      enqueue(() => api(API, { action: 'anotasi_save', id: S.proyek.id, anotasi: list }))
+        .then(() => setSaveState('saved'))
+        .catch(err => { setSaveState('error'); toast(err.message, true); });
+    }, 500);
+  }
+
+  function hapusAnot(id) {
+    const list = anotList();
+    const i = list.findIndex(a => a.id === id);
+    if (i < 0) return;
+    list.splice(i, 1);
+    pilihAnot(null);
+    terapkanAnot();
+    simpanAnot();
+    toast('Label dihapus');
+  }
+
+  /** Panel label terpilih: teks, warna, arah panah, hapus. */
+  function panelAnot(a) {
+    const dis = S.canEdit ? '' : ' disabled';
+    const devs = NP.Model.sortDev(S.model.list.filter(d => S.model.lantaiOf(d) === (a.lantai || 'F1')));
+    const arah = a.panah === false ? 'tanpa' : a.ke != null ? String(a.ke) : 'titik';
+    return `<div class="pn-sec anot-ed">
+        <h3>Label</h3>
+        <label class="field"><span>Isi label</span>
+          <textarea data-anot-teks maxlength="500" rows="4" placeholder="mis. Port LAN existing ke ruang server&#10;PIC: Pak Budi"${dis}>${esc(a.teks || '')}</textarea></label>
+        <div class="field"><span>Warna</span><div class="anot-warna">${Object.keys(NP.ANOT_WARNA).map(k =>
+          `<button type="button" data-anot-warna="${k}" class="${(a.warna || 'hijau') === k ? 'on' : ''}" style="--c:${NP.ANOT_WARNA[k].bg}" title="${NP.ANOT_WARNA[k].label}" aria-label="Warna ${NP.ANOT_WARNA[k].label}"${dis}></button>`).join('')}</div></div>
+        <label class="field"><span>Panah ke</span><select data-anot-arah${dis}>
+          <option value="titik"${arah === 'titik' ? ' selected' : ''}>Titik di denah (tarik ujung panah)</option>
+          <option value="tanpa"${arah === 'tanpa' ? ' selected' : ''}>Tanpa panah</option>
+          <optgroup label="Perangkat">${devs.map(d => `<option value="${d.id}"${arah === String(d.id) ? ' selected' : ''}>${esc(d.nama)}</option>`).join('')}</optgroup></select></label>
+        <p class="muted small">Geser kotak untuk memindah. Tarik ujung panah (bulatan) dan lepas di atas perangkat agar panah menempel ke perangkat itu. Klik ganda label untuk mengubah teks.</p>
+        ${S.canEdit ? '<div class="btn-row"><button type="button" class="small danger" data-anot-hapus>Hapus label</button><span class="spacer"></span><button type="button" class="small" data-anot-selesai>Selesai</button></div>' : ''}
+      </div>`;
+  }
+  $('#panel').addEventListener('input', e => {
+    const t = e.target.closest('[data-anot-teks]');
+    const a = t && anotList().find(x => x.id === S.anotSel);
+    if (!a) return;
+    a.teks = t.value.slice(0, 500);
+    peta.setAnotasi(anotList(), S.lantai || 'F1');
+    simpanAnot();
+  });
+  $('#panel').addEventListener('change', e => {
+    const s = e.target.closest('[data-anot-arah]');
+    const a = s && anotList().find(x => x.id === S.anotSel);
+    if (!a) return;
+    if (s.value === 'tanpa') a.panah = false;
+    else {
+      a.panah = true;
+      const d = s.value !== 'titik' && S.model.byId.get(+s.value);
+      a.ke = d ? d.id : null;
+      if (d) { a.tx = d.x; a.ty = d.y; }
+    }
+    terapkanAnot();
+    simpanAnot();
+  });
+  $('#panel').addEventListener('click', e => {
+    const a = S.anotSel != null && anotList().find(x => x.id === S.anotSel);
+    if (!a) return;
+    const w = e.target.closest('[data-anot-warna]');
+    if (w) {
+      a.warna = w.dataset.anotWarna;
+      terapkanAnot();
+      renderPanel();
+      return simpanAnot();
+    }
+    if (e.target.closest('[data-anot-hapus]')) return hapusAnot(a.id);
+    if (e.target.closest('[data-anot-selesai]')) pilihAnot(null);
+  });
+
   /** Label kecil lantai perangkat di daftar / laporan (kosong bila satu lantai). */
   function lantaiChip(d) {
     return multiLantai() ? `<span class="lt-chip" title="Lantai">${esc(namaLantai(d))}</span>` : '';
@@ -1660,10 +1826,12 @@
     else if (k === 'v') setTool('pilih');
     else if (k === 'l' && S.canEdit) setTool('hubung');
     else if (k === 'm') setTool('ukur');
+    else if (k === 't' && S.canEdit) setTool('label');
     else if (k === 'f') peta.fit();
     else if (k === '+' || k === '=') peta.zoomBy(1.4);
     else if (k === '-') peta.zoomBy(1 / 1.4);
     else if (/^[1-9]$/.test(k) && S.canEdit) setTool('tambah:' + TYPE_ORDER[+k - 1]);
+    else if ((k === 'delete' || k === 'backspace') && S.anotSel != null && S.canEdit) hapusAnot(S.anotSel);
     else if ((k === 'delete' || k === 'backspace') && S.sel != null && S.canEdit) deleteDev(S.sel);
     else return;
     e.preventDefault();
@@ -1906,6 +2074,12 @@
     if (peta.tool === 'ukur') {
       panel.innerHTML = panelUkur();
       $('#sheet-title').textContent = 'Ukur jarak';
+      return;
+    }
+    const an = S.anotSel != null && anotList().find(a => a.id === S.anotSel);
+    if (an) {
+      panel.innerHTML = panelAnot(an);
+      $('#sheet-title').textContent = 'Label';
       return;
     }
     const d = S.sel != null && S.model.byId.get(S.sel);
@@ -7346,6 +7520,37 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         <text x="${b}" y="${-b}" dy=".36em" text-anchor="middle" font-size="${6.5 * u}" font-weight="800" fill="#fff" font-family="Arial">${K.icon}</text>`}
         <text text-anchor="middle" y="${r + 11 * u}" font-size="${9 * u}" font-weight="700" fill="#111" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(d.nama)}</text>
       </g>`;
+    }
+    // Label & panah lantai ini (bila ditampilkan di peta): kotak berwarna + panah ke titik / perangkat.
+    if (peta.layers.anotasi && !opts.tanpaLabel) {
+      const fs = 11 * u, pad = 6 * u, lh = fs * 1.3;
+      for (const a of anotList().filter(x => (x.lantai || 'F1') === lid)) {
+        const Wn = NP.ANOT_WARNA[a.warna] || NP.ANOT_WARNA.hijau;
+        const baris = String(a.teks || 'Label').split('\n').slice(0, 12);
+        const w = Math.max(...baris.map(t => t.length)) * fs * 0.56 + pad * 2.5, bh = baris.length * lh + pad * 1.4;
+        const dv = a.ke != null && m.byId.get(a.ke);
+        if (a.panah !== false) {
+          // Sama dengan peta: keluar dari tengah sisi kotak yang menghadap ujung, garis berhenti di pangkal kepala panah.
+          const ux = dv ? dv.x : a.tx, uy = dv ? dv.y : a.ty;
+          const ddx = ux - a.x, ddy = uy - a.y;
+          const datar = Math.abs(ddx) / (w / 2) > Math.abs(ddy) / (bh / 2);
+          const bx = datar ? a.x + Math.sign(ddx) * w / 2 : a.x, by = datar ? a.y : a.y + Math.sign(ddy) * bh / 2;
+          let dx = ux - bx, dy = uy - by, len = Math.hypot(dx, dy) || 1;
+          const ex = ux - (dv ? dx / len * (r + 4 * u) : 0), ey = uy - (dv ? dy / len * (r + 4 * u) : 0);
+          dx = ex - bx; dy = ey - by; len = Math.hypot(dx, dy) || 1;
+          const nx = dx / len, ny = dy / len, k = 9 * u;
+          if (!(Math.abs(ddx) <= w / 2 && Math.abs(ddy) <= bh / 2) && len > k + 4 * u) {
+            const lx = ex - nx * k * 0.85, ly = ey - ny * k * 0.85;
+            h += `<line x1="${bx}" y1="${by}" x2="${lx}" y2="${ly}" stroke="#fff" stroke-width="${4.5 * u}" stroke-linecap="round"/>
+              <line x1="${bx}" y1="${by}" x2="${lx}" y2="${ly}" stroke="${Wn.tepi}" stroke-width="${2.2 * u}" stroke-linecap="round"/>
+              <path d="M${ex} ${ey}L${ex - nx * k - ny * k * 0.55} ${ey - ny * k + nx * k * 0.55}L${ex - nx * k + ny * k * 0.55} ${ey - ny * k - nx * k * 0.55}Z" fill="${Wn.tepi}"/>`;
+          }
+        }
+        // Teks di tengah kotak: rata tengah, baris pertama digeser agar blok teks terpusat vertikal.
+        const y0 = a.y - (baris.length - 1) * lh / 2 + fs * 0.36;
+        h += `<rect x="${a.x - w / 2}" y="${a.y - bh / 2}" width="${w}" height="${bh}" rx="${4 * u}" fill="${Wn.bg}" stroke="${Wn.tepi}" stroke-width="${1.2 * u}"/>
+          <text x="${a.x}" y="${y0}" text-anchor="middle" font-size="${fs}" font-weight="600" font-family="Arial" fill="${Wn.fg}">${baris.map((t, i) => `<tspan x="${a.x}" dy="${i ? lh : 0}">${esc(t)}</tspan>`).join('')}</text>`;
+      }
     }
     const f = opts.focus != null && m.byId.get(opts.focus);
     if (f) {

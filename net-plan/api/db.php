@@ -16,6 +16,13 @@ define('NP_UPLOAD_DIR', dirname(__DIR__) . '/uploads');
 
 /** Jenis perangkat yang dikenal (sama dengan NP.TYPES di assets/common.js). */
 const NP_JENIS = ['isp', 'router', 'switch', 'ap', 'bridge', 'lan', 'lan_gedung', 'server', 'cctv', 'endpoint', 'lainnya', 'listrik', 'support'];
+/** Warna label anotasi denah yang boleh dipakai (sama dengan NP.ANOT_WARNA di aplikasi). */
+const NP_ANOT_WARNA = ['hijau', 'biru', 'kuning', 'merah', 'ungu', 'abu'];
+/**
+ * Syarat SQL: perangkat di lantai utama F1 (atribut tanpa "lantai", atau "lantai":"F1"). Di sini (bukan admin.php)
+ * karena konstanta harus terdefinisi sebelum aksi API dijalankan.
+ */
+const SQL_LANTAI_UTAMA = '(atribut IS NULL OR atribut NOT LIKE \'%"lantai":%\' OR atribut LIKE \'%"lantai":"F1"%\')';
 /** Tipe endpoint bawaan: [nama, singkatan, warna, prefix nama, ikon]. Bisa diubah / ditambah di aplikasi. */
 const NP_ENDPOINT_BAWAAN = [
     ['Laptop', 'LPT', '#ea580c', 'LPT', 'laptop'],
@@ -34,7 +41,7 @@ const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */
 const NP_RAHASIA = ['password', 'pass_admin'];
 /** Versi struktur tabel; naikkan setiap np_install_schema() berubah -> migrasi otomatis jalan setelah deploy. */
-const NP_SCHEMA = 12;
+const NP_SCHEMA = 13;
 /** Bentuk jalur kabel: h = siku (horizontal dulu), v = siku (vertikal dulu), bebas = titik lekukan manual. */
 const NP_JALUR = ['h', 'v', 'bebas'];
 
@@ -301,6 +308,8 @@ function np_install_schema()
     np_tambah_kolom('np_proyek', 'lapisan', 'TEXT NULL AFTER slack_kabel');
     // Skema 12: lantai (beberapa denah dalam satu gedung). F1 = denah utama (kolom denah_*), lantai lain di JSON ini.
     np_tambah_kolom('np_proyek', 'lantai', 'TEXT NULL AFTER lapisan');
+    // Skema 13: label & panah anotasi di denah (JSON).
+    np_tambah_kolom('np_proyek', 'anotasi', 'MEDIUMTEXT NULL AFTER lantai');
     np_tambah_index('np_perangkat', 'idx_np_perangkat_katalog', 'katalog_id');
     // Tipe endpoint bawaan: hanya saat tabelnya baru dibuat (tipe yang sengaja dihapus tidak muncul lagi).
     // INSERT IGNORE + UNIQUE(nama) -> tidak dobel walau dua request menjalankan migrasi bersamaan.
@@ -378,6 +387,8 @@ function proyek_row($r)
     $r['skala'] = $r['skala'] === null ? null : (float) $r['skala'];
     $lp = isset($r['lapisan']) ? json_decode((string) $r['lapisan'], true) : null;
     $r['lapisan'] = is_array($lp) ? $lp : [];
+    $an = isset($r['anotasi']) ? json_decode((string) $r['anotasi'], true) : null;
+    $r['anotasi'] = is_array($an) ? $an : [];
     // Lantai: nama file denah tidak dikirim ke browser; diganti versi (denah_v) untuk URL api/denah.php?lantai=.
     $r['lantai'] = array_map(function ($l) {
         $l['denah_v'] = !empty($l['denah_file']) ? substr(md5($l['denah_file']), 0, 10) : null;

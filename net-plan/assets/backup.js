@@ -46,6 +46,7 @@
       proyek: {
         nama: p.nama, venue: p.venue, tanggal_mulai: p.tanggal_mulai, tanggal_selesai: p.tanggal_selesai, catatan: p.catatan,
         skala: p.skala, slack_kabel: p.slack_kabel, denah_w: p.denah_w, denah_h: p.denah_h, lapisan: p.lapisan || [], lantai,
+        anotasi: p.anotasi || [],
       },
       denah,
       denah_lantai: denahLantai,
@@ -206,7 +207,12 @@
         if (atr.tipe_endpoint != null) atr.tipe_endpoint = tipeMap.get(String(atr.tipe_endpoint)) || '';
         return Object.assign({}, d, { atribut: atr, katalog_id: d.katalog_id != null ? katMap.get(d.katalog_id) || null : null });
       });
-      if (perangkat.length) await api(API, { action: 'perangkat_import', proyek_id: baru.id, perangkat });
+      const imp = perangkat.length ? await api(API, { action: 'perangkat_import', proyek_id: baru.id, perangkat }) : null;
+      // Label & panah: panah yang menunjuk perangkat dipetakan ke id perangkat hasil pulihan.
+      if (Array.isArray(p.anotasi) && p.anotasi.length) {
+        const petaId = (imp && imp.peta_id) || {};
+        await api(API, { action: 'anotasi_save', id: baru.id, anotasi: p.anotasi.map(a => Object.assign({}, a, { ke: a.ke != null && petaId[a.ke] ? petaId[a.ke] : null })) });
+      }
       return baru;
     } catch (e) {
       await api(API, { action: 'proyek_delete', id: baru.id }).catch(() => {});

@@ -315,6 +315,15 @@
     dites: { label: 'Sudah dites OK', short: 'Dites OK', color: '#16a34a', icon: '✓', step: 3, aksi: 'Tandai sudah dites OK' },
     bermasalah: { label: 'Kabel bermasalah', short: 'Bermasalah', color: '#e11d48', icon: '⚠', step: -1 },
   };
+  /** Warna label anotasi denah: kotak (bg), teks (fg), garis tepi (tepi). Kunci sama dengan NP_ANOT_WARNA di api. */
+  const ANOT_WARNA = {
+    hijau: { label: 'Hijau', bg: '#16a34a', fg: '#ffffff', tepi: '#15803d' },
+    biru: { label: 'Biru', bg: '#2563eb', fg: '#ffffff', tepi: '#1d4ed8' },
+    kuning: { label: 'Kuning', bg: '#facc15', fg: '#1f2937', tepi: '#ca8a04' },
+    merah: { label: 'Merah', bg: '#dc2626', fg: '#ffffff', tepi: '#b91c1c' },
+    ungu: { label: 'Ungu', bg: '#7c3aed', fg: '#ffffff', tepi: '#6d28d9' },
+    abu: { label: 'Abu', bg: '#f8fafc', fg: '#1f2937', tepi: '#94a3b8' },
+  };
   /** Perangkat yang butuh kabel ke uplink: punya uplink & bukan wireless. */
   /** Kabel uplink perangkat tertanam di gedung (Port LAN gedung): tidak digambar, tidak dihitung, tanpa status kabel. */
   const kabelTertanam = d => !!d && !!(TYPES[d.jenis] || {}).tertanam;
@@ -666,5 +675,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, ANOT_WARNA, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

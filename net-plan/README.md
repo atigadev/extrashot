@@ -648,7 +648,8 @@ sekaligus.
 - **Kunci / Buka kunci posisi** (K);
 - **Pusatkan di peta**, **Hapus perangkat** (Del).
 
-Klik kanan label: Ubah teks, Salin teks, Kunci / Buka kunci posisi, Hapus label. Klik kanan lekukan kabel tetap
+Klik kanan label: Ubah teks, Duplikat label (Ctrl+D; angka di akhir teks naik, mis. GATE-IN-03 → GATE-IN-04),
+Salin teks, Kunci / Buka kunci posisi, Hapus label. Klik kanan lekukan kabel tetap
 menghapus lekukan. Navigasi menu dengan ↑ ↓ / Enter, tutup dengan Esc atau klik di luar. Link lihat-saja / tim:
 hanya menu salin & pusatkan.
 

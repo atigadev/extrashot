@@ -1817,6 +1817,7 @@
     const edit = S.canEdit;
     bukaMenu('Label', [
       edit && { label: 'Ubah teks', ikon: '✎', fn: () => pilihAnot(aid, true) },
+      edit && { label: 'Duplikat label', ikon: '⧉', pintas: 'Ctrl+D', fn: () => duplikatAnot(aid) },
       { label: 'Salin teks', ikon: '📋', fn: () => copy(a.teks || '') },
       edit && { label: a.kunci ? 'Buka kunci posisi' : 'Kunci posisi', ikon: a.kunci ? '🔓' : '🔒', pintas: 'K', fn: () => kunciLabel(aid) },
       edit && '-',
@@ -1903,6 +1904,32 @@
     }, 500);
   }
 
+  /** Teks label berikutnya: angka terakhir dinaikkan dengan lebar yang sama (GATE-IN-03 → GATE-IN-04, Pintu 9 → Pintu 10). */
+  function teksBerikut(teks) {
+    const m = String(teks || '').match(/^([\s\S]*?)(\d+)(\D*)$/);
+    if (!m) return teks || '';
+    const n = String(+m[2] + 1).padStart(m[2].length, '0');
+    return m[1] + n + m[3];
+  }
+
+  /** Duplikat label: di bawah label asal, warna & panah sama, teks bernomor berikutnya, tidak terkunci. */
+  function duplikatAnot(id) {
+    const list = anotList();
+    const a = list.find(x => x.id === id);
+    if (!a) return;
+    if (list.length >= 500) return toast('Maksimal 500 label per event', true);
+    const no = Math.max(0, ...list.map(x => +String(x.id).slice(1) || 0)) + 1;
+    const geser = 44 / (peta.zoom || 1); // ±44 px layar ke bawah
+    const dev = a.ke != null && S.model.byId.get(a.ke);
+    const ux = dev ? dev.x : a.tx, uy = dev ? dev.y : a.ty;
+    const b = Object.assign({}, a, { id: 'A' + no, teks: teksBerikut(a.teks), y: a.y + geser, tx: ux, ty: uy + geser, ke: null, kunci: false });
+    list.push(b);
+    pilihAnot(b.id);
+    terapkanAnot();
+    simpanAnot();
+    toast(`Label diduplikat: ${b.teks || 'Label'}`);
+  }
+
   /** Kunci / buka kunci posisi label (kotak & ujung panah tidak bisa digeser). */
   function kunciLabel(id) {
     const a = anotList().find(x => x.id === id);
@@ -1943,6 +1970,7 @@
         <p class="muted small">${a.kunci ? '🔒 Posisi label & panah terkunci — tidak bisa tergeser saat menata denah. Teks & warna tetap bisa diubah.'
           : 'Geser kotak untuk memindah. Tarik ujung panah (bulatan) dan lepas di atas perangkat agar panah menempel ke perangkat itu. Klik ganda label untuk mengubah teks.'}</p>
         ${S.canEdit ? `<div class="btn-row"><button type="button" class="small${a.kunci ? ' primary' : ''}" data-anot-kunci title="Pintasan K">${a.kunci ? '🔓 Buka kunci' : '🔒 Kunci posisi'}</button>
+          <button type="button" class="small" data-anot-dup title="Ctrl+D">⧉ Duplikat</button>
           <button type="button" class="small danger" data-anot-hapus>Hapus label</button><span class="spacer"></span><button type="button" class="small" data-anot-selesai>Selesai</button></div>` : ''}
       </div>`;
   }
@@ -1979,6 +2007,7 @@
       return simpanAnot();
     }
     if (e.target.closest('[data-anot-kunci]')) return kunciLabel(a.id);
+    if (e.target.closest('[data-anot-dup]')) return duplikatAnot(a.id);
     if (e.target.closest('[data-anot-hapus]')) return hapusAnot(a.id);
     if (e.target.closest('[data-anot-selesai]')) pilihAnot(null);
   });
@@ -1995,6 +2024,10 @@
       return;
     }
     const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === 'd' && S.anotSel != null && S.canEdit) {
+      e.preventDefault();
+      return duplikatAnot(S.anotSel);
+    }
     if ((e.ctrlKey || e.metaKey) && k === 'd' && S.sel != null && S.canEdit) {
       e.preventDefault();
       return duplicateDev(S.sel);

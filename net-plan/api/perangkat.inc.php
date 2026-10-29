@@ -101,7 +101,7 @@ function simpan_perangkat($req)
         $up = isset($req['uplink_id']) && $req['uplink_id'] !== '' && $req['uplink_id'] !== null ? (int) $req['uplink_id'] : null;
         // Titik listrik bukan perangkat jaringan: tidak punya uplink.
         $jenisNow = isset($set['jenis']) ? $set['jenis'] : ($cur ? $cur['jenis'] : '');
-        if (in_array($jenisNow, ['listrik', 'support'], true)) {
+        if (in_array($jenisNow, ['listrik', 'support', 'furniture'], true)) {
             $up = null;
         }
         if ($up !== null) {
@@ -151,8 +151,8 @@ function cek_uplink($proyekId, $selfId, $uplinkId)
     }
     $st = db()->prepare('SELECT jenis FROM np_perangkat WHERE id = ?');
     $st->execute([$uplinkId]);
-    if (in_array($st->fetchColumn(), ['listrik', 'support'], true)) {
-        json_error('Titik listrik & peralatan support bukan perangkat jaringan — tidak bisa menjadi uplink');
+    if (in_array($st->fetchColumn(), ['listrik', 'support', 'furniture'], true)) {
+        json_error('Titik listrik, peralatan support & furniture bukan perangkat jaringan — tidak bisa menjadi uplink');
     }
     $cur = $uplinkId;
     $guard = 0;

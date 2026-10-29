@@ -190,10 +190,15 @@
             <rect class="dot" x="${-e}" y="${-e}" width="${e * 2}" height="${e * 2}" rx="5" fill="${t.color}"/>
             <g class="ico" transform="translate(${-s2 / 2},${-s2 / 2})">${NP.ikonSvg(t.ikon, s2)}</g>`;
         })() : '';
-        g.innerHTML = `<circle class="halo" r="${R + 8}"/>${arahHtml}
+        // Furniture: simbol denah 2D berskala (ikut zoom & rotasi, lihat layout()), bukan lingkaran.
+        const fur = d.jenis === 'furniture' ? NP.furnSimbol(d, st.skala) : null;
+        if (fur) g.classList.add('furn');
+        g.innerHTML = `${fur ? `<circle class="fhit" r="9"/><g class="fsym" data-rot="${fur.rot}">
+            <rect class="halo" x="${(-fur.w / 2).toFixed(2)}" y="${(-fur.h / 2).toFixed(2)}" width="${fur.w.toFixed(2)}" height="${fur.h.toFixed(2)}"/>${fur.svg}</g>`
+          : `<circle class="halo" r="${R + 8}"/>${arahHtml}
           ${ikon || `<circle class="ring" r="${R + 3}" stroke="${s.color}"/>
           <circle class="dot" r="${R}" fill="${t.color}"/>
-          ${NP.isListrik(d) ? `<path class="bolt" d="M1.8 -8.5 L-5 1.2 H-0.6 L-1.8 8.5 L5 -1.2 H0.6 Z"/>` : `<text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>`}`}
+          ${NP.isListrik(d) ? `<path class="bolt" d="M1.8 -8.5 L-5 1.2 H-0.6 L-1.8 8.5 L5 -1.2 H0.6 Z"/>` : `<text class="glyph${t.short.length > 2 ? ' small' : ''}" dy="0.35em">${esc(t.short)}</text>`}`}`}
           ${NP.nonJaringan(d) ? "" : `<g class="net" transform="translate(${b},${-b})"><circle r="${BADGE}" fill="${k.color}"/><text dy="0.36em">${k.icon}</text></g>`}
           ${(() => {
             // Hasil checker penempatan: ✓ biru = sesuai plan, ! merah = tidak sesuai (kanan bawah).
@@ -296,6 +301,9 @@
       for (const [id, g] of nodeEls) {
         const d = m.byId.get(id);
         g.setAttribute('transform', `translate(${sx(d.x).toFixed(1)},${sy(d.y).toFixed(1)})`);
+        // Simbol furniture digambar dalam satuan denah: ikut skala zoom & rotasinya.
+        const fs = g.classList.contains('furn') && g.querySelector('.fsym');
+        if (fs) fs.setAttribute('transform', `scale(${st.z}) rotate(${fs.dataset.rot})`);
       }
       declutter();
       for (const [id, g] of linkEls) {
@@ -459,6 +467,10 @@
       for (const [id, g] of nodeEls) {
         const d = m.byId.get(id);
         if (tersembunyi(d)) continue;
+        if (d.jenis === 'furniture' && id !== st.sel) { // furniture: nama hanya saat disorot / dipilih (denah tetap bersih)
+          g.classList.add('lbl-off');
+          continue;
+        }
         items.push({ g, d, p: id === st.sel ? -1 : rank(d.jenis) });
       }
       items.sort((a, b) => a.p - b.p);
@@ -516,24 +528,32 @@
       gHandles.innerHTML = linkHandles() + rotHandle();
     }
 
-    /** AP sektoral terpilih yang arahnya bisa diputar di denah. */
-    function sektorDev() {
+    /**
+     * Perangkat terpilih yang bisa diputar langsung di denah: AP sektoral (atribut arah_deg, snap 5°) atau furniture
+     * yang tidak terkunci (atribut rotasi, snap 15°). Hasil {d, key, deg, jarak (px layar dari pusat), snap, furn} atau null.
+     */
+    function rotDev() {
       const m = st.model;
-      if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null || st.hidden.has('ap')) return null;
+      if (!m || !st.canEdit || st.tool !== 'pilih' || st.sel == null) return null;
       const d = m.byId.get(st.sel);
-      return d && d.jenis === 'ap' && sektor(d) ? d : null;
+      if (!d || st.hidden.has(d.jenis)) return null;
+      if (d.jenis === 'ap' && sektor(d)) return { d, key: 'arah_deg', deg: sektor(d).arah, jarak: R + ROT_D, snap: 5 };
+      if (d.jenis === 'furniture' && !NP.terkunci(d)) {
+        const f = NP.furnSimbol(d, st.skala);
+        return { d, key: 'rotasi', deg: f.rot, jarak: f.h / 2 * st.z + ROT_D, snap: 15, furn: true };
+      }
+      return null;
     }
 
-    /** Pegangan putar arah sektor: bulatan di ujung garis dari titik AP. */
+    /** Pegangan putar: bulatan di ujung garis dari pusat (arah sektor AP / sisi atas furniture). */
     function rotHandle() {
-      const d = sektorDev();
-      if (!d) return '';
-      const sk = sektor(d);
-      const cx = sx(d.x), cy = sy(d.y);
-      const p = polar(cx, cy, R + ROT_D, sk.arah);
-      return `<g class="rot"><line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}"/>` +
-        `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${ROT_R}"/><text x="${p.x.toFixed(1)}" y="${(p.y - ROT_R - 5).toFixed(1)}">${Math.round(sk.arah)}°</text>` +
-        `<title>Geser untuk memutar arah sektor (${Math.round(sk.arah)}°) · tahan Alt = tanpa snap 5°</title></g>`;
+      const r = rotDev();
+      if (!r) return '';
+      const cx = sx(r.d.x), cy = sy(r.d.y);
+      const p = polar(cx, cy, r.jarak, r.deg);
+      return `<g class="rot${r.furn ? ' furn' : ''}"><line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}"/>` +
+        `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${ROT_R}"/><text x="${p.x.toFixed(1)}" y="${(p.y - ROT_R - 5).toFixed(1)}">${Math.round(r.deg)}°</text>` +
+        `<title>Geser untuk memutar ${r.furn ? 'furniture' : 'arah sektor'} (${Math.round(r.deg)}°) · tahan Alt = tanpa snap ${r.snap}°</title></g>`;
     }
 
     /** Sambungan tambahan perangkat terpilih yang bentuk jalurnya bisa diatur (WAN tambahan / uplink kedua). */
@@ -767,9 +787,9 @@
         return;
       }
       const rot = !middle && e.target.closest && e.target.closest('.rot');
-      const sd = rot && sektorDev();
-      if (sd) {
-        gesture = { type: 'rot', id: sd.id, start: p, moved: false, orig: sd.atribut };
+      const rtd = rot && rotDev();
+      if (rtd) {
+        gesture = { type: 'rot', id: rtd.d.id, key: rtd.key, snap: rtd.snap, start: p, moved: false, orig: rtd.d.atribut };
         return;
       }
       const unlink = !middle && e.target.closest && e.target.closest('.unlink');
@@ -885,12 +905,12 @@
         layout();
         if (d.jenis === 'ap') buildCoverage();
       } else if (gesture.type === 'rot') {
-        // Putar arah sektor: sudut dari titik AP ke pointer (0° = atas, searah jarum jam), snap 5°.
+        // Putar arah sektor AP / furniture: sudut dari pusat ke pointer (0° = atas, searah jarum jam), snap 5° / 15°.
         const d = st.model.byId.get(gesture.id);
         let deg = Math.atan2(p.x - sx(d.x), -(p.y - sy(d.y))) * 180 / Math.PI;
         deg = ((deg % 360) + 360) % 360;
-        if (!e.altKey) deg = (Math.round(deg / 5) * 5) % 360;
-        d.atribut = Object.assign({}, d.atribut, { arah_deg: String(Math.round(deg)) });
+        if (!e.altKey) deg = (Math.round(deg / gesture.snap) * gesture.snap) % 360;
+        d.atribut = Object.assign({}, d.atribut, { [gesture.key]: String(Math.round(deg) % 360) });
         st.dragging = true;
         svg.classList.add('dragging');
         build();

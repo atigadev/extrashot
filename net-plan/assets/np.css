@@ -311,6 +311,9 @@ button.kb:hover { filter: brightness(1.08); box-shadow: 0 0 0 2px rgba(0,0,0,.08
 .map .cov-c.sel { fill-opacity: .16; stroke-opacity: .9; }
 .map .cov-c.sektor { fill-opacity: .13; stroke-dasharray: none; }
 .map .cov-c.sektor.sel { fill-opacity: .24; }
+.map .node .fhit { fill: transparent; }
+.map .node.furn .fsym { cursor: pointer; }
+.map .node.furn:not(.sel):not(:hover) .lbl { display: none; } /* nama furniture hanya saat disorot / dipilih */
 /* AP sektoral: kipas kecil + panah arah di titik */
 .map .node .dir .beam { fill: #059669; fill-opacity: .35; stroke: #fff; stroke-width: 1.2; }
 .map .node .dir .tip { fill: #065f46; stroke: #fff; stroke-width: 1.2; stroke-linejoin: round; }
@@ -319,6 +322,10 @@ button.kb:hover { filter: brightness(1.08); box-shadow: 0 0 0 2px rgba(0,0,0,.08
 .map .handles .rot circle { fill: #fff; stroke: #059669; stroke-width: 3; cursor: grab; }
 .map .handles .rot circle:hover { fill: #059669; }
 .map .handles .rot text { font: 700 11px system-ui, sans-serif; text-anchor: middle; fill: #065f46; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
+.map .handles .rot.furn line { stroke: #a21caf; }
+.map .handles .rot.furn circle { stroke: #a21caf; }
+.map .handles .rot.furn circle:hover { fill: #a21caf; }
+.map .handles .rot.furn text { fill: #86198f; }
 .map .ms-line { stroke: #f59e0b; stroke-width: 2.5; stroke-dasharray: 6 4; }
 .map .ms-pt { fill: #f59e0b; stroke: #fff; stroke-width: 2; }
 .map .ms-lbl { font: 700 13px system-ui, sans-serif; text-anchor: middle; fill: #92400e; stroke: #fff; stroke-width: 4px; paint-order: stroke; }

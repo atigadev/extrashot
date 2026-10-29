@@ -424,7 +424,7 @@ if ($method === 'POST' && $action === 'tambah') {
         $atr['lantai'] = $lantai;
     }
     $up = isset($req['uplink_id']) && $req['uplink_id'] !== '' && $req['uplink_id'] !== null ? (int) $req['uplink_id'] : null;
-    if ($up !== null && !in_array($jenis, ['listrik', 'support'], true)) {
+    if ($up !== null && !in_array($jenis, ['listrik', 'support', 'furniture'], true)) {
         $st = $pdo->prepare('SELECT id FROM np_perangkat WHERE id = ? AND proyek_id = ?');
         $st->execute([$up, $proyek['id']]);
         if (!$st->fetch()) {

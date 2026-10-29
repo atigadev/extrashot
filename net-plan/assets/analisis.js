@@ -819,11 +819,11 @@
       const per = {};
       Object.keys(NP.LISTRIK).forEach(k => { per[k] = []; });
       for (const d of list) {
-        if (NP.isListrik(d) || d.jenis === 'isp') continue;
+        if (NP.isListrik(d) || d.jenis === 'isp' || NP.isFurniture(d)) continue;
         const k = NP.LISTRIK[(d.atribut || {}).listrik] ? d.atribut.listrik : '';
         per[k].push(d);
       }
-      const total = list.filter(d => !NP.isListrik(d)).reduce((s, d) => s + (dayaW(d) || 0), 0);
+      const total = list.filter(d => !NP.isListrik(d) && !NP.isFurniture(d)).reduce((s, d) => s + (dayaW(d) || 0), 0);
       return { per, total };
     }
 

@@ -816,7 +816,7 @@
       putusKoneksi(id);
     },
     onAtribut(id, atribut, awal) {
-      // Arah sektor AP diputar di denah -> isian "Arah sektor" di panel ikut diperbarui.
+      // Arah sektor AP / rotasi furniture diputar di denah -> isian di panel ikut diperbarui.
       const d = S.model.byId.get(id);
       if (d && awal !== undefined) d.atribut = awal;
       saveDev(id, { atribut }).catch(() => {});
@@ -1189,7 +1189,7 @@
     // Endpoint langsung tersambung ke titik LAN (yang dipilih / terdekat); perangkat lain ke induk yang dipilih.
     const lanEp = jenis === 'endpoint' && !(base && base.uplink_id !== undefined) ? lanUntukEndpoint(x, y) : null;
     const uplinkId = base && base.uplink_id !== undefined ? base.uplink_id
-      : lanEp ? lanEp.lan.id : (jenis !== 'isp' && NP.grupJenis(jenis) !== 'support' && parent && !NP.nonJaringan(parent) ? parent.id : null);
+      : lanEp ? lanEp.lan.id : (jenis !== 'isp' && NP.grupJenis(jenis) === 'jaringan' && parent && !NP.nonJaringan(parent) ? parent.id : null);
     const g = uplinkId != null ? grupNama(uplinkId, jenis) : '';
     // Endpoint: tipe dari perangkat yang diduplikat, atau tipe yang dipilih di pemilih tipe.
     const ep = jenis === 'endpoint'
@@ -1201,7 +1201,7 @@
       jenis,
       nama: g ? grupNext(g) : nextName(jenis, ep ? ep.prefix : null),
       uplink_id: uplinkId,
-      media: jenis === 'isp' || NP.grupJenis(jenis) === 'support' ? '' : mediaWajar(jenis, uplinkId != null ? S.model.byId.get(uplinkId) : null, 'utp'),
+      media: jenis === 'isp' || NP.grupJenis(jenis) !== 'jaringan' ? '' : mediaWajar(jenis, uplinkId != null ? S.model.byId.get(uplinkId) : null, 'utp'),
       status: 'rencana',
       // Endpoint baru memakai tipe yang dipilih di pemilih tipe (Laptop, Printer, ...).
       atribut: ep ? { tipe_endpoint: String(ep.id) } : TYPES[jenis].listrik ? { fase: '1 fase' } : {},
@@ -1225,13 +1225,13 @@
       S.sel = res.perangkat.id;
       refreshModel();
       peta.flash(res.perangkat.id);
-      // Titik listrik baru: langsung buka isian MCB (daya yang bisa dipakai dihitung dari situ).
-      if (TYPES[jenis].listrik && !base) {
+      // Titik listrik baru: langsung buka isian MCB; furniture baru: langsung pilih jenisnya (meja, kursi, ...).
+      if ((TYPES[jenis].listrik || jenis === 'furniture') && !base) {
         const simpan = pnTab;
         pnTab = 'jenis';
         terapkanPnTab();
         pnTab = simpan;
-        const mcb = $('#panel [data-f="arus_a"]');
+        const mcb = $(jenis === 'furniture' ? '#panel [data-f="tipe_furniture"]' : '#panel [data-f="arus_a"]');
         if (mcb) setTimeout(() => mcb.focus(), 50);
       }
       const row = salin(res.perangkat);
@@ -1253,6 +1253,7 @@
     if (!c || !p) return;
     // Titik listrik & peralatan support bukan jaringan: perangkat (jaringan / support) → titik listrik = pilih sumber
     // listrik; selain itu ditolak.
+    if (NP.isFurniture(c) || NP.isFurniture(p)) return toast(`${NP.isFurniture(c) ? c.nama : p.nama} adalah furniture — tidak punya koneksi jaringan / listrik`, true);
     if (NP.isListrik(c)) return toast(`${c.nama} adalah titik listrik — hubungkan perangkat ke titik listrik ini, bukan sebaliknya`, true);
     if (NP.nonJaringan(p) && !NP.isListrik(p)) return toast(`${p.nama} adalah peralatan support — tidak bisa menjadi uplink / sumber listrik`, true);
     if (NP.nonJaringan(c) && !NP.isListrik(p)) return toast(`${c.nama} adalah peralatan support — hanya bisa dihubungkan ke titik listrik`, true);
@@ -1392,7 +1393,16 @@
     delete base.atribut.kunci; // salinan baru perlu ditempatkan, jadi tidak ikut terkunci
     if (S.lihat) return;
     const off = 40 / Math.max(peta.size().W / 2000, 0.5);
-    addDev(d.jenis, d.x + off, d.y + off, base);
+    let dx = off, dy = off;
+    if (d.jenis === 'furniture') {
+      // Furniture: salinan berjajar tepat di sebelahnya (searah rotasi, jarak 20% sisi pendek), tidak menumpuk.
+      const f = NP.furnSimbol(d, S.model.skalaOf(d));
+      const jarak = f.w + Math.min(f.w, f.h) * 0.2;
+      const t = f.rot * Math.PI / 180;
+      dx = Math.cos(t) * jarak;
+      dy = Math.sin(t) * jarak;
+    }
+    addDev(d.jenis, d.x + dx, d.y + dy, base);
   }
 
   // Toolbar: alat + jenis perangkat
@@ -1845,14 +1855,27 @@
     ].filter(Boolean).join('\n');
   }
 
+  /** Putar furniture di tempat sebesar delta derajat (tombol R / Shift+R, menu klik kanan). Posisi terkunci = tidak berubah. */
+  function putarFurniture(id, delta) {
+    const d = S.model.byId.get(id);
+    if (!d || !NP.isFurniture(d)) return;
+    if (NP.terkunci(d)) return toast(`${d.nama} terkunci — buka kunci dulu untuk memutar`, true);
+    const rot = ((((+(d.atribut || {}).rotasi || 0) + delta) % 360) + 360) % 360;
+    saveDev(id, { atribut: Object.assign({}, d.atribut, { rotasi: String(rot) }) }).catch(() => {});
+  }
+
   function menuPerangkat(id, x, y) {
     const d = S.model.byId.get(id);
     if (!d) return;
     if (S.sel !== id) selectDev(id);
     const edit = S.canEdit;
     const kunci = NP.terkunci(d);
+    const furn = NP.isFurniture(d) && edit && !kunci;
     bukaMenu(d.nama, [
       edit && { label: 'Duplikat perangkat', ikon: '⧉', pintas: 'Ctrl+D', fn: () => duplicateDev(id) },
+      furn && { label: 'Putar 90° searah jarum jam', ikon: '↻', fn: () => putarFurniture(id, 90) },
+      furn && { label: 'Putar 15°', ikon: '↻', pintas: 'R', fn: () => putarFurniture(id, 15) },
+      furn && { label: 'Putar 90° berlawanan', ikon: '↺', fn: () => putarFurniture(id, -90) },
       { label: 'Salin nama', ikon: '📋', fn: () => copy(d.nama) },
       d.ip && { label: `Salin IP (${d.ip})`, ikon: '📋', fn: () => copy(d.ip) },
       { label: 'Salin info perangkat', ikon: '📄', fn: () => copy(teksInfo(d)) },
@@ -2106,6 +2129,7 @@
     } else if (k === 'p' && !mqSheet.matches) togglePanel();
     else if (k === 'k' && S.anotSel != null && S.canEdit) kunciLabel(S.anotSel);
     else if (k === 'k' && S.sel != null && S.canEdit) kunciPerangkat([S.sel], !NP.terkunci(S.model.byId.get(S.sel)));
+    else if (k === 'r' && !e.ctrlKey && !e.metaKey && S.sel != null && S.canEdit && NP.isFurniture(S.model.byId.get(S.sel))) putarFurniture(S.sel, e.shiftKey ? -15 : 15);
     else if (k === 'v') setTool('pilih');
     else if (k === 'l' && S.canEdit) setTool('hubung');
     else if (k === 'm') setTool('ukur');
@@ -3787,7 +3811,7 @@
         ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="koneksi">Koneksi</button>`}
         <button type="button" role="tab" data-pt="jenis">${esc(tabJenis(d))}</button>
         ${NP.nonJaringan(d) ? '' : `<button type="button" role="tab" data-pt="unit">📦 Unit${unitOf(d) ? '<span class="pt-n" title="Unit gudang terpasang">✓</span>' : ''}</button>`}
-        ${NP.isListrik(d) ? "" : `<button type="button" role="tab" data-pt="listrik">⚡ Listrik</button>`}
+        ${NP.isListrik(d) || NP.isFurniture(d) ? "" : `<button type="button" role="tab" data-pt="listrik">⚡ Listrik</button>`}
         ${d.jenis === "router" && S.canEdit ? `<button type="button" role="tab" data-pt="mikrotik">⚙ MikroTik</button>` : ""}
         <button type="button" role="tab" data-pt="ceklis">✓ Ceklis <span class="pt-n">${(p => p.selesai + "/" + p.total)(NP.ceklisProgres(d))}</span></button>
         ${NP.nonJaringan(d) ? "" : `<button type="button" role="tab" data-pt="grup">Group<span class="pt-n pt-grup" hidden></span></button>`}
@@ -3849,7 +3873,7 @@
       </form>
       ${d.jenis === "router" && S.canEdit ? `<div data-pp="mikrotik">${mtPanelHtml(d)}</div>` : ""}
       <div data-pp="ceklis">${ceklisPanelHtml(d)}</div>
-      ${NP.isListrik(d) ? "" : `<div data-pp="listrik">${dayaSection(d, disAdmin)}</div>`}
+      ${NP.isListrik(d) || NP.isFurniture(d) ? "" : `<div data-pp="listrik">${dayaSection(d, disAdmin)}</div>`}
       <div data-pp="grup">
         <div class="pn-sec" id="pn-grup-sec"><h4>Group perangkat ini</h4><div id="pn-grup"></div></div>
         <div class="pn-sec" id="pn-grup-anak-sec"><h4>Group perangkat yang terhubung ke sini</h4><div id="pn-grup-anak-box"></div></div>
@@ -4237,6 +4261,21 @@
     return h + '</div>';
   }
 
+  /** Info furniture: jenis, jumlah, ukuran tapak & rotasi. */
+  function infoFurniture(d) {
+    const a = d.atribut || {};
+    const def = NP.FURN_UKURAN[a.tipe_furniture] || [60, 60];
+    const ukuran = `${+a.panjang_cm > 0 ? a.panjang_cm : def[0]} × ${+a.lebar_cm > 0 ? a.lebar_cm : def[1]} cm`;
+    const umum = !(+a.panjang_cm > 0 && +a.lebar_cm > 0);
+    let h = '<div class="pn-sec info">';
+    h += `<div class="kv"><span>Jenis</span><b>${esc(a.tipe_furniture || 'Furniture (pilih jenisnya di tab Furniture)')}${a.jumlah && +a.jumlah > 1 ? ' · ' + esc(a.jumlah) + ' unit' : ''}${a.per_baris && +a.jumlah > 1 ? ` · ${esc(a.per_baris)} per baris` : ''}</b></div>`;
+    h += `<div class="kv"><span>Ukuran per unit</span><b>${esc(ukuran)}${umum ? ' <span class="muted">(ukuran umum)</span>' : ''}${a.rotasi ? ` · diputar ${esc(a.rotasi)}°` : ''}</b></div>`;
+    if (a.bahan) h += `<div class="kv"><span>Warna / bahan</span><b>${esc(a.bahan)}</b></div>`;
+    if (a.pemilik) h += `<div class="kv"><span>Pemilik / vendor</span><b>${esc(a.pemilik)}</b></div>`;
+    if (!S.model.skalaOf(d)) h += '<p class="note small">Skala denah belum dikalibrasi — simbol digambar dengan perkiraan 2 cm per piksel.</p>';
+    return h + '</div>';
+  }
+
   /** Info titik listrik: kapasitas, beban perangkat yang ditenagai, stop kontak. */
   function infoListrik(L, chip) {
     const m = S.model;
@@ -4314,7 +4353,7 @@
     const chip = x => `<button type="button" class="chip" data-sel="${x.id}"><i style="background:${NP.tampil(x).color}"></i>${esc(x.nama)}</button>`;
 
     if (NP.nonJaringan(d)) {
-      box.innerHTML = NP.isListrik(d) ? infoListrik(d, chip) : infoSupport(d, chip);
+      box.innerHTML = NP.isListrik(d) ? infoListrik(d, chip) : NP.isFurniture(d) ? infoFurniture(d) : infoSupport(d, chip);
       renderTimBox(d);
       renderVerif(d);
       renderFoto(d);
@@ -4434,7 +4473,7 @@
     const f = $('#form-usul');
     f.reset();
     const par = S.parentCtx != null && S.model.byId.get(S.parentCtx);
-    usulPos.uplink_id = par && jenis !== 'isp' && !NP.nonJaringan(par) && NP.grupJenis(jenis) !== 'support' ? par.id : null;
+    usulPos.uplink_id = par && jenis !== 'isp' && !NP.nonJaringan(par) && NP.grupJenis(jenis) === 'jaringan' ? par.id : null;
     $('#usul-jenis').textContent = TYPES[jenis].label;
     $('#usul-uplink').innerHTML = usulPos.uplink_id != null ? `Uplink: <b>${esc(par.nama)}</b> <span class="muted">(pilih perangkat lain di denah sebelum menaruh untuk mengganti)</span>` : 'Tanpa uplink — admin yang menyambungkan.';
     f.elements.nama.value = nextName(jenis);
@@ -5317,7 +5356,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function buildFilters() {
     // Kelompok (jaringan / support) lalu jenis per kelompok.
     $('#list-jenis').innerHTML += `<optgroup label="Kelompok"><option value="grup:jaringan">Semua ${esc(NP.GRUP.jaringan.toLowerCase())}</option><option value="grup:support">Semua support &amp; listrik</option></optgroup>` +
-      ['jaringan', 'support'].map(g => `<optgroup label="${esc(NP.GRUP[g])}">${TYPE_ORDER.filter(j => NP.grupJenis(j) === g).map(j => `<option value="${j}">${esc(TYPES[j].label)}</option>`).join('')}</optgroup>`).join('');
+      NP.GRUP_ORDER.map(g => `<optgroup label="${esc(NP.GRUP[g])}">${TYPE_ORDER.filter(j => NP.grupJenis(j) === g).map(j => `<option value="${j}">${esc(TYPES[j].label)}</option>`).join('')}</optgroup>`).join('');
     $('#list-status').innerHTML += Object.keys(STATUS).map(k => `<option value="${k}">${STATUS[k].label}</option>`).join('');
     $('#list-koneksi').innerHTML += Object.keys(KONEKSI).map(k => `<option value="${k}">${KONEKSI[k].short}</option>`).join('');
     $('#list-kabel').innerHTML += Object.keys(NP.KABEL).map(k => `<option value="${k}">Kabel: ${NP.KABEL[k].short}</option>`).join('') + '<option value="perlu">Kabel: semua link kabel</option>';
@@ -5327,8 +5366,11 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   /** Label jenis perangkat; endpoint ditambah tipenya, mis. "Endpoint (klien) · Laptop". */
   function jenisLabel(d) {
     const e = NP.tipeEp(d);
-    return (TYPES[d.jenis] || TYPES.lainnya).label + (e ? ' · ' + e.nama : '');
+    const f = d.jenis === 'furniture' && (d.atribut || {}).tipe_furniture;
+    return (TYPES[d.jenis] || TYPES.lainnya).label + (e ? ' · ' + e.nama : f ? ' · ' + f : '');
   }
+  /** Nama kelompok singkat untuk tabel / CSV: Jaringan, Support, Furniture. */
+  const grupSingkat = d => ({ jaringan: 'Jaringan', support: 'Support', furniture: 'Furniture' })[NP.grupJenis(d.jenis)];
 
   /** Ringkasan isian khusus jenis, mis. "SSID: EVENT · Ch: 36 · 5 GHz". */
   function attrSummary(d, hideSecret) {
@@ -5578,7 +5620,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const v = e.target.value;
     e.target.value = '';
     if (!v) return;
-    const ids = [...S.pilih].filter(id => !NP.isListrik(S.model.byId.get(id)));
+    const ids = [...S.pilih].filter(id => !NP.isListrik(S.model.byId.get(id)) && !NP.isFurniture(S.model.byId.get(id)));
     if (!ids.length) return toast('Pilih perangkat (bukan titik listrik) terlebih dahulu', true);
     const L = v === 'lepas' ? null : S.model.byId.get(+v);
     if (!confirm(L ? `Pasang ${ids.length} perangkat ke titik listrik ${L.nama}?` : `Lepas titik listrik dari ${ids.length} perangkat?`)) return;
@@ -5910,7 +5952,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function dataRekapListrik() {
     const m = S.model;
     const titik = m.bebanListrik().map(b => Object.assign(b, { mcb: NP.dayaMcb(b.L.atribut || {}) }));
-    const konsumen = m.list.filter(d => !NP.isListrik(d) && !(d.jenis === 'isp' && !(d.atribut || {}).listrik));
+    const konsumen = m.list.filter(d => !NP.isListrik(d) && !NP.isFurniture(d) && !(d.jenis === 'isp' && !(d.atribut || {}).listrik));
     const st = d => (d.atribut || {}).listrik || '';
     const tanpa = konsumen.filter(d => !['poe', 'baterai'].includes(st(d)) && !m.listrikOf(d));
     const kap = titik.reduce((s, b) => s + (b.kap || 0), 0);
@@ -5930,7 +5972,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const m = S.model;
     const r = dataRekapListrik();
     const chipL = d => `<a href="#" class="dev-link" data-sel="${d.id}"><i style="background:${NP.tampil(d).color}">${NP.isListrik(d) ? '⚡' : esc(NP.tampil(d).short)}</i>${esc(d.nama)}</a>`;
-    const grupLbl = d => (NP.nonJaringan(d) ? 'Support' : 'Jaringan');
+    const grupLbl = grupSingkat;
     const tile = (n, l, cls) => `<div class="sp-tile${cls ? ' ' + cls : ''}"><b>${n}</b><span>${l}</span></div>`;
     const sisa = r.kap - r.pakai;
     let h = `<div class="sp-head">
@@ -5985,7 +6027,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     }
 
     // Peralatan support
-    const sup = NP.Model.sortDev(m.list.filter(d => NP.nonJaringan(d) && !NP.isListrik(d)));
+    const sup = NP.Model.sortDev(m.list.filter(d => NP.grupJenis(d.jenis) === 'support' && !NP.isListrik(d)));
     h += `<div class="card"><h2>Peralatan support <span class="muted small">${sup.length} item</span></h2>${sup.length
       ? `<table class="mini"><tr><th>Nama</th><th>Kategori</th><th class="num">Jumlah</th><th>Kapasitas / ukuran</th><th class="num">Daya</th><th>Titik listrik</th><th>Status</th><th>PIC</th></tr>${sup.map(d => {
         const a = d.atribut || {};
@@ -6006,7 +6048,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const mc = b && b.mcb;
       return [b ? b.L.nama : '(belum ada titik pemasok)', mc ? mc.a : '', mc ? mc.v : '', mc ? (mc.tiga ? '3 fase' : '1 fase') : '',
         b && b.kap ? Math.round(b.kap) : '', b && b.kap ? Math.round(b.kap * 0.8) : '', b ? Math.round(b.watt) : '', b && b.kap ? Math.round(b.kap - b.watt) : '',
-        d ? d.nama : '', d ? (NP.nonJaringan(d) ? 'Support' : 'Jaringan') : '', d ? jenisLabel(d) : '',
+        d ? d.nama : '', d ? grupSingkat(d) : '', d ? jenisLabel(d) : '',
         d ? NP.LISTRIK[(d.atribut || {}).listrik || ''].label : '', d && m.dayaW(d) ? Math.round(m.dayaW(d)) : ''];
     };
     r.titik.forEach(b => {
@@ -6037,7 +6079,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function cetakLaporanSupport() {
     const m = S.model;
     const butuh = d => !NP.nonJaringan(d) && (!!m.listrikOf(d) || (d.atribut || {}).listrik === 'perlu');
-    const denahSvg = petaLaporan({ filter: NP.nonJaringan, redup: butuh, pwr: true, tanpaInternet: true });
+    const denahSvg = petaLaporan({ filter: d => NP.grupJenis(d.jenis) === 'support', redup: butuh, pwr: true, tanpaInternet: true });
     const lg = (warna, isi, teks) => `<span><i style="background:${warna}">${isi}</i>${esc(teks)}</span>`;
     $('#print').className = 'print';
     $('#print').innerHTML = prHead('Laporan support & listrik') +
@@ -6937,9 +6979,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       }).join('')}</table>`;
     if (r.tanpa.length) {
       h += `<h2>Belum punya titik listrik pemasok</h2><table class="pr-table">${tr(['Perangkat', 'Kelompok', 'Jenis', 'Listrik di lokasi', 'Daya'], true)}${NP.Model.sortDev(r.tanpa).map(d =>
-        tr([esc(d.nama), NP.nonJaringan(d) ? 'Support' : 'Jaringan', esc(jenisLabel(d)), esc(NP.LISTRIK[(d.atribut || {}).listrik || ''].label), m.dayaW(d) ? fmtW(m.dayaW(d)) : '—'])).join('')}</table>`;
+        tr([esc(d.nama), grupSingkat(d), esc(jenisLabel(d)), esc(NP.LISTRIK[(d.atribut || {}).listrik || ''].label), m.dayaW(d) ? fmtW(m.dayaW(d)) : '—'])).join('')}</table>`;
     }
-    const sup = NP.Model.sortDev(m.list.filter(d => NP.nonJaringan(d) && !NP.isListrik(d)));
+    const sup = NP.Model.sortDev(m.list.filter(d => NP.grupJenis(d.jenis) === 'support' && !NP.isListrik(d)));
     if (sup.length) {
       h += `<h2>Peralatan support</h2><table class="pr-table">${tr(['Nama', 'Kategori', 'Jumlah', 'Kapasitas / ukuran', 'Daya', 'Titik listrik', 'Status', 'PIC'], true)}${sup.map(d => {
         const a = d.atribut || {};
@@ -7888,7 +7930,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   let aksesEdit = null;
   $('#akses-status-list').innerHTML = Object.keys(STATUS).filter(k => k !== 'usulan').map(k =>
     `<label class="st st-${k}"><input type="checkbox" name="status_boleh" value="${k}"> ${esc(STATUS[k].label)}</label>`).join('');
-  $('#akses-jenis-list').innerHTML = ['jaringan', 'support'].map(g => `<div class="ak-jenis-grup"><span class="route-lbl">${esc(NP.GRUP[g])}</span>
+  $('#akses-jenis-list').innerHTML = NP.GRUP_ORDER.map(g => `<div class="ak-jenis-grup"><span class="route-lbl">${esc(NP.GRUP[g])}</span>
     <div class="cek-grid">${TYPE_ORDER.filter(j => NP.grupJenis(j) === g).map(j =>
       `<label class="cek"><input type="checkbox" name="jenis_boleh" value="${j}"> <i class="dot" style="background:${TYPES[j].color}"></i>${esc(TYPES[j].label)}</label>`).join('')}</div></div>`).join('');
 
@@ -8229,6 +8271,12 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     }
     for (const d of m.list) {
       if (!tampil(d)) continue;
+      if (d.jenis === 'furniture') {
+        // Furniture: simbol denah 2D berskala, sama seperti di peta.
+        const f = NP.furnSimbol(d, m.lantaiById(lid).skala, { sw: 0.9 * u });
+        h += `<g transform="translate(${d.x},${d.y}) rotate(${f.rot})"${samar(d) ? ' opacity=".35"' : ''}>${f.svg}</g>`;
+        continue;
+      }
       const t = NP.tampil(d);
       const K = KONEKSI[m.koneksi(d)];
       const b = r * 0.8;
@@ -8380,7 +8428,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       dlgPrint.close();
       return printApSheet(apOpts());
     } else if (jenis === 'support') {
-      if (!S.model.list.some(NP.nonJaringan)) return toast('Belum ada titik listrik / peralatan support di event ini', true);
+      if (!S.model.list.some(d => NP.grupJenis(d.jenis) === 'support')) return toast('Belum ada titik listrik / peralatan support di event ini', true);
       dlgPrint.close();
       return cetakLaporanSupport();
     } else if (jenis === 'port') {

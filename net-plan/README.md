@@ -469,11 +469,19 @@ AP / wireless bridge tidak diberi port.
 - Media wireless ke perangkat tanpa radio menjadi UTP.
 - Fiber dan lainnya tetap seperti pilihan pengguna.
 
-**Perangkat jaringan vs support.** Perangkat dibagi dua kelompok:
+**Perangkat jaringan, support & furniture.** Perangkat dibagi tiga kelompok:
 - **Jaringan**: WAN, router, switch, AP, LAN, server, CCTV, endpoint, dan lainnya.
 - **Support & listrik**: *Titik listrik* dan *Peralatan support*. Peralatan support berisi kategori UPS, genset,
   terminal/stop kontak, kabel roll, rak/meja, monitor/TV, sound, lampu, AC/kipas, dan lainnya, dengan jumlah unit,
   kapasitas/ukuran, dan pemilik/vendor.
+- **Furniture**: meja, kursi, set meja + kursi, sofa, lemari/loker, rak display, panggung, podium, partisi, backdrop,
+  karpet, tanaman, dan lainnya, dengan jumlah, **panjang × lebar (cm)**, rotasi, warna/bahan, dan pemilik/vendor.
+  Digambar sebagai **simbol denah 2D** (tampak atas, gaya floorplan/CAD) sesuai ukuran asli bila skala denah sudah
+  dikalibrasi, ikut zoom & rotasi; unit lebih dari satu disusun berjajar (*unit per baris*). **Putar di tempat**: geser
+  pegangan bulat di atas furniture terpilih (snap 15°, Alt = bebas), tombol **R** / **Shift+R** (±15°), atau klik kanan →
+  *Putar 90°*. Duplikat menaruh salinan berjajar tepat di sebelahnya. Furniture tidak
+  punya koneksi jaringan maupun listrik, dan tidak masuk rekap listrik/topologi. Tampilkan saja lewat tombol
+  **🪑 Furniture** di atas peta.
 
 Peralatan support tidak punya uplink jaringan dan hanya bisa dihubungkan ke titik listrik. Daya yang diisi adalah
 **per unit**, dan bebannya dihitung × jumlah unit.

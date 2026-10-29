@@ -15,7 +15,7 @@ defined('DB_PASS') || define('DB_PASS', '');
 define('NP_UPLOAD_DIR', dirname(__DIR__) . '/uploads');
 
 /** Jenis perangkat yang dikenal (sama dengan NP.TYPES di assets/common.js). */
-const NP_JENIS = ['isp', 'router', 'switch', 'ap', 'bridge', 'lan', 'lan_gedung', 'server', 'cctv', 'endpoint', 'lainnya', 'listrik', 'support'];
+const NP_JENIS = ['isp', 'router', 'switch', 'ap', 'bridge', 'lan', 'lan_gedung', 'server', 'cctv', 'endpoint', 'lainnya', 'listrik', 'support', 'furniture'];
 /** Warna label anotasi denah yang boleh dipakai (sama dengan NP.ANOT_WARNA di aplikasi). */
 const NP_ANOT_WARNA = ['hijau', 'biru', 'kuning', 'merah', 'ungu', 'abu'];
 /**

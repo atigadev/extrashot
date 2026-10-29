@@ -179,13 +179,134 @@
         { k: 'pemilik', label: 'Pemilik / vendor', ph: 'mis. inventaris kantor, sewa vendor X' },
       ],
     },
+    // Furniture (meja, kursi, sofa, panggung, ...): tata letak venue, tanpa koneksi & listrik. Ukuran (cm) + rotasi
+    // digambar sebagai denah tapak berskala bila skala denah sudah dikalibrasi.
+    furniture: {
+      label: 'Furniture', short: 'FUR', prefix: 'FUR', color: '#a21caf', grup: 'furniture', tb: 'Furniture',
+      bwLabel: '',
+      fields: [
+        { k: 'tipe_furniture', label: 'Jenis furniture', type: 'select', options: ['', 'Meja', 'Kursi', 'Meja + kursi (set)', 'Sofa', 'Lemari / loker', 'Rak display', 'Panggung', 'Podium', 'Partisi / sekat', 'Backdrop', 'Karpet', 'Tanaman', 'Lainnya'] },
+        { k: 'jumlah', label: 'Jumlah unit', type: 'number', ph: '1' },
+        { k: 'panjang_cm', label: 'Panjang per unit (cm)', type: 'number', ph: 'kosong = ukuran umum' },
+        { k: 'lebar_cm', label: 'Lebar per unit (cm)', type: 'number', ph: 'kosong = ukuran umum' },
+        { k: 'rotasi', label: 'Rotasi (°)', type: 'number', ph: '0 – 359', list: [0, 45, 90, 135, 180, 225, 270, 315] },
+        { k: 'per_baris', label: 'Susunan: unit per baris', type: 'number', ph: 'mis. 7 (meja / kursi berjajar)' },
+        { k: 'bahan', label: 'Warna / bahan', ph: 'mis. putih, kayu jati, cover hitam' },
+        { k: 'pemilik', label: 'Pemilik / vendor', ph: 'mis. venue, sewa vendor X', wide: true },
+      ],
+    },
   };
   // lan_gedung di akhir kelompok jaringan agar pintasan tambah perangkat 1–9 (WAN … Endpoint) tidak bergeser.
-  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'endpoint', 'lainnya', 'lan_gedung', 'listrik', 'support'];
+  const TYPE_ORDER = ['isp', 'router', 'switch', 'bridge', 'ap', 'lan', 'server', 'cctv', 'endpoint', 'lainnya', 'lan_gedung', 'listrik', 'support', 'furniture'];
 
-  /** Kelompok perangkat: 'jaringan' (default) atau 'support' (titik listrik & peralatan support). */
-  const grupJenis = j => ((TYPES[j] || {}).grup === 'support' ? 'support' : 'jaringan');
-  const GRUP = { jaringan: 'Perangkat jaringan', support: 'Support & listrik' };
+  /** Kelompok perangkat: 'jaringan' (default), 'support' (titik listrik & peralatan support) atau 'furniture'. */
+  const grupJenis = j => (TYPES[j] || {}).grup || 'jaringan';
+  const GRUP = { jaringan: 'Perangkat jaringan', support: 'Support & listrik', furniture: 'Furniture' };
+  const GRUP_ORDER = ['jaringan', 'support', 'furniture'];
+  /** Ukuran bawaan per jenis furniture (cm, panjang × lebar) bila belum diisi. */
+  const FURN_UKURAN = {
+    Meja: [120, 60], Kursi: [50, 50], 'Meja + kursi (set)': [120, 150], Sofa: [200, 85], 'Lemari / loker': [100, 50],
+    'Rak display': [120, 40], Panggung: [600, 300], Podium: [60, 50], 'Partisi / sekat': [100, 8], Backdrop: [300, 25],
+    Karpet: [200, 300], Tanaman: [50, 50],
+  };
+  /** Jenis furniture yang bisa disusun berjajar (jumlah unit × per baris). */
+  const FURN_JAJAR = ['Meja', 'Kursi', 'Meja + kursi (set)', 'Sofa', 'Rak display', 'Lemari / loker'];
+
+  /**
+   * Simbol denah 2D (tampak atas, gaya floorplan) satu titik furniture, dalam koordinat denah (piksel gambar) dengan
+   * pusat (0,0) dan menghadap ke bawah sebelum diputar. skala = m/piksel (null: dianggap 2 cm/piksel).
+   * Unit lebih dari satu disusun berjajar (per_baris per baris). sw = tebal garis (dunia) bila tidak non-scaling.
+   * Hasil {svg, w, h, rot}: w × h = ukuran seluruh susunan.
+   */
+  function furnSimbol(d, skala, o) {
+    o = o || {};
+    const a = d.atribut || {};
+    const tp = a.tipe_furniture || '';
+    const def = FURN_UKURAN[tp] || [60, 60];
+    const px = cm => cm / 100 / (skala || 0.02);
+    const uw = px(+a.panjang_cm > 0 ? +a.panjang_cm : def[0]), uh = px(+a.lebar_cm > 0 ? +a.lebar_cm : def[1]);
+    const n = FURN_JAJAR.includes(tp) ? Math.max(1, Math.min(500, parseInt(a.jumlah, 10) || 1)) : 1;
+    const kol = Math.max(1, Math.min(n, parseInt(a.per_baris, 10) || Math.min(n, 10)));
+    const bar = Math.ceil(n / kol);
+    const gx = tp === 'Kursi' ? uw * 0.25 : tp === 'Meja + kursi (set)' ? uw * 0.3 : uw * 0.05;
+    const gy = tp === 'Kursi' ? uh * 0.35 : uh * 0.25;
+    const W = kol * uw + (kol - 1) * gx, H = bar * uh + (bar - 1) * gy;
+    const st = `stroke="${o.stroke || '#a21caf'}" stroke-width="${o.sw || 1.3}"${o.sw ? '' : ' vector-effect="non-scaling-stroke"'}`;
+    const isi = o.fill || '#fdf4ff';
+    const R = (x, y, w, h, ext) => `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(0.1, w).toFixed(2)}" height="${Math.max(0.1, h).toFixed(2)}" ${ext || ''} ${st}/>`;
+    const L = (x1, y1, x2, y2, ext) => `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" ${ext || ''} ${st}/>`;
+    // Kursi menghadap ke bawah (sandaran di atas); flip = menghadap ke atas.
+    const kursi = (cx, cy, w, h, flip) => {
+      const s = flip ? -1 : 1;
+      const y = v => cy + s * v;
+      const atas = (v, t) => Math.min(y(v), y(v + t));
+      return R(cx - w / 2, atas(-h / 2, h * 0.2), w, h * 0.2, `rx="${(h * 0.06).toFixed(2)}" fill="${isi}"`) +
+        R(cx - w / 2 + w * 0.13, atas(-h / 2 + h * 0.24, h * 0.72), w * 0.74, h * 0.72, `rx="${(w * 0.14).toFixed(2)}" fill="${isi}"`) +
+        R(cx - w / 2, atas(-h / 2 + h * 0.2, h * 0.66), w * 0.1, h * 0.66, `rx="${(w * 0.04).toFixed(2)}" fill="${isi}"`) +
+        R(cx + w / 2 - w * 0.1, atas(-h / 2 + h * 0.2, h * 0.66), w * 0.1, h * 0.66, `rx="${(w * 0.04).toFixed(2)}" fill="${isi}"`);
+    };
+    const satu = (cx, cy, w, h) => {
+      const x0 = cx - w / 2, y0 = cy - h / 2;
+      switch (tp) {
+        case 'Kursi': return kursi(cx, cy, w, h);
+        case 'Meja + kursi (set)': {
+          const th = h * 0.42, cs = Math.min(h * 0.29, w * 0.9);
+          const k = Math.max(1, Math.floor(w / (cs * 1.25)));
+          let s = R(x0, cy - th / 2, w, th, `fill="${isi}"`);
+          for (let i = 0; i < k; i++) {
+            const kx = x0 + (w / k) * (i + 0.5);
+            s += kursi(kx, y0 + cs / 2, cs * 0.9, cs) + kursi(kx, y0 + h - cs / 2, cs * 0.9, cs, true);
+          }
+          return s;
+        }
+        case 'Sofa': {
+          const k = Math.max(1, Math.round((w * 0.76) / (h * 0.8)));
+          let s = R(x0, y0, w, h, `rx="${(h * 0.1).toFixed(2)}" fill="${isi}"`) + R(x0, y0, w, h * 0.25, `rx="${(h * 0.08).toFixed(2)}" fill="${isi}"`) +
+            R(x0, y0, w * 0.12, h, `rx="${(h * 0.08).toFixed(2)}" fill="${isi}"`) + R(x0 + w * 0.88, y0, w * 0.12, h, `rx="${(h * 0.08).toFixed(2)}" fill="${isi}"`);
+          for (let i = 1; i < k; i++) s += L(x0 + w * 0.12 + (w * 0.76 / k) * i, y0 + h * 0.25, x0 + w * 0.12 + (w * 0.76 / k) * i, y0 + h);
+          return s;
+        }
+        case 'Lemari / loker':
+          return R(x0, y0, w, h, `fill="${isi}"`) + L(x0, y0, x0 + w, y0 + h) + L(x0 + w, y0, x0, y0 + h);
+        case 'Rak display':
+          return R(x0, y0, w, h, `fill="${isi}"`) + L(x0, y0 + h / 3, x0 + w, y0 + h / 3) + L(x0, y0 + h * 2 / 3, x0 + w, y0 + h * 2 / 3);
+        case 'Panggung': {
+          const fs = Math.min(h * 0.16, w * 0.09);
+          let s = R(x0, y0, w, h, `fill="${isi}"`) + R(x0 + w * 0.04, y0 + h * 0.06, w * 0.92, h * 0.88, 'fill="none" stroke-dasharray="4 3"');
+          s += `<text x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" dy=".35em" text-anchor="middle" font-size="${fs.toFixed(2)}" font-family="Arial" font-weight="700" fill="${o.stroke || '#a21caf'}" letter-spacing="${(fs * 0.15).toFixed(2)}">PANGGUNG</text>`;
+          return s;
+        }
+        case 'Podium':
+          return R(x0, y0, w, h, `rx="${(w * 0.08).toFixed(2)}" fill="${isi}"`) + R(x0 + w * 0.15, y0 + h * 0.1, w * 0.7, h * 0.35, `fill="none"`) +
+            `<circle cx="${cx.toFixed(2)}" cy="${(y0 + h * 0.72).toFixed(2)}" r="${(Math.min(w, h) * 0.08).toFixed(2)}" fill="${o.stroke || '#a21caf'}"/>`;
+        case 'Partisi / sekat':
+        case 'Backdrop':
+          return R(x0, y0, w, h, `fill="${o.stroke || '#a21caf'}" fill-opacity=".55"`);
+        case 'Karpet':
+          return R(x0, y0, w, h, `fill="${isi}" fill-opacity=".6"`) + R(x0 + w * 0.06, y0 + h * 0.06, w * 0.88, h * 0.88, 'fill="none" stroke-dasharray="3 3"');
+        case 'Tanaman': {
+          const r = Math.min(w, h) / 2;
+          let s = `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" fill="${isi}" ${st}/>`;
+          for (let i = 0; i < 6; i++) {
+            const t = i * Math.PI / 3, lx = cx + Math.sin(t) * r * 0.5, ly = cy - Math.cos(t) * r * 0.5;
+            s += `<ellipse cx="${lx.toFixed(2)}" cy="${ly.toFixed(2)}" rx="${(r * 0.22).toFixed(2)}" ry="${(r * 0.42).toFixed(2)}" transform="rotate(${i * 60} ${lx.toFixed(2)} ${ly.toFixed(2)})" fill="none" ${st}/>`;
+          }
+          return s;
+        }
+        case 'Meja': return R(x0, y0, w, h, `fill="${isi}"`);
+        default: return R(x0, y0, w, h, `fill="${isi}"`) + L(x0, y0, x0 + w, y0 + h);
+      }
+    };
+    let svg = '';
+    for (let i = 0; i < n; i++) {
+      const c = i % kol, b = Math.floor(i / kol);
+      svg += satu(-W / 2 + uw / 2 + c * (uw + gx), -H / 2 + uh / 2 + b * (uh + gy), uw, uh);
+    }
+    return { svg, w: W, h: H, rot: (+a.rotasi || 0) % 360 };
+  }
+
+  /** Singkatan di titik denah per jenis furniture. */
+  const FURN_SINGKAT = { Meja: 'MJ', Kursi: 'KS', 'Meja + kursi (set)': 'MK', Sofa: 'SF', 'Lemari / loker': 'LM', 'Rak display': 'RK', Panggung: 'PG', Podium: 'PD', 'Partisi / sekat': 'PT', Backdrop: 'BD', Karpet: 'KP', Tanaman: 'TN' };
 
   /**
    * Daya dari MCB (W): tegangan × arus; 3 fase = √3 × V × A (tegangan default 220 V / 380 V untuk 3 fase).
@@ -225,6 +346,7 @@
     lainnya: [['fungsi', 'Uji fungsi']],
     support: [['fungsi', 'Uji fungsi']],
     listrik: [['mcb', 'MCB & tegangan dicek'], ['beban', 'Uji beban / colokan']],
+    furniture: [['posisi', 'Posisi & arah sesuai denah'], ['kondisi', 'Kondisi baik & bersih']],
   };
 
   /** Item ceklis perangkat: [{key, grup, label, link?}] — link: 'kabel:<status>' | 'status:<status>'. */
@@ -237,7 +359,7 @@
       out.push({ key: 'kabel_tes', grup: 'kabel', label: 'Kabel dites OK', link: 'kabel:dites' });
     }
     out.push({ key: 'tempat', grup: 'pasang', label: t.listrik ? 'Panel / colokan siap' : 'Alat ditempatkan di lokasi', link: 'status:terpasang' });
-    if (!t.listrik && (d.atribut || {}).listrik !== 'baterai') out.push({ key: 'listrik', grup: 'pasang', label: (d.atribut || {}).listrik === 'poe' ? 'Daya PoE menyala' : 'Listrik tersambung' });
+    if (!t.listrik && t.grup !== 'furniture' && (d.atribut || {}).listrik !== 'baterai') out.push({ key: 'listrik', grup: 'pasang', label: (d.atribut || {}).listrik === 'poe' ? 'Daya PoE menyala' : 'Listrik tersambung' });
     out.push({ key: 'label', grup: 'pasang', label: 'Label nama ditempel' });
     (KONFIG[d.jenis] || KONFIG.lainnya).forEach(([k, l]) => out.push({ key: 'k_' + k, grup: 'konfig', label: l }));
     out.push({ key: 'uji', grup: 'konfig', label: 'Uji akhir (sudah diuji)', link: 'status:diuji' });
@@ -283,8 +405,10 @@
     return { items, selesai, total: items.length, pct: items.length ? Math.round(selesai / items.length * 100) : 0, per };
   }
 
-  /** Bukan perangkat jaringan (tanpa uplink, status internet & kabel jaringan): titik listrik. */
-  const nonJaringan = d => !!d && grupJenis(d.jenis) === 'support';
+  /** Bukan perangkat jaringan (tanpa uplink, status internet & kabel jaringan): titik listrik, support, furniture. */
+  const nonJaringan = d => !!d && grupJenis(d.jenis) !== 'jaringan';
+  /** Furniture: tanpa koneksi apa pun (jaringan maupun listrik). */
+  const isFurniture = d => !!d && grupJenis(d.jenis) === 'furniture';
   /** Titik listrik (sumber daya dengan MCB). */
   const isListrik = d => !!d && !!(TYPES[d.jenis] || {}).listrik;
 
@@ -509,6 +633,10 @@
       return e ? { color: e.warna, short: e.singkatan, label: e.nama, prefix: e.prefix, ikon: e.ikon || 'umum' }
         : { color: t.color, short: t.short, label: t.label, prefix: t.prefix, ikon: 'umum' };
     }
+    if (d.jenis === 'furniture') {
+      const tp = (d.atribut || {}).tipe_furniture;
+      return { color: t.color, short: FURN_SINGKAT[tp] || t.short, label: tp || t.label, prefix: t.prefix };
+    }
     return { color: t.color, short: t.short, label: t.label, prefix: t.prefix };
   }
 
@@ -697,5 +825,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, ANOT_WARNA, UNIT_FIELDS, UNIT_KONDISI, macNorm, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, GRUP_ORDER, isFurniture, furnSimbol, FURN_UKURAN, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, ANOT_WARNA, UNIT_FIELDS, UNIT_KONDISI, macNorm, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

@@ -648,15 +648,16 @@ body.map-full .topbar, body.map-full .tabs { display: none; }
 body.map-full .editor { height: 100vh; height: 100dvh; }
 #btn-full[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-/* HP, mode lihat-saja: alat hanya Pilih & Ukur -> mengambang di atas peta, peta memakai seluruh tinggi. */
+/* HP, mode lihat-saja: alat hanya Pilih & Ukur -> mengambang di atas peta, peta memakai seluruh tinggi.
+   Installer punya tombol Usulkan per kategori -> tetap strip horizontal seperti admin. */
 @media (max-width: 640px) {
-  body.mode-lihat .peta-layout { grid-template-rows: 1fr; }
-  body.mode-lihat .toolbar {
+  body.mode-lihat:not(.mode-installer) .peta-layout { grid-template-rows: 1fr; }
+  body.mode-lihat:not(.mode-installer) .toolbar {
     position: absolute; top: 10px; left: 10px; z-index: 5; flex-direction: column; overflow: visible;
     border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 3px;
   }
-  body.mode-lihat .toolbar .tool { width: 40px; }
-  body.mode-lihat .map-hint { left: 64px; }
+  body.mode-lihat:not(.mode-installer) .toolbar .tool { width: 40px; }
+  body.mode-lihat:not(.mode-installer) .map-hint { left: 64px; }
 }
 
 /* Layar sentuh: area ketuk lebih besar, sembunyikan petunjuk keyboard. */

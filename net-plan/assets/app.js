@@ -1360,6 +1360,7 @@
     let h = tools.map(x => `<button type="button" class="tool${x.edit ? ' edit-only' : ''}" data-tool="${x.t}" title="${x.label} (${x.key})">
         <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="currentColor">${x.icon}</svg><span>${x.label.split(' ')[0]}</span></button>`).join('');
     const inst = isInstaller();
+    document.body.classList.toggle('mode-installer', inst);
     h += inst ? '<div class="tb-sep" title="Alat baru masuk sebagai usulan; admin yang menentukan bisa dipasang atau tidak">Usulkan</div>' : '<div class="tb-sep edit-only">Tambah</div>';
     h += TYPE_ORDER.map((j, i) => {
       const t = TYPES[j];

@@ -622,7 +622,7 @@
         const mp = modePort(d);
         if (mp.beda) {
           const t = c => (c.mode === 'access' ? 'Access ' : c.mode === 'trunk' ? 'Trunk ' : 'LAN saja') + (c.mode === 'native' ? '' : c.izin);
-          add('warn', [p, d], `${p.nama} port ${d.port_uplink} diatur ${t(mp.port)}, tetapi ${d.nama} di port itu diatur ${t({ mode: mp.mode, izin: mp.izin })} â€” samakan (yang dipakai: pengaturan ${d.nama})`, [d]);
+          add('warn', [p, d], `${p.nama} port ${d.port_uplink} diatur ${t(mp.port)}, tetapi ${d.nama} di port itu diatur ${t({ mode: mp.mode, izin: mp.izin })} — samakan (yang dipakai: pengaturan ${d.nama})`, [d]);
         }
         // Switch unmanaged tidak bisa memasang VLAN per port.
         const sw = p.jenis === 'switch' && /unmanaged/i.test((p.atribut || {}).managed || '');
@@ -892,6 +892,7 @@
           add('info', d, `${d.nama}: hanya punya WAN tambahan — jadikan salah satunya uplink (WAN utama) agar pohon topologi rapi`);
         }
         if (d.status === 'bermasalah') add('err', d, `${d.nama}: berstatus bermasalah`);
+        if (d.status === 'usulan') add('warn', d, `${d.nama}: usulan alat baru dari ${(d.atribut || {}).usulan_oleh || 'installer'} — tentukan bisa dipasang atau tolak`);
         if (p && NP.perluKabel(d) && NP.kabelSt(d) === 'bermasalah') add('err', d, `${d.nama}: kabel ke ${p.nama} bermasalah`, [d]);
         // Alat sudah diuji tetapi kabelnya belum ditarik: data lapangan tidak konsisten.
         if (p && NP.perluKabel(d) && d.status === 'diuji' && NP.kabelSt(d) === 'belum') add('info', d, `${d.nama}: sudah diuji tetapi status kabel ke ${p.nama} masih "belum ditarik"`);

@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex">
 <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
 <title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=132">
+<link rel="stylesheet" href="assets/np.css?v=134">
 </head>
 <body>
 
@@ -339,6 +339,8 @@
         <span><b>Lihat saja</b><small>Membaca denah, daftar, topologi, sheet AP, dan riwayat. Tidak bisa mengubah apa pun.</small></span></label>
       <label><input type="radio" name="peran" value="status">
         <span><b>Update status</b><small>Bisa mengubah status perangkat (hanya status &amp; kategori yang dicentang di bawah) dan menulis catatan lapangan.</small></span></label>
+      <label><input type="radio" name="peran" value="installer">
+        <span><b>Installer</b><small>Petugas pemasang: semua hak <i>Update status</i>, ditambah bisa <b>menambah alat baru</b> di denah. Alat baru masuk sebagai <i>Usulan baru</i> — Anda yang menentukan bisa dipasang atau tidak.</small></span></label>
       <label><input type="radio" name="peran" value="cek">
         <span><b>Checker penempatan</b><small>Mengecek titik alat di lapangan sesuai plan (denah, uplink &amp; port, alat, posisi pasang): tandai <i>Sesuai</i> / <i>Tidak sesuai</i>, ambil 1–3 foto bukti, dan tulis catatan. Tidak bisa mengubah status atau konfigurasi.</small></span></label>
     </div>
@@ -355,6 +357,23 @@
     <div class="btn-row end">
       <button type="button" data-close>Batal</button>
       <button type="submit" class="primary">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Dialog usulan alat baru (link tim installer) -->
+<dialog id="dlg-usul" class="dlg">
+  <form method="dialog" id="form-usul" autocomplete="off">
+    <h2>Usulkan alat baru: <span id="usul-jenis"></span></h2>
+    <p class="muted small">Alat masuk denah sebagai <span class="st st-usulan">Usulan baru</span>. Admin yang menentukan bisa dipasang atau tidak.</p>
+    <label class="field"><span>Nama / label *</span><input type="text" name="nama" maxlength="100" required></label>
+    <label class="field"><span>Merek / tipe alat (opsional)</span><input type="text" name="model" maxlength="150" placeholder="mis. TP-Link EAP650"></label>
+    <label class="field"><span>Alasan / keterangan untuk admin</span>
+      <textarea name="catatan" rows="3" maxlength="2000" placeholder="mis. Area booth B belum tercover, sinyal -80 dBm"></textarea></label>
+    <p class="small" id="usul-uplink"></p>
+    <div class="btn-row end">
+      <button type="button" data-close>Batal</button>
+      <button type="submit" class="primary">Kirim usulan</button>
     </div>
   </form>
 </dialog>
@@ -488,13 +507,13 @@
 
 <div id="print" class="print"></div>
 
-<script src="vendor/qrcode.min.js?v=132"></script>
-<script src="assets/common.js?v=132"></script>
-<script src="assets/analisis.js?v=132"></script>
-<script src="assets/peta.js?v=132"></script>
-<script src="assets/katalog.js?v=132"></script>
-<script src="assets/mikrotik.js?v=132"></script>
-<script src="assets/backup.js?v=132"></script>
-<script src="assets/app.js?v=132"></script>
+<script src="vendor/qrcode.min.js?v=134"></script>
+<script src="assets/common.js?v=134"></script>
+<script src="assets/analisis.js?v=134"></script>
+<script src="assets/peta.js?v=134"></script>
+<script src="assets/katalog.js?v=134"></script>
+<script src="assets/mikrotik.js?v=134"></script>
+<script src="assets/backup.js?v=134"></script>
+<script src="assets/app.js?v=134"></script>
 </body>
 </html>

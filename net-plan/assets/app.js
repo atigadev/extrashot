@@ -224,6 +224,7 @@
         ? await api('api/lihat.php?k=' + encodeURIComponent(S.lihat))
         : await api(API + '?action=get&id=' + id);
     if (res.akses) S.akses = res.akses;
+    if (isInstaller() && !$('#toolbar .usul')) buildToolbar(); // alat usulan baru tahu kategori tugas setelah akses dimuat
     const changed = !S.proyek || S.proyek.id !== res.proyek.id;
     S.proyek = res.proyek;
     S.list = res.perangkat;
@@ -686,7 +687,7 @@
     const p = S.proyek;
     c.innerHTML = `${S.lihat ? '' : '<a href="#/" title="Semua event"><span class="hide-phone">Semua event</span><span class="show-phone">←</span></a><span class="sep hide-phone">/</span>'}
       <b>${esc(p.nama)}</b>${p.venue ? `<span class="muted"> · ${esc(p.venue)}</span>` : ''}
-      ${S.tim && S.akses ? `<span class="badge">${esc(S.akses.nama)} · ${S.akses.peran === 'status' ? 'update status' : S.akses.peran === 'cek' ? 'checker' + progresCekTxt() : 'lihat saja'}</span>` : S.lihat ? '<span class="badge">Lihat saja</span>' : ''}`;
+      ${S.tim && S.akses ? `<span class="badge">${esc(S.akses.nama)} · ${S.akses.peran === 'status' ? 'update status' : S.akses.peran === 'installer' ? 'installer' : S.akses.peran === 'cek' ? 'checker' + progresCekTxt() : 'lihat saja'}</span>` : S.lihat ? '<span class="badge">Lihat saja</span>' : ''}`;
     document.title = p.nama + ' — Net Plan';
   }
 
@@ -752,6 +753,7 @@
       pilihAnot(id, true);
     },
     onPlace(jenis, x, y) {
+      if (isInstaller()) return bukaUsulan(jenis, x, y);
       addDev(jenis, x, y);
     },
     // Peta sudah mengubah posisi/arah/jalur selama drag; kembalikan nilai awal dulu agar saveDev mencatat
@@ -1357,10 +1359,12 @@
     ];
     let h = tools.map(x => `<button type="button" class="tool${x.edit ? ' edit-only' : ''}" data-tool="${x.t}" title="${x.label} (${x.key})">
         <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="currentColor">${x.icon}</svg><span>${x.label.split(' ')[0]}</span></button>`).join('');
-    h += '<div class="tb-sep edit-only">Tambah</div>';
+    const inst = isInstaller();
+    h += inst ? '<div class="tb-sep" title="Alat baru masuk sebagai usulan; admin yang menentukan bisa dipasang atau tidak">Usulkan</div>' : '<div class="tb-sep edit-only">Tambah</div>';
     h += TYPE_ORDER.map((j, i) => {
       const t = TYPES[j];
-      return `<button type="button" class="tool add edit-only" data-tool="tambah:${j}" title="Tambah ${t.label} (${i + 1})">
+      if (inst && !bolehUsul(j)) return '';
+      return `<button type="button" class="tool add${inst ? ' usul' : ' edit-only'}" data-tool="tambah:${j}" title="${inst ? 'Usulkan' : 'Tambah'} ${t.label}${inst ? '' : ` (${i + 1})`}">
         <i style="background:${t.color}"${j === 'endpoint' ? ' class="sq"' : ''}>${j === 'endpoint' ? NP.ikonSvg('pc', 15) : esc(t.short)}</i><span>${esc(t.tb || t.label.split(/[ /(]/)[0])}</span></button>`;
     }).join('');
     $('#toolbar').innerHTML = h;
@@ -1398,7 +1402,7 @@
       const t = ep ? { label: ep.nama } : TYPES[tool.slice(7)];
       const par = S.parentCtx != null && S.model && S.model.byId.get(S.parentCtx);
       const adaLan = S.list.some(d => NP.titikLan(d.jenis));
-      h = `Klik di denah untuk menaruh <b>${esc(t.label)}</b>` +
+      h = `${isInstaller() ? 'Klik lokasi <b>usulan</b> alat baru' : 'Klik di denah untuk menaruh'} <b>${esc(t.label)}</b>` +
         (ep ? (par && NP.titikLan(par.jenis) ? ` · tersambung ke <b>${esc(par.nama)}</b> <span class="muted">(pilih titik LAN lain untuk mengganti)</span>`
           : adaLan ? ' · tersambung otomatis ke <b>titik LAN terdekat</b>'
             : par ? ` · belum ada titik LAN, tersambung ke <b>${esc(par.nama)}</b>` : ' · <span class="muted">taruh titik LAN dulu agar endpoint tersambung otomatis</span>')
@@ -3384,7 +3388,7 @@
       <div class="pn-sec">
         <h4>Status pemasangan</h4>
         <div class="legend">
-          ${Object.keys(STATUS).map(k => `<span class="lg-item"><i class="ring" style="border-color:${STATUS[k].color}"></i>${STATUS[k].label}<b>${st[k] || 0}</b></span>`).join('')}
+          ${Object.keys(STATUS).filter(k => k !== 'usulan' || st[k]).map(k => `<span class="lg-item"><i class="ring" style="border-color:${STATUS[k].color}"></i>${STATUS[k].label}<b>${st[k] || 0}</b></span>`).join('')}
         </div>
       </div>
       ${progresKabelHtml(true)}
@@ -3743,6 +3747,7 @@
       </div>
       <div data-pp="info">
         <div id="pn-info"></div>
+        ${usulanBoxHtml(d)}
         <div id="pn-tim"></div>
         <div id="pn-verif"></div>
         <div id="pn-foto"></div>
@@ -3755,7 +3760,7 @@
             <label class="field"><span>Jenis</span><select data-f="jenis"${dis}>${TYPE_ORDER.map(j => `<option value="${j}"${j === d.jenis ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select></label>
             ${katalogField(d, dis)}
             ${fieldHtml({ k: 'model', label: d.katalog_id != null ? 'Nama alat (dari katalog, bisa disesuaikan)' : 'Nama alat (merek/tipe)', ph: 'mis. MikroTik hAP ax², TP-Link EAP650', wide: true }, d.model, dis)}
-            <div class="field wide"><span>Status pemasangan</span>${statusPicker(d, S.canEdit ? 'admin' : '')}</div>
+            <div class="field wide"><span>Status pemasangan</span>${d.status === 'usulan' ? '<p class="small"><span class="st st-usulan">Usulan baru</span> — putuskan di kotak usulan (tab Info).</p>' : statusPicker(d, S.canEdit ? 'admin' : '')}</div>
             ${fieldHtml({ k: 'pic', label: 'PIC / teknisi' }, d.pic, dis)}
             ${multiLapisan() ? `<label class="field"><span>Layer jaringan</span><select data-lapisan-dev${dis}>${S.model.lapisanList().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lapisanOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
             ${multiLantai() ? `<label class="field"><span>Lantai (denah)</span><select data-lantai-dev${dis}>${S.model.lantaiList().slice().reverse().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lantaiOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
@@ -4349,10 +4354,84 @@
 
   // ------------------------------------------------------------------------ akses tim: update status & riwayat
 
+  const PERAN_LABEL = { status: 'Update status', installer: 'Installer', cek: 'Checker penempatan', lihat: 'Lihat saja' };
+  /** Peran yang boleh mengubah status pemasangan (installer = update status + mengusulkan alat baru). */
+  function pemasang(a) {
+    return !!a && (a.peran === 'status' || a.peran === 'installer');
+  }
+  /** Link tim berperan installer (pemasang perangkat). */
+  function isInstaller() {
+    return !!(S.tim && S.akses && S.akses.peran === 'installer');
+  }
+  /** Kategori yang boleh diusulkan installer ini (kosong = semua; port LAN gedung bukan alat yang dipasang). */
+  const bolehUsul = j => isInstaller() && j !== 'lan_gedung' && (!S.akses.jenis_boleh.length || S.akses.jenis_boleh.includes(j));
+
+  // Usulan alat baru dari installer: pilih kategori di toolbar -> klik lokasi di denah -> isi nama & keterangan -> kirim.
+  let usulPos = null;
+  function bukaUsulan(jenis, x, y) {
+    usulPos = { jenis, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+    const f = $('#form-usul');
+    f.reset();
+    const par = S.parentCtx != null && S.model.byId.get(S.parentCtx);
+    usulPos.uplink_id = par && jenis !== 'isp' && !NP.nonJaringan(par) && NP.grupJenis(jenis) !== 'support' ? par.id : null;
+    $('#usul-jenis').textContent = TYPES[jenis].label;
+    $('#usul-uplink').innerHTML = usulPos.uplink_id != null ? `Uplink: <b>${esc(par.nama)}</b> <span class="muted">(pilih perangkat lain di denah sebelum menaruh untuk mengganti)</span>` : 'Tanpa uplink — admin yang menyambungkan.';
+    f.elements.nama.value = nextName(jenis);
+    $('#dlg-usul').showModal();
+    f.elements.nama.select();
+  }
+  $('#form-usul [data-close]').addEventListener('click', () => $('#dlg-usul').close());
+  $('#form-usul').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!usulPos) return;
+    const f = e.target;
+    const body = Object.assign({ t: S.tim, action: 'tambah', nama: f.elements.nama.value.trim(), model: f.elements.model.value.trim(), catatan: f.elements.catatan.value.trim() }, usulPos);
+    if (multiLantai() && atrLantai(S.lantai)) body.lantai = S.lantai;
+    try {
+      const res = await api('api/tim.php', body);
+      $('#dlg-usul').close();
+      usulPos = null;
+      S.list.push(res.perangkat);
+      S.sel = res.perangkat.id;
+      setTool('pilih');
+      refreshModel();
+      peta.flash(res.perangkat.id);
+      toast(`${res.perangkat.nama} diusulkan — menunggu keputusan admin`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+  async function tarikUsulan(d) {
+    if (!confirm(`Tarik usulan "${d.nama}"? Titiknya dihapus dari denah.`)) return;
+    try {
+      await api('api/tim.php', { t: S.tim, action: 'usulan_hapus', id: d.id });
+      S.list = S.list.filter(x => x.id !== d.id);
+      S.sel = null;
+      refreshModel();
+      toast('Usulan ditarik');
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
+  /** Kotak status usulan di panel perangkat: admin memutuskan, installer pengusul bisa menarik usulannya. */
+  function usulanBoxHtml(d) {
+    if (d.status !== 'usulan') return '';
+    const a = d.atribut || {};
+    const milik = isInstaller() && String(a.usulan_akses || '') === String(S.akses.id);
+    return `<div class="pn-sec usul-box">
+      <h4><span class="st st-usulan">Usulan baru</span> menunggu keputusan admin</h4>
+      <p class="small">Diusulkan oleh <b>${esc(a.usulan_oleh || 'tim')}</b>${a.usulan_waktu ? ' · ' + esc(fmtWaktu(a.usulan_waktu)) : ''}. Alat ini belum masuk plan — status pemasangannya bisa diubah setelah admin menyetujui.</p>
+      ${S.canEdit ? `<div class="btn-row"><button type="button" class="small primary" data-usulan="setuju" data-id="${d.id}">✓ Bisa dipasang</button>
+        <button type="button" class="small danger" data-usulan="tolak" data-id="${d.id}">✕ Tolak</button></div>`
+        : milik ? `<button type="button" class="small" data-usul-tarik>Tarik usulan</button>` : ''}
+    </div>`;
+  }
+
   /** Apakah perangkat termasuk tugas tim (kategori diizinkan; kosong = semua). */
   function tugasTim(d) {
     const a = S.akses;
-    return !!a && a.peran === 'status' && (!a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis));
+    return pemasang(a) && (!a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis));
   }
 
   // ------------------------------------------------------------------------ pengecekan penempatan (checker)
@@ -4888,7 +4967,7 @@
     const box = $('#pn-tim');
     if (!box || !S.tim || !S.akses) return;
     if (box.querySelector('textarea[data-dirty]')) return; // catatan sedang diketik
-    if (S.akses.peran !== 'status') {
+    if (!pemasang(S.akses) || d.status === 'usulan') {
       box.innerHTML = '';
       return;
     }
@@ -4963,6 +5042,7 @@
           <span class="muted small">${esc(waktu)}</span></div>
         ${ubah && l.status_baru.startsWith('kabel:')
           ? `<div><span class="muted small">Kabel:</span> ${kbSpan(l.status_lama.slice(6))} → ${kbSpan(l.status_baru.slice(6))}</div>`
+          : ubah && !l.status_lama ? `<div><span class="st st-${esc(l.status_baru)}">${esc((STATUS[l.status_baru] || {}).label || l.status_baru)}</span></div>`
           : ubah ? `<div><span class="st st-${esc(l.status_lama)}">${esc((STATUS[l.status_lama] || {}).label || l.status_lama || '—')}</span> → <span class="st st-${esc(l.status_baru)}">${esc((STATUS[l.status_baru] || {}).label || l.status_baru)}</span></div>` : ''}
         ${l.catatan ? `<div class="log-cat">${esc(l.catatan)}</div>` : ''}
       </li>`;
@@ -4970,6 +5050,7 @@
   }
 
   $('#panel').addEventListener('click', e => {
+    if (e.target.closest('[data-usul-tarik]') && S.sel != null) return tarikUsulan(S.model.byId.get(S.sel));
     const b = e.target.closest('[data-tim-status], [data-tim-catatan]');
     if (!b || S.sel == null) return;
     kirimTim(S.model.byId.get(S.sel), b.dataset.timStatus || null);
@@ -5400,12 +5481,12 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   });
   /** Link tim dengan peran update status. */
   function bolehStatus() {
-    return !!(S.tim && S.akses && S.akses.peran === 'status');
+    return !!(S.tim && pemasang(S.akses));
   }
 
   /** Pilihan status di bar aksi: admin semua status, tim hanya status yang diizinkan PM. */
   function isiPilihanStatus() {
-    const boleh = S.canEdit ? Object.keys(STATUS) : bolehStatus() ? S.akses.status_boleh : [];
+    const boleh = S.canEdit ? Object.keys(STATUS).filter(k => k !== 'usulan') : bolehStatus() ? S.akses.status_boleh : [];
     $('#bulk-status').innerHTML = '<option value="">Ubah status…</option>' +
       boleh.map(k => `<option value="${k}">→ ${esc(STATUS[k].label)}</option>`).join('');
     // Sumber listrik massal: daftar titik listrik yang sudah dibuat (opsional).
@@ -7206,28 +7287,132 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
 
   // ------------------------------------------------------------------------ proyek / info
 
+  /** Kepala tab Proyek: identitas event + ringkasan progres; admin juga mendapat navigasi bagian. */
+  function pjHead(p, tgl, admin) {
+    const plan = S.list.filter(d => d.status !== 'usulan');
+    const n = k => plan.filter(d => d.status === k).length;
+    const selesai = n('terpasang') + n('diuji');
+    const pct = plan.length ? Math.round(selesai / plan.length * 100) : 0;
+    const usul = S.list.length - plan.length;
+    const stat = (v, l, cls) => `<div class="pj-stat${cls ? ' ' + cls : ''}"><b>${v}</b><span>${l}</span></div>`;
+    return `<div class="card pj-head">
+      <div class="pj-id">
+        <h2>${esc(p.nama)}${admin ? '<span class="spacer"></span><button type="button" class="small" data-p="edit">Ubah info</button><button type="button" class="small" data-p="backup">Backup</button>' : ''}</h2>
+        <p class="muted">${esc(p.venue || 'Venue belum diisi')}${tgl !== '—' ? ' · ' + esc(tgl) : ''}</p>
+      </div>
+      <div class="pj-stats">
+        ${stat(plan.length, 'perangkat di plan')}
+        ${stat(pct + '%', `terpasang (${selesai})`, 'ok')}
+        ${n('bermasalah') ? stat(n('bermasalah'), 'bermasalah', 'bad') : ''}
+        ${usul ? `<a href="#" class="pj-stat usul"${admin ? ' data-p="grup" data-g="tim"' : ''}><b>${usul}</b><span>usulan installer</span></a>` : ''}
+      </div>
+      <div class="progres"><i style="width:${pct}%"></i></div>
+      ${admin ? `<nav class="pj-nav" role="tablist">${PJ_GRUP.map(([k, l]) => `<button type="button" role="tab" data-p="grup" data-g="${k}" aria-selected="${k === pjGrup}"${k === pjGrup ? ' class="on"' : ''}>${esc(l)}${k === 'tim' && usul ? ` <span class="pill usul">${usul}</span>` : ''}</button>`).join('')}</nav>` : ''}
+    </div>`;
+  }
+
+  // Bagian tab Proyek (tampil satu per satu); pilihan terakhir diingat di browser ini.
+  const PJ_GRUP = [['umum', 'Umum'], ['denah', 'Denah & lantai'], ['jaringan', 'Jaringan'], ['tim', 'Tim & installer'], ['data', 'Keamanan & data']];
+  let pjGrup = 'umum';
+  try {
+    const g = localStorage.getItem('np-pj-grup');
+    if (PJ_GRUP.some(x => x[0] === g)) pjGrup = g;
+  } catch (e) { /* penyimpanan browser tidak tersedia */ }
+  function pilihPjGrup(g) {
+    pjGrup = g;
+    try { localStorage.setItem('np-pj-grup', g); } catch (e) { /* abaikan */ }
+    $$('#proyek-pane .pj-sec').forEach(s => { s.hidden = s.id !== 'pj-' + g; });
+    $$('#proyek-pane .pj-nav [data-g]').forEach(b => {
+      b.classList.toggle('on', b.dataset.g === g);
+      b.setAttribute('aria-selected', b.dataset.g === g);
+    });
+  }
+
+  /** Kartu usulan alat baru dari installer (tab Proyek, admin): setujui = masuk plan, tolak = titik dihapus. */
+  function usulanCardHtml() {
+    const ds = S.list.filter(d => d.status === 'usulan');
+    return `<h2>Usulan alat baru${ds.length ? ` <span class="pill usul">${ds.length}</span>` : ''}</h2>
+      <p class="muted small">Alat yang ditambahkan <b>installer</b> di lapangan masuk sebagai <span class="st st-usulan">Usulan baru</span>. Periksa lalu putuskan: <b>Bisa dipasang</b> (masuk plan sebagai Rencana) atau <b>Tolak</b> (titiknya dihapus, alasan tercatat di aktivitas).</p>
+      ${ds.length ? `<ul class="usul-list">${ds.map(d => {
+        const a = d.atribut || {};
+        const up = d.uplink_id != null && S.model && S.model.byId.get(d.uplink_id);
+        return `<li>
+          <div class="usul-top"><i class="dot" style="background:${(TYPES[d.jenis] || TYPES.lainnya).color}"></i>
+            <a href="#" data-p="lihat-dev" data-id="${d.id}"><b>${esc(d.nama)}</b></a>
+            <span class="muted small">${esc(jenisLabel(d))}${d.model ? ' · ' + esc(d.model) : ''}${up ? ' · uplink ' + esc(up.nama) : ''}</span></div>
+          <div class="muted small">Oleh <b>${esc(a.usulan_oleh || 'tim')}</b>${a.usulan_waktu ? ' · ' + esc(fmtWaktu(a.usulan_waktu)) : ''}</div>
+          <div class="btn-row"><button type="button" class="small primary" data-usulan="setuju" data-id="${d.id}">✓ Bisa dipasang</button>
+            <button type="button" class="small danger" data-usulan="tolak" data-id="${d.id}">✕ Tolak</button></div>
+        </li>`;
+      }).join('')}</ul>` : '<p class="muted">Tidak ada usulan yang menunggu keputusan.</p>'}
+      ${S.list.length && !aksesList.some(a => a.peran === 'installer') ? '<p class="muted small">Belum ada akses <b>Installer</b> — buat di kartu <i>Akses tim</i>.</p>' : ''}`;
+  }
+
+  /** Daftar usulan milik installer ini (halaman tim). */
+  function usulanSaya() {
+    const ds = S.list.filter(d => d.status === 'usulan' && String((d.atribut || {}).usulan_akses || '') === String(S.akses.id));
+    return ds.length ? `<h4>Usulan Anda menunggu keputusan admin (${ds.length})</h4>
+      <div class="akses-izin">${ds.map(d => `<span class="st st-usulan">${esc(d.nama)}</span>`).join('')}</div>` : '';
+  }
+
+  const fmtWaktu = s => new Date(String(s).replace(' ', 'T')).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+  /** Keputusan admin atas usulan installer. */
+  async function putusUsulan(id, keputusan) {
+    const d = S.model && S.model.byId.get(id);
+    if (!d) return;
+    let catatan = '';
+    if (keputusan === 'tolak') {
+      const v = prompt(`Tolak usulan "${d.nama}"? Titiknya akan dihapus dari denah.\n\nAlasan (opsional, tercatat di aktivitas):`, '');
+      if (v == null) return;
+      catatan = v.trim();
+    }
+    try {
+      const res = await enqueue(() => api(API, { action: 'perangkat_usulan', id, keputusan, catatan }));
+      const i = S.list.findIndex(x => x.id === id);
+      if (res.perangkat && i >= 0) S.list[i] = res.perangkat;
+      else if (i >= 0) {
+        S.list.splice(i, 1);
+        S.list.forEach(x => { if (x.uplink_id === id) x.uplink_id = null; });
+        if (S.sel === id) S.sel = null;
+      }
+      riwayat.id = null;
+      refreshModel({ keepPanel: true });
+      const card = $('#card-usulan');
+      if (card) card.innerHTML = usulanCardHtml();
+      if (S.tab === 'proyek') muatAktivitas();
+      toast(keputusan === 'setuju' ? `${d.nama} bisa dipasang — masuk plan sebagai Rencana` : `Usulan ${d.nama} ditolak`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-usulan]');
+    if (!b || !S.canEdit) return;
+    e.preventDefault();
+    putusUsulan(+b.dataset.id, b.dataset.usulan);
+  });
+
   function renderProyek() {
     const p = S.proyek;
     const base = location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '');
     const link = base + 'index.html?lihat=' + p.kode_lihat;
     const tgl = p.tanggal_mulai ? fmtDate(p.tanggal_mulai) + (p.tanggal_selesai && p.tanggal_selesai !== p.tanggal_mulai ? ' – ' + fmtDate(p.tanggal_selesai) : '') : '—';
     if (S.lihat) {
-      $('#proyek-pane').innerHTML = `<div class="card"><h2>${esc(p.nama)}</h2>
-        <div class="kv"><span>Venue</span><b>${esc(p.venue || '—')}</b></div>
-        <div class="kv"><span>Tanggal</span><b>${esc(tgl)}</b></div>
-        ${p.catatan ? `<h4>Catatan</h4><div class="pre">${esc(p.catatan)}</div>` : ''}
+      $('#proyek-pane').innerHTML = `${pjHead(p, tgl, false)}<div class="pj-cols"><div class="card"><h2>Catatan event</h2>
+        ${p.catatan ? `<div class="pre">${esc(p.catatan)}</div>` : '<p class="muted">Belum ada catatan.</p>'}
         <p class="muted small">${S.tim ? 'Halaman tim.' : 'Halaman lihat-saja.'} ${S.akses && S.akses.lihat_password ? '' : 'Password disamarkan. '}Data diperbarui otomatis tiap 30 detik.</p></div>
-        ${S.tim && S.akses ? `<div class="card"><h2>Akses Anda</h2>${aksesRingkas(S.akses)}${progresTim()}</div>
-        <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>` : ''}`;
+        ${S.tim && S.akses ? `<div class="card"><h2>Akses Anda</h2>${aksesRingkas(S.akses)}${progresTim()}
+          ${isInstaller() ? `<p class="muted small">Alat yang belum ada di plan bisa diusulkan dari tab <b>Denah</b>: tombol <b>Usulkan</b> di toolbar → klik lokasinya. Admin yang menentukan alat itu bisa dipasang atau tidak.</p>${usulanSaya()}` : ''}</div>
+        <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>` : ''}</div>`;
       if (S.tim) muatAktivitas();
       return;
     }
-    $('#proyek-pane').innerHTML = `
+    const sec = (id, judul, isi) => `<section class="pj-sec" id="pj-${id}" role="tabpanel"${id === pjGrup ? '' : ' hidden'}><div class="pj-cols">${isi}</div></section>`;
+    $('#proyek-pane').innerHTML = pjHead(p, tgl, true) + sec('umum', 'Umum', `
       <div class="card">
-        <h2>Info event <span class="spacer"></span><button type="button" class="small" data-p="edit">Ubah</button></h2>
-        <div class="kv"><span>Nama</span><b>${esc(p.nama)}</b></div>
-        <div class="kv"><span>Venue</span><b>${esc(p.venue || '—')}</b></div>
-        <div class="kv"><span>Tanggal</span><b>${esc(tgl)}</b></div>
+        <h2>Catatan event</h2>
         <form id="form-catatan" autocomplete="off">
           <label class="field"><span>Catatan umum jaringan (topologi, kontak, jadwal setting)</span>
             <textarea name="catatan" rows="6" maxlength="5000" placeholder="mis. Loading barang H-1 jam 14.00, PIC venue Pak Budi 08xx, ISP aktif H-2...">${esc(p.catatan || '')}</textarea></label>
@@ -7236,6 +7421,21 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           <button type="submit" class="primary">Simpan</button>
         </form>
       </div>
+      <div class="card">
+        <h2>Link lihat-saja (teknisi lapangan)</h2>
+        <div class="share">
+          <div class="qr">${qrSvg(link)}</div>
+          <div class="grow">
+            <p class="muted small">Tanpa login, tidak bisa mengubah data, password WiFi/admin disamarkan.</p>
+            <input type="text" readonly value="${esc(link)}" class="mono small-input" onclick="this.select()">
+            <div class="btn-row" style="margin-top:8px">
+              <button type="button" class="small" data-p="copy" data-link="${esc(link)}">Salin</button>
+              <a class="btn small" href="${esc(link)}" target="_blank" rel="noopener">Buka</a>
+              <button type="button" class="small" data-p="kode-baru">Ganti link</button>
+            </div>
+          </div>
+        </div>
+      </div>`) + sec('denah', 'Denah &amp; lantai', `
       <div class="card">
         <h2>Denah venue</h2>
         ${p.denah_v ? `<img class="denah-prev" src="${esc(denahUrl())}" alt="Denah"><p class="muted small">${p.denah_w} × ${p.denah_h} piksel</p>` : '<p class="muted">Belum ada denah.</p>'}
@@ -7252,21 +7452,11 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         <p class="muted small">Kalibrasi di tab Denah: alat <b>Ukur</b> → klik dua ujung garis skala → isi jarak sebenarnya → <b>Set skala</b>.</p>
         ${p.skala ? '<button type="button" class="small" data-p="skala-reset">Hapus kalibrasi</button>' : ''}
       </div>
-      <div class="card">
-        <h2>Link lihat-saja (teknisi lapangan)</h2>
-        <div class="share">
-          <div class="qr">${qrSvg(link)}</div>
-          <div class="grow">
-            <p class="muted small">Tanpa login, tidak bisa mengubah data, password WiFi/admin disamarkan.</p>
-            <input type="text" readonly value="${esc(link)}" class="mono small-input" onclick="this.select()">
-            <div class="btn-row" style="margin-top:8px">
-              <button type="button" class="small" data-p="copy" data-link="${esc(link)}">Salin</button>
-              <a class="btn small" href="${esc(link)}" target="_blank" rel="noopener">Buka</a>
-              <button type="button" class="small" data-p="kode-baru">Ganti link</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <div class="card" id="card-lantai"></div>`) + sec('jaringan', 'Jaringan', `
+      <div class="card" id="card-lapisan"></div>`) + sec('tim', 'Tim &amp; installer', `
+      <div class="card" id="card-usulan">${usulanCardHtml()}</div>
+      <div class="card" id="card-akses"><h2>Akses tim</h2><p class="muted small">Memuat…</p></div>
+      <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>`) + sec('data', 'Keamanan &amp; data', `
       <div class="card" id="card-admin-event">
         <h2>Admin event</h2>
         <p>${p.ada_password ? '<b class="ok-text">✓ Password admin event sudah diatur.</b>' : '<b>Belum ada password admin event</b> — hanya admin utama yang bisa mengelola event ini.'}</p>
@@ -7282,12 +7472,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             ${p.ada_password ? '<button type="button" class="small danger super-only" data-p="pw-hapus">Hapus password</button>' : ''}</div>
         </form>
       </div>
-      <div class="card" id="card-lantai"></div>
-      <div class="card" id="card-lapisan"></div>
-      <div class="card" id="card-akses"><h2>Akses tim</h2><p class="muted small">Memuat…</p></div>
-      <div class="card" id="card-aktivitas"><h2>Aktivitas tim</h2><p class="muted small">Memuat…</p></div>
       <div class="card">
-        <h2>Aksi</h2>
+        <h2>Backup &amp; hapus</h2>
         <div class="btn-row">
           <button type="button" data-p="backup" title="Simpan event ini (denah, perangkat, katalog yang dipakai) ke satu file">Backup event ini</button>
           <button type="button" class="super-only" data-p="dup">Duplikat event</button>
@@ -7304,7 +7490,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
             <button type="button" class="danger super-only" data-p="del">Hapus event</button>
           </div>
         </div>
-      </div>`;
+      </div>`);
     renderLapisanCard();
     renderLantaiCard();
     muatAkses();
@@ -7320,8 +7506,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   function aksesRingkas(a) {
     const jenis = a.jenis_boleh.length ? a.jenis_boleh.map(j => (TYPES[j] || TYPES.lainnya).label).join(', ') : 'semua kategori';
     return `<div class="akses-izin">
-      <span class="tag-peran ${a.peran}">${a.peran === 'status' ? 'Update status' : a.peran === 'cek' ? 'Checker penempatan' : 'Lihat saja'}</span>
-      ${a.peran === 'status' ? a.status_boleh.map(k => `<span class="st st-${k}">${esc(STATUS[k].label)}</span>`).join('') : ''}
+      <span class="tag-peran ${a.peran}">${PERAN_LABEL[a.peran] || 'Lihat saja'}</span>
+      ${pemasang(a) ? a.status_boleh.map(k => `<span class="st st-${k}">${esc(STATUS[k].label)}</span>`).join('') : ''}${a.peran === 'installer' ? '<span class="st st-usulan">+ usulkan alat baru</span>' : ''}
       <span class="muted small">· ${esc(jenis)}${a.lihat_password ? ' · boleh lihat password' : ''}</span>
     </div>`;
   }
@@ -7329,14 +7515,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   /** Progres tugas tim (perangkat di kategori tugasnya) per status. */
   function progresTim() {
     const a = S.akses;
-    const ds = S.list.filter(d => !a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis));
+    const ds = S.list.filter(d => d.status !== 'usulan' && (!a.jenis_boleh.length || a.jenis_boleh.includes(d.jenis)));
     if (!ds.length) return '';
     const n = {};
     ds.forEach(d => { n[d.status] = (n[d.status] || 0) + 1; });
     const selesai = (n.terpasang || 0) + (n.diuji || 0);
     return `<h4>Progres tugas (${ds.length} perangkat)</h4>
       <div class="progres"><i style="width:${Math.round(selesai / ds.length * 100)}%"></i></div>
-      <div class="akses-izin">${Object.keys(STATUS).map(k => `<span class="st st-${k}">${esc(STATUS[k].label)} ${n[k] || 0}</span>`).join('')}</div>`;
+      <div class="akses-izin">${Object.keys(STATUS).filter(k => k !== 'usulan').map(k => `<span class="st st-${k}">${esc(STATUS[k].label)} ${n[k] || 0}</span>`).join('')}</div>`;
   }
 
   // ------------------------------------------------------------------------ kartu layer jaringan (tab Proyek)
@@ -7601,12 +7787,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     if (!card || !S.proyek) return;
     try {
       aksesList = (await api(`${API}?action=akses_list&id=${S.proyek.id}`)).akses;
+      const cu = $('#card-usulan');
+      if (cu) cu.innerHTML = usulanCardHtml(); // petunjuk "belum ada akses installer" bergantung pada daftar akses
     } catch (e) {
       card.innerHTML = `<h2>Akses tim</h2><p class="err-text">${esc(e.message)}</p>`;
       return;
     }
     card.innerHTML = `<h2>Akses tim <span class="spacer"></span><button type="button" class="small primary" data-akses="baru">+ Tambah akses</button></h2>
-      <p class="muted small">Link khusus per tim/anggota tanpa password admin. Tim <b>update status</b> hanya bisa mengubah status yang Anda izinkan, pada kategori tugasnya, dan setiap perubahan tercatat di <i>Aktivitas tim</i>.</p>
+      <p class="muted small">Link khusus per tim/anggota tanpa password admin. Tim <b>update status</b> hanya bisa mengubah status yang Anda izinkan, pada kategori tugasnya; <b>installer</b> juga bisa mengusulkan alat baru. Setiap perubahan tercatat di <i>Aktivitas tim</i>.</p>
       ${aksesList.length ? aksesList.map(a => `<div class="akses-row${a.aktif ? '' : ' nonaktif'}" data-id="${a.id}">
         <div class="akses-top"><b>${esc(a.nama)}</b>${a.aktif ? '' : ' <span class="lv warn">nonaktif</span>'}
           <span class="muted small">${a.terakhir_dipakai ? 'dibuka ' + esc(new Date(a.terakhir_dipakai.replace(' ', 'T')).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) : 'belum pernah dibuka'}</span></div>
@@ -7637,7 +7825,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
 
   // Dialog tambah / ubah akses
   let aksesEdit = null;
-  $('#akses-status-list').innerHTML = Object.keys(STATUS).map(k =>
+  $('#akses-status-list').innerHTML = Object.keys(STATUS).filter(k => k !== 'usulan').map(k =>
     `<label class="cek"><input type="checkbox" name="status_boleh" value="${k}"> <span class="st st-${k}">${esc(STATUS[k].label)}</span></label>`).join('');
   $('#akses-jenis-list').innerHTML = TYPE_ORDER.map(j =>
     `<label class="cek"><input type="checkbox" name="jenis_boleh" value="${j}"> ${esc(TYPES[j].label)}</label>`).join('');
@@ -7660,7 +7848,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     f.elements.nama.focus();
   }
   function syncAkses() {
-    $('#akses-status').hidden = $('#form-akses').elements.peran.value !== 'status';
+    $('#akses-status').hidden = !['status', 'installer'].includes($('#form-akses').elements.peran.value);
   }
   $('#form-akses').addEventListener('change', syncAkses);
   $('#form-akses [data-close]').addEventListener('click', () => $('#dlg-akses').close());
@@ -7807,6 +7995,17 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       }
     };
     switch (b.dataset.p) {
+      case 'grup':
+        e.preventDefault();
+        return pilihPjGrup(b.dataset.g);
+      case 'lihat-dev': {
+        e.preventDefault();
+        const id = +b.dataset.id;
+        S.sel = id;
+        go('denah');
+        setTimeout(() => selectDev(id, true), 60);
+        return;
+      }
       case 'edit': return openProyekDialog(p);
       case 'copy': return copy(b.dataset.link);
       case 'kode-baru':

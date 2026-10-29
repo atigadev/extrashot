@@ -35,7 +35,7 @@ const NP_ENDPOINT_BAWAAN = [
 /** Ikon endpoint yang tersedia (sama dengan NP.IKON di assets/common.js). */
 const NP_IKON = ['laptop', 'pc', 'server', 'printer', 'pinpad', 'scanner', 'tablet', 'telepon', 'tv', 'absensi', 'kamera', 'umum'];
 const NP_MEDIA = ['', 'utp', 'fiber', 'wireless', 'lainnya'];
-const NP_STATUS = ['rencana', 'terpasang', 'diuji', 'bermasalah'];
+const NP_STATUS = ['rencana', 'terpasang', 'diuji', 'bermasalah', 'usulan']; // usulan = alat baru dari installer, menunggu keputusan admin
 /** Status penarikan kabel ke uplink (atribut "kabel"; kosong = belum). Sama dengan NP.KABEL di assets/common.js. */
 const NP_KABEL = ['belum', 'ditarik', 'terminasi', 'dites', 'bermasalah'];
 /** Isian atribut yang disembunyikan dari link lihat-saja. */

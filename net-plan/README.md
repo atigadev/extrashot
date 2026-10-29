@@ -12,7 +12,7 @@ keterangan konfigurasi bebas.
 | **Denah** | Peta interaktif: tambah/geser titik, hubungkan ke uplink, ukur jarak & kalibrasi skala, lingkaran cakupan AP, panel konfigurasi per perangkat |
 | **Daftar perangkat** | Tabel semua perangkat (cari, filter jenis/status/koneksi, urutkan), **pilih banyak** (centang, Shift+klik, pilih semua yang tampil) lalu **ubah status**, hapus, atau putuskan koneksi sekaligus (ubah status massal bisa dibatalkan, tercatat di riwayat; link tim hanya bisa ubah status yang diizinkan pada kategori tugasnya), unduh CSV, ekspor/impor JSON |
 | **Topologi & cek** | Pohon topologi dari WAN ke perangkat paling ujung (cabang bisa dibuka/tutup: ▸ per cabang, *Buka semua*, *Tutup endpoint*, *Tutup semua*; tersimpan per event), pemeriksaan desain, ringkasan WAN/SSID, kebutuhan perangkat (BOM), estimasi kabel |
-| **Proyek** | Info event, upload/ganti denah, skala, link lihat-saja + QR, duplikat/hapus event |
+| **Proyek** | Ringkasan event (jumlah perangkat, % terpasang, usulan installer) + navigasi bagian: Umum (catatan, link lihat-saja + QR), Denah & lantai, Jaringan (layer), Tim & installer (usulan alat baru, akses tim, aktivitas), Keamanan & data (password admin event, backup, duplikat/hapus) |
 
 Tombol **Cetak** menyediakan dua jenis laporan:
 
@@ -81,6 +81,11 @@ admin.
 - **Update status**: hanya bisa mengubah status yang **dicentang PM** (mis. Tim Pasang: *Terpasang*; Tim QA: *Sudah diuji*
   dan *Bermasalah*), hanya pada **kategori tugasnya** (mis. Tim WiFi: AP saja), dan bisa menulis **catatan lapangan**.
   Batasan ini dicek juga di server (`api/tim.php`), bukan hanya disembunyikan di tampilan.
+- **Installer** (petugas pemasang): semua hak *Update status*, ditambah bisa **menambah alat baru** di denah (tombol
+  *Usulkan* di toolbar → klik lokasinya → isi nama, merek/tipe, alasan). Alat baru masuk dengan status **Usulan baru**
+  (titik ungu putus-putus) dan belum bisa diubah statusnya. Admin memutuskan di tab Proyek → *Usulan alat baru* atau di
+  panel perangkat: **Bisa dipasang** (masuk plan sebagai *Rencana*) atau **Tolak** (titik dihapus, alasan tercatat di
+  aktivitas). Installer bisa menarik usulannya sendiri selama belum diputuskan.
 - Opsi per link: boleh melihat password WiFi/admin, dan aktif/nonaktif. **Ganti link** membuat link lama langsung tidak
   berlaku.
 - Setiap perubahan status (oleh tim maupun admin) dan catatan lapangan **tercatat**: siapa, kapan, dari → ke. Riwayat

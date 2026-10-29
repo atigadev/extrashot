@@ -302,6 +302,7 @@
     terpasang: { label: 'Terpasang', color: '#2563eb' },
     diuji: { label: 'Sudah diuji', color: '#16a34a' },
     bermasalah: { label: 'Bermasalah', color: '#dc2626' },
+    usulan: { label: 'Usulan baru', color: '#9333ea' }, // alat baru dari installer, menunggu keputusan admin
   };
 
   /** Status penarikan kabel ke uplink (atribut "kabel"; kosong = belum). Sama dengan NP_KABEL di api/db.php. */

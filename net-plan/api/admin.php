@@ -36,6 +36,7 @@
  * POST {"action":"perangkat_kabel","ids":[N,...],"kabel":"ditarik"} -> status penarikan kabel (+ riwayat)
  * POST {"action":"perangkat_kunci","ids":[N,...],"kunci":true} -> kunci / buka kunci posisi titik
  * POST {"action":"perangkat_status_massal","ids":[N,...],"status":"terpasang","catatan":"..."} -> ubah status massal + riwayat
+ * POST {"action":"perangkat_usulan","id":N,"keputusan":"setuju"|"tolak","catatan":"..."} -> keputusan usulan alat baru dari installer
  * GET  ?action=katalog_list[&proyek_id=N]  -> katalog perangkat + jumlah pemakaian (semua event / event N)
  * POST {"action":"katalog_save", id?, jenis, merek, model, stok, spesifikasi:{}, konfigurasi:{}, bandwidth_mbps, catatan_konfig, keterangan}
  * POST {"action":"katalog_delete","id":N}   -> perangkat yang memakainya dilepas dari katalog (data tetap)
@@ -512,6 +513,37 @@ switch ($method . ' ' . $action) {
         $pdo->commit();
         json_out(['ok' => true, 'jumlah' => $n]);
 
+    case 'POST perangkat_usulan':
+        // Keputusan admin atas usulan alat baru dari installer: setuju -> masuk plan (rencana), tolak -> titik dihapus.
+        $st = $pdo->prepare("SELECT * FROM np_perangkat WHERE id = ? AND status = 'usulan'");
+        $st->execute([$id]);
+        $d = $st->fetch();
+        if (!$d) {
+            json_error('Usulan tidak ditemukan atau sudah diputuskan', 404);
+        }
+        $keputusan = isset($req['keputusan']) ? (string) $req['keputusan'] : '';
+        $catatan = text_field($req, 'catatan', 2000, 'Catatan');
+        $pdo->beginTransaction();
+        if ($keputusan === 'setuju') {
+            $atr = json_decode((string) $d['atribut'], true);
+            $atr = is_array($atr) ? $atr : [];
+            unset($atr['usulan_akses']);
+            $pdo->prepare("UPDATE np_perangkat SET status = 'rencana', atribut = ? WHERE id = ?")->execute([atribut_json_db($atr), $d['id']]);
+            tulis_log((int) $d['proyek_id'], $d, null, 'Admin', 'usulan', 'rencana', $catatan !== '' ? $catatan : 'Usulan disetujui — bisa dipasang');
+        } elseif ($keputusan === 'tolak') {
+            $pdo->prepare('UPDATE np_perangkat SET uplink_id = NULL WHERE uplink_id = ?')->execute([$d['id']]);
+            $pdo->prepare('DELETE FROM np_perangkat WHERE id = ?')->execute([$d['id']]);
+            tulis_log((int) $d['proyek_id'], $d, null, 'Admin', 'usulan', '', 'Usulan ditolak' . ($catatan !== '' ? ': ' . $catatan : ''));
+        } else {
+            json_error('Keputusan tidak dikenal');
+        }
+        $pdo->prepare('UPDATE np_proyek SET updated_at = NOW() WHERE id = ?')->execute([$d['proyek_id']]);
+        $pdo->commit();
+        $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ?');
+        $st->execute([$d['id']]);
+        $row = $st->fetch();
+        json_out(['ok' => true, 'perangkat' => $row ? perangkat_row($row) : null]);
+
     case 'POST perangkat_kabel':
         // Status penarikan kabel ke uplink (satu / banyak perangkat), tercatat di riwayat.
         $ids = isset($req['ids']) && is_array($req['ids']) ? array_values(array_unique(array_map('intval', $req['ids']))) : [];
@@ -577,16 +609,16 @@ switch ($method . ' ' . $action) {
         if (!$id) {
             find_proyek($pid);
         }
-        $peran = isset($req['peran']) && in_array($req['peran'], ['lihat', 'status', 'cek'], true) ? $req['peran'] : 'lihat';
-        $statusBoleh = array_values(array_intersect(NP_STATUS, isset($req['status_boleh']) && is_array($req['status_boleh']) ? $req['status_boleh'] : []));
+        $peran = isset($req['peran']) && in_array($req['peran'], ['lihat', 'status', 'installer', 'cek'], true) ? $req['peran'] : 'lihat';
+        $statusBoleh = array_values(array_intersect(array_diff(NP_STATUS, ['usulan']), isset($req['status_boleh']) && is_array($req['status_boleh']) ? $req['status_boleh'] : []));
         $jenisBoleh = array_values(array_intersect(NP_JENIS, isset($req['jenis_boleh']) && is_array($req['jenis_boleh']) ? $req['jenis_boleh'] : []));
-        if ($peran === 'status' && !$statusBoleh) {
+        if (in_array($peran, ['status', 'installer'], true) && !$statusBoleh) {
             json_error('Pilih minimal satu status yang boleh diubah tim ini');
         }
         $data = [
             'nama' => str_field($req, 'nama', 100, true, 'Nama tim'),
             'peran' => $peran,
-            'status_boleh' => json_encode($peran === 'status' ? $statusBoleh : []),
+            'status_boleh' => json_encode(in_array($peran, ['status', 'installer'], true) ? $statusBoleh : []),
             'jenis_boleh' => json_encode($jenisBoleh),
             'lihat_password' => !empty($req['lihat_password']) ? 1 : 0,
             'aktif' => !isset($req['aktif']) || !empty($req['aktif']) ? 1 : 0,
@@ -1033,6 +1065,7 @@ function izin_admin_event($aksi, $req, $id)
             return $cekProyek(isset($req['proyek_id']) ? (int) $req['proyek_id'] : 0);
         case 'POST foto_upload':
         case 'POST perangkat_verif':
+        case 'POST perangkat_usulan':
             return $proyekPerangkat([$id]);
         case 'POST foto_hapus':
         case 'POST perangkat_import':

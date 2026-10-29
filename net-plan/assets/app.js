@@ -5479,6 +5479,9 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         return { n: ds.length, lan: lan.length, m: lan.reduce((t, x) => t + (x.m || 0), 0), tanpaM: lan.filter(x => x.m == null).length };
       };
       const fmtLanM = r => (r.lan ? `≈ ${fmtM(r.m)}${r.tanpaM ? ` (+${r.tanpaM} belum terukur)` : ''}` : '—');
+      // Opsi dialog Cetak: panjang kabel (meter) ikut ditampilkan atau tidak (bawaan: tidak, hanya jumlah).
+      const pakaiM = !!(formPrint.elements.panjang_kabel && formPrint.elements.panjang_kabel.checked);
+      const tambahM = r => (pakaiM && r.lan ? ' · ' + fmtLanM(r) : '');
       const kaki = (s, teks) => s.addText(teks, { x: 0.4, y: 7.05, w: 12.5, h: 0.3, fontFace: F, fontSize: 9, color: ABU });
 
       // 1. Sampul + ringkasan angka.
@@ -5488,12 +5491,13 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       s1.addText(p.nama, { x: 0.7, y: 1.6, w: 12, h: 1.2, fontFace: F, fontSize: 40, bold: true, color: 'FFFFFF', fit: 'shrink' });
       s1.addText([p.venue, tgl, S.labelLapisan ? 'Layer ' + S.labelLapisan : ''].filter(Boolean).join(' · ') || ' ', { x: 0.7, y: 2.8, w: 12, h: 0.5, fontFace: F, fontSize: 18, color: 'CBD5E1' });
       const tot = rekap(semua);
-      const kartu = [['Total perangkat', String(tot.n)], ['Tarikan LAN', String(tot.lan)], ['Panjang kabel LAN', tot.lan ? '≈ ' + fmtM(tot.m) : '—']];
+      const kartu = [['Total perangkat', String(tot.n)], ['Tarikan LAN', String(tot.lan)], ...(pakaiM ? [['Panjang kabel LAN', tot.lan ? '≈ ' + fmtM(tot.m) : '—']] : [])];
+      const kw = (11.95 - 0.2 * (kartu.length - 1)) / kartu.length;
       kartu.forEach(([l, n], i) => {
-        const x = 0.7 + i * 4.05;
-        s1.addShape(ppt.ShapeType.roundRect, { x, y: 4.1, w: 3.85, h: 1.35, fill: { color: '1E293B' }, line: { color: '334155' }, rectRadius: 0.08 });
-        s1.addText(n, { x, y: 4.2, w: 3.85, h: 0.75, align: 'center', fontFace: F, fontSize: 30, bold: true, color: 'FFFFFF', fit: 'shrink' });
-        s1.addText(l, { x, y: 4.95, w: 3.85, h: 0.4, align: 'center', fontFace: F, fontSize: 12, color: '94A3B8' });
+        const x = 0.7 + i * (kw + 0.2);
+        s1.addShape(ppt.ShapeType.roundRect, { x, y: 4.1, w: kw, h: 1.35, fill: { color: '1E293B' }, line: { color: '334155' }, rectRadius: 0.08 });
+        s1.addText(n, { x, y: 4.2, w: kw, h: 0.75, align: 'center', fontFace: F, fontSize: 30, bold: true, color: 'FFFFFF', fit: 'shrink' });
+        s1.addText(l, { x, y: 4.95, w: kw, h: 0.4, align: 'center', fontFace: F, fontSize: 12, color: '94A3B8' });
       });
       // Gabungan beberapa layer: angka per layer di bawah kartu ringkasan.
       if (colsLp.length) {
@@ -5501,7 +5505,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           const r = rekap(semua.filter(d => m.lapisanOf(d) === L.id));
           return [{ text: '● ', options: { color: L.warna.slice(1), fontSize: 16 } },
             { text: `${L.nama}  `, options: { bold: true, color: 'FFFFFF' } },
-            { text: `${r.n} perangkat · ${r.lan} tarikan LAN${r.lan ? ' · ' + fmtLanM(r) : ''}`, options: { color: '94A3B8', breakLine: true } }];
+            { text: `${r.n} perangkat · ${r.lan} tarikan LAN${tambahM(r)}`, options: { color: '94A3B8', breakLine: true } }];
         }).flat(), { x: 0.7, y: 5.65, w: 12, h: 0.95, fontFace: F, fontSize: 13, valign: 'top' });
       }
       s1.addText(`Dibuat ${new Date().toLocaleString('id-ID')} · Net Plan`, { x: 0.7, y: 6.7, w: 12, h: 0.35, fontFace: F, fontSize: 10, color: '64748B' });
@@ -5517,7 +5521,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       const angka = (n, warna) => sel(n, { align: 'center', bold: !!n, color: n ? warna : ABU });
       const s2 = ppt.addSlide();
       s2.addText(colsLp.length ? 'Ringkasan per layer & jenis perangkat' : 'Ringkasan per jenis perangkat', { x: 0.4, y: 0.3, w: 12.5, h: 0.6, fontFace: F, fontSize: 24, bold: true, color: GELAP });
-      const barisRekap = r => [angka(r.n, GELAP), angka(r.lan, '0369A1'), sel(fmtLanM(r), { align: 'center', color: r.lan ? GELAP : ABU })];
+      const barisRekap = r => [angka(r.n, GELAP), angka(r.lan, '0369A1'), ...(pakaiM ? [sel(fmtLanM(r), { align: 'center', color: r.lan ? GELAP : ABU })] : [])];
       // Gabungan beberapa layer: baris judul per layer (rekap layer, berwarna) lalu jenis-jenis di layer itu.
       const barisJenis = colsLp.length
         ? colsLp.flatMap(L => {
@@ -5528,10 +5532,10 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           return [judul, ...gs.map(g => [sel('    ' + (TYPES[g.j] || TYPES.lainnya).label, { color: GELAP }), ...barisRekap(rekap(g.ds))])];
         })
         : grup.map(g => [sel((TYPES[g.j] || TYPES.lainnya).label, { bold: true, color: GELAP }), ...barisRekap(rekap(g.ds))]);
-      s2.addTable([['Jenis perangkat', 'Jumlah perangkat', 'Tarikan LAN', 'Panjang kabel LAN'].map(th)]
+      s2.addTable([['Jenis perangkat', 'Jumlah perangkat', 'Tarikan LAN', ...(pakaiM ? ['Panjang kabel LAN'] : [])].map(th)]
         .concat(barisJenis)
         .concat([[sel('Total', { bold: true, fill: { color: 'F1F5F9' } }), ...barisRekap(tot).map(c => ({ text: c.text, options: Object.assign({}, c.options, { fill: { color: 'F1F5F9' }, bold: true }) }))]]), {
-        x: 0.4, y: 1.0, w: 12.5, colW: [4.7, 2.4, 2.4, 3.0], fontFace: F, fontSize: 12, color: '334155', rowH: 0.4, valign: 'middle',
+        x: 0.4, y: 1.0, w: 12.5, colW: pakaiM ? [4.7, 2.4, 2.4, 3.0] : [6.5, 3.0, 3.0], fontFace: F, fontSize: 12, color: '334155', rowH: 0.4, valign: 'middle',
         border: { type: 'solid', pt: 0.5, color: GARIS }, autoPage: true, autoPageRepeatHeader: true, newSlideStartY: 0.5,
       });
       // Daftar titik per jenis: tiap jenis jadi satu bagian (garis warna + nama jenis + angka + tabel). Jenis besar
@@ -5562,14 +5566,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           sg.addShape(ppt.ShapeType.rect, { x: 0.4, y: y + 0.06, w: 0.1, h: 0.34, fill: { color: (b.g.L ? b.g.L.warna : T.color).slice(1) }, line: { type: 'none' } });
           sg.addText([...(b.g.L ? [{ text: b.g.L.nama + ' · ', options: { color: b.g.L.warna.slice(1) } }] : []), { text: T.label + (b.dari > 1 ? ` (${b.ke}/${b.dari})` : '') }],
             { x: 0.58, y, w: 7, h: 0.46, fontFace: F, fontSize: 18, bold: true, color: GELAP, valign: 'middle', fit: 'shrink' });
-          sg.addText(`${r.n} perangkat · ${r.lan} tarikan LAN${r.lan ? ' · ' + fmtLanM(r) : ''}`,
+          sg.addText(`${r.n} perangkat · ${r.lan} tarikan LAN${tambahM(r)}`,
             { x: 6.0, y, w: 6.9, h: 0.46, align: 'right', fontFace: F, fontSize: 11, color: ABU, valign: 'middle' });
           const rows = [['Titik', b.g.j === 'endpoint' ? 'Tipe' : 'Alat', 'Uplink / port', 'Media', 'Tarikan LAN'].map(th)].concat(b.ds.map(d => {
             const kt = m.kat(d);
             const r = rekap([d]);
             return [sel(d.nama, { bold: true }), b.g.j === 'endpoint' ? jenisLabel(d).replace(/^[^·]*·\s*/, '') : (kt ? [kt.merek, kt.model].filter(Boolean).join(' ') : d.model) || '—',
               uplink(d), d.media && MEDIA[d.media] ? MEDIA[d.media].short || '—' : '—',
-              sel(r.lan ? (r.lan > 1 ? r.lan + ' kabel · ' : '') + fmtLanM(r) : '—', { color: r.lan ? GELAP : ABU })];
+              sel(!r.lan ? '—' : pakaiM ? (r.lan > 1 ? r.lan + ' kabel · ' : '') + fmtLanM(r) : r.lan + ' kabel', { color: r.lan ? GELAP : ABU })];
           }));
           sg.addTable(rows, {
             x: 0.4, y: y + KEPALA, w: 12.5, colW: [2.4, 3.2, 3.2, 1.0, 2.7], rowH: BARIS, fontFace: F, fontSize: 10, color: '334155',
@@ -5593,7 +5597,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           sp.addShape(ppt.ShapeType.rect, { x: 0, y: 0, w: 0.35, h: 7.5, fill: { color: L.warna.slice(1) }, line: { type: 'none' } });
           sp.addText('LAYER JARINGAN', { x: 0.9, y: 2.3, w: 11.5, h: 0.5, fontFace: F, fontSize: 16, bold: true, color: '93C5FD', charSpacing: 2 });
           sp.addText(L.nama, { x: 0.9, y: 2.8, w: 11.5, h: 1.2, fontFace: F, fontSize: 40, bold: true, color: 'FFFFFF', fit: 'shrink' });
-          sp.addText(`${rL.n} perangkat · ${rL.lan} tarikan LAN${rL.lan ? ' · ' + fmtLanM(rL) : ''}`,
+          sp.addText(`${rL.n} perangkat · ${rL.lan} tarikan LAN${tambahM(rL)}`,
             { x: 0.9, y: 4.0, w: 11.5, h: 0.5, fontFace: F, fontSize: 16, color: 'CBD5E1' });
         }
         const s = ppt.addSlide();
@@ -5658,7 +5662,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         s.addShape(ppt.ShapeType.roundRect, { x: rx, y: ry, w: rw, h: lh, fill: { color: 'F0F9FF' }, line: { color: lan.length ? '0369A1' : GARIS }, rectRadius: 0.06 });
         s.addText([
           { text: 'Tarikan LAN', options: { fontSize: 9, color: ABU, breakLine: true } },
-          ...(lan.length ? lan.map((x, i) => ({ text: `${x.ke.nama}${x.port ? ' port ' + x.port : ''}${x.m != null ? '  ≈ ' + fmtM(x.m) : ''}`, options: { bold: true, fontSize: 12, color: '0369A1', breakLine: i < lan.length - 1 } }))
+          ...(lan.length ? lan.map((x, i) => ({ text: `${x.ke.nama}${x.port ? ' port ' + x.port : ''}${pakaiM && x.m != null ? '  ≈ ' + fmtM(x.m) : ''}`, options: { bold: true, fontSize: 12, color: '0369A1', breakLine: i < lan.length - 1 } }))
             : [{ text: m.parentOf(d) ? `${MEDIA[d.media] ? MEDIA[d.media].label : d.media} ke ${m.parentOf(d).nama}` : 'Tanpa kabel LAN', options: { fontSize: 12, color: ABU } }]),
         ], { x: rx + 0.08, y: ry + 0.04, w: rw - 0.16, h: lh - 0.08, fontFace: F, valign: 'top', fit: 'shrink' });
         kaki(s, `${p.nama}${colsLp.length ? ' · Layer ' + Lof(d).nama : ''} · Titik ${k + 1}/${ada.length}`);
@@ -7209,6 +7213,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     $('#ap-opts').hidden = !ap;
     $('#btn-ap-csv').hidden = !ap;
     $('#btn-foto-pptx').hidden = formPrint.elements.jenis.value !== 'foto';
+    $('#foto-opts').hidden = formPrint.elements.jenis.value !== 'foto';
     $('#btn-port-csv').hidden = formPrint.elements.jenis.value !== 'port';
   }
   $('#form-print [data-close]').addEventListener('click', () => dlgPrint.close());

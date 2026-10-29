@@ -348,7 +348,9 @@ bisa diubah langsung:
 **Laporan PowerPoint (pemasangan perangkat).** Di dialog *Cetak → Laporan foto pemasangan* ada tombol **⬇ Unduh
 PowerPoint**. File `.pptx` (16:9) dibuat langsung di browser, tanpa server tambahan. Isinya hanya **jumlah perangkat
 dan tarikan LAN**, tanpa status pemasangan, progres foto, dan hasil pengecekan:
-- **Sampul**: nama event, venue, tanggal, dan tiga angka: total perangkat, jumlah tarikan LAN, dan panjang kabel LAN
+- **Opsi panjang kabel**: centang *PowerPoint: tampilkan panjang kabel LAN* di dialog Cetak (bawaan mati). Bila mati,
+  semua angka meter disembunyikan (sampul, ringkasan, daftar titik, kotak Tarikan LAN); hanya jumlah yang tampil.
+- **Sampul**: nama event, venue, tanggal, dan angka: total perangkat, jumlah tarikan LAN, dan (opsi) panjang kabel LAN
   (≈ m). Ada juga angka per layer.
 - **Tarikan LAN** = kabel UTP titik ke uplink-nya, termasuk sambungan UTP tambahan. Kabel WAN ke Sumber WAN/ISP,
   fiber, dan wireless tidak dihitung. Panjang mengikuti estimasi kabel (jalur + tambahan %); kabel tanpa skala ditulis

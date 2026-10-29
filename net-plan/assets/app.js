@@ -731,6 +731,10 @@
     onHover(id, x, y) {
       kartuHover(id, x, y);
     },
+    onKonteks(target, x, y) {
+      if (target.id != null) menuPerangkat(target.id, x, y);
+      else menuLabel(target.anot, x, y);
+    },
     // Label & panah (anotasi): peta sudah mengubah objek label saat digeser; app hanya menyimpan.
     onAnotBaru(a) {
       if (!S.canEdit) return;
@@ -1724,6 +1728,100 @@
     return `<div class="hc-head"><i class="hc-ico" style="background:${t.color}">${esc(t.short)}</i><div><b>${esc(d.nama)}</b>
         <small>${esc(jenisLabel(d))}${kt ? ' · ' + esc([kt.merek, kt.model].filter(Boolean).join(' ')) : d.model ? ' · ' + esc(d.model) : ''}</small></div></div>
       ${baris.join('')}${NP.terkunci(d) ? '<div class="hc-foot">🔒 Posisi terkunci</div>' : ''}`;
+  }
+
+  // ------------------------------------------------------------------------ menu klik kanan (titik & label)
+
+  let menuEl = null;
+  /** Menu konteks di (x, y): items [{label, ikon, pintas, fn, bahaya}] atau '-' (pemisah). */
+  function bukaMenu(judul, items, x, y) {
+    tutupMenu();
+    menuEl = document.createElement('div');
+    menuEl.className = 'ctx-menu';
+    menuEl.setAttribute('role', 'menu');
+    const isi = items.filter(Boolean);
+    menuEl.innerHTML = `<div class="ctx-judul">${esc(judul)}</div>` + isi.map((it, i) => it === '-' ? '<hr>'
+      : `<button type="button" role="menuitem" data-i="${i}"${it.bahaya ? ' class="bahaya"' : ''}><i>${it.ikon || ''}</i><span>${esc(it.label)}</span>${it.pintas ? `<kbd>${esc(it.pintas)}</kbd>` : ''}</button>`).join('');
+    document.body.appendChild(menuEl);
+    // Di kanan bawah kursor, dibalik bila mepet tepi layar.
+    const r = menuEl.getBoundingClientRect();
+    menuEl.style.left = Math.max(6, x + r.width > innerWidth - 6 ? x - r.width : x) + 'px';
+    menuEl.style.top = Math.max(6, y + r.height > innerHeight - 6 ? y - r.height : y) + 'px';
+    menuEl.addEventListener('click', e => {
+      const b = e.target.closest('button[data-i]');
+      if (!b) return;
+      const it = isi[+b.dataset.i];
+      tutupMenu();
+      it.fn();
+    });
+    const pertama = menuEl.querySelector('button');
+    if (pertama) pertama.focus({ preventScroll: true });
+  }
+  function tutupMenu() {
+    if (menuEl) menuEl.remove();
+    menuEl = null;
+  }
+  document.addEventListener('pointerdown', e => { if (menuEl && !menuEl.contains(e.target)) tutupMenu(); }, true);
+  document.addEventListener('keydown', e => {
+    if (!menuEl) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); return tutupMenu(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      // Navigasi keyboard antar item menu.
+      e.preventDefault();
+      const bs = [...menuEl.querySelectorAll('button')];
+      const i = bs.indexOf(document.activeElement);
+      bs[(i + (e.key === 'ArrowDown' ? 1 : -1) + bs.length) % bs.length].focus();
+    }
+  }, true);
+  window.addEventListener('resize', tutupMenu);
+  window.addEventListener('blur', tutupMenu);
+
+  /** Ringkasan teks perangkat untuk disalin (nama, jenis, IP/VLAN, uplink, SSID). */
+  function teksInfo(d) {
+    const m = S.model;
+    const a = d.atribut || {};
+    const p = m.parentOf(d);
+    return [
+      `${d.nama} — ${jenisLabel(d)}${d.model ? ' (' + d.model + ')' : ''}`,
+      `Status: ${(STATUS[d.status] || STATUS.rencana).label}`,
+      d.ip || d.vlan ? `IP: ${[d.ip, d.vlan ? 'VLAN ' + d.vlan : ''].filter(Boolean).join(' · ')}` : '',
+      p ? `Uplink: ${p.nama}${d.port_uplink ? ' port ' + d.port_uplink : ''}` : '',
+      a.ssid ? `SSID: ${a.ssid}${a.ssid_lain ? ' + ' + a.ssid_lain : ''}` : '',
+      d.pic ? `PIC: ${d.pic}` : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  function menuPerangkat(id, x, y) {
+    const d = S.model.byId.get(id);
+    if (!d) return;
+    if (S.sel !== id) selectDev(id);
+    const edit = S.canEdit;
+    const kunci = NP.terkunci(d);
+    bukaMenu(d.nama, [
+      edit && { label: 'Duplikat perangkat', ikon: '⧉', pintas: 'Ctrl+D', fn: () => duplicateDev(id) },
+      { label: 'Salin nama', ikon: '📋', fn: () => copy(d.nama) },
+      d.ip && { label: `Salin IP (${d.ip})`, ikon: '📋', fn: () => copy(d.ip) },
+      { label: 'Salin info perangkat', ikon: '📄', fn: () => copy(teksInfo(d)) },
+      edit && '-',
+      edit && { label: kunci ? 'Buka kunci posisi' : 'Kunci posisi', ikon: kunci ? '🔓' : '🔒', pintas: 'K', fn: () => kunciPerangkat([id], !kunci) },
+      '-',
+      { label: 'Pusatkan di peta', ikon: '◎', fn: () => selectDev(id, true) },
+      edit && { label: 'Hapus perangkat', ikon: '🗑', pintas: 'Del', bahaya: true, fn: () => deleteDev(id) },
+    ], x, y);
+  }
+
+  function menuLabel(aid, x, y) {
+    const a = anotList().find(z => z.id === aid);
+    if (!a) return;
+    pilihAnot(aid);
+    const edit = S.canEdit;
+    bukaMenu('Label', [
+      edit && { label: 'Ubah teks', ikon: '✎', fn: () => pilihAnot(aid, true) },
+      { label: 'Salin teks', ikon: '📋', fn: () => copy(a.teks || '') },
+      edit && { label: a.kunci ? 'Buka kunci posisi' : 'Kunci posisi', ikon: a.kunci ? '🔓' : '🔒', pintas: 'K', fn: () => kunciLabel(aid) },
+      edit && '-',
+      edit && { label: 'Hapus label', ikon: '🗑', pintas: 'Del', bahaya: true, fn: () => hapusAnot(aid) },
+    ], x, y);
   }
 
   // ------------------------------------------------------------------------ label & panah (anotasi denah)

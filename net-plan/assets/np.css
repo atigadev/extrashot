@@ -1404,3 +1404,15 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 .hover-card .hc-foot { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(148, 163, 184, .25); color: #94a3b8; font-size: 11.5px; }
 @media (prefers-reduced-motion: reduce) { .hover-card { transition: none; } }
 .hover-card small { font-size: 11.5px; }
+
+/* ---- Menu klik kanan (titik perangkat & label) */
+.ctx-menu { position: fixed; z-index: 70; min-width: 220px; padding: 5px; border: 1px solid var(--line); border-radius: 11px; background: #fff; box-shadow: 0 12px 32px rgba(15, 23, 42, .22); font-size: 13px; }
+.ctx-menu .ctx-judul { padding: 6px 10px 6px; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+.ctx-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.ctx-menu button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 10px; border: 0; border-radius: 7px; background: none; text-align: left; font: inherit; color: var(--text, #1f2937); cursor: pointer; }
+.ctx-menu button:hover, .ctx-menu button:focus-visible { background: var(--accent-soft); outline: none; }
+.ctx-menu button i { width: 18px; text-align: center; font-style: normal; }
+.ctx-menu button span { flex: 1; }
+.ctx-menu button kbd { font-size: 11px; color: var(--muted); background: #f1f4f9; border-radius: 5px; padding: 1px 6px; }
+.ctx-menu button.bahaya { color: #b91c1c; }
+.ctx-menu button.bahaya:hover, .ctx-menu button.bahaya:focus-visible { background: #fef2f2; }

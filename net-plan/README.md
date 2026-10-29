@@ -641,6 +641,17 @@ sekaligus.
 - **Bar tab**: bila sempit, tombol Cari menjadi ikon saja. Mode **⛶** tetap menyembunyikan header & tab untuk denah
   layar penuh.
 
+**Menu klik kanan.** Klik kanan titik perangkat di denah (sekaligus memilihnya) membuka menu:
+- **Duplikat perangkat** (Ctrl+D);
+- **Salin nama**, **Salin IP**, **Salin info perangkat** (nama, jenis, status, IP/VLAN, uplink & port, SSID, PIC)
+  ke clipboard;
+- **Kunci / Buka kunci posisi** (K);
+- **Pusatkan di peta**, **Hapus perangkat** (Del).
+
+Klik kanan label: Ubah teks, Salin teks, Kunci / Buka kunci posisi, Hapus label. Klik kanan lekukan kabel tetap
+menghapus lekukan. Navigasi menu dengan ↑ ↓ / Enter, tutup dengan Esc atau klik di luar. Link lihat-saja / tim:
+hanya menu salin & pusatkan.
+
 **Kartu info saat hover.** Kursor mouse di atas titik perangkat menampilkan kartu ringkas:
 - nama, jenis & alat (katalog / model).
 - **status pemasangan** + waktu data perangkat terakhir diubah.

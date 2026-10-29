@@ -1018,6 +1018,14 @@
     });
     svg.addEventListener('contextmenu', e => {
       e.preventDefault();
+      // Klik kanan titik perangkat / label = menu konteks (app); di lekukan kabel = hapus lekukan.
+      const node = e.target.closest && e.target.closest('.node');
+      const an = !node && e.target.closest && e.target.closest('.anot');
+      if ((node || an) && cb.onKonteks) {
+        if (hoverId != null && cb.onHover) cb.onHover(null);
+        hoverId = null;
+        return cb.onKonteks(node ? { id: +node.dataset.id } : { anot: an.dataset.anot }, e.clientX, e.clientY);
+      }
       removeBend(e);
     });
     svg.addEventListener('dblclick', e => {

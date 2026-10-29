@@ -1227,7 +1227,7 @@ function cek_uplink($proyekId, $selfId, $uplinkId)
 /**
  * Label & panah denah -> JSON tervalidasi atau NULL (kosong). Tiap label {id: "A1".., teks (maks. 500), warna,
  * x, y (posisi kotak), tx, ty (ujung panah), ke (id perangkat yang ditunjuk | null), lantai ("F1".. | ""),
- * panah (false = tanpa panah)}; maks. 500 label.
+ * panah (false = tanpa panah), kunci (true = posisi tidak bisa digeser)}; maks. 500 label.
  */
 function anotasi_json($arr)
 {
@@ -1251,6 +1251,7 @@ function anotasi_json($arr)
             'ke' => isset($a['ke']) && is_numeric($a['ke']) && (int) $a['ke'] > 0 ? (int) $a['ke'] : null,
             'lantai' => isset($a['lantai']) && preg_match('/^F\d{1,3}$/', (string) $a['lantai']) ? (string) $a['lantai'] : '',
             'panah' => !isset($a['panah']) || $a['panah'] !== false,
+            'kunci' => !empty($a['kunci']),
         ];
     }
     return $out ? json_encode($out, JSON_UNESCAPED_UNICODE) : null;

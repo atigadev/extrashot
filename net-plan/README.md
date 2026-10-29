@@ -641,6 +641,15 @@ sekaligus.
 - **Bar tab**: bila sempit, tombol Cari menjadi ikon saja. Mode **⛶** tetap menyembunyikan header & tab untuk denah
   layar penuh.
 
+**Kartu info saat hover.** Kursor mouse di atas titik perangkat menampilkan kartu ringkas:
+- nama, jenis & alat (katalog / model).
+- **status pemasangan** + waktu data perangkat terakhir diubah.
+- status internet; **uplink** (perangkat, port, media, status kabel / tertanam) & status koneksi uplink.
+- AP / wireless bridge: **SSID** (+ keamanan), SSID tambahan, band & channel.
+- IP / VLAN, jumlah perangkat yang terhubung, hasil pengecekan checker, layer, lantai, PIC, tanda posisi terkunci.
+
+Kartu tidak muncul saat menarik titik atau di layar sentuh (pakai panel info).
+
 **Label & panah di denah.** Kotak berwarna berisi keterangan bebas (bawaan hijau, teks putih; bisa beberapa baris)
 dengan panah ke titik di denah atau ke perangkat.
 - **Membuat**: alat **Label** di toolbar (pintasan **T**). Klik titik atau perangkat yang ditunjuk; label muncul di
@@ -658,6 +667,8 @@ dengan panah ke titik di denah atau ke perangkat.
   tim (hanya admin yang bisa mengubah).
 - **Penyimpanan**: kolom `np_proyek.anotasi` (JSON, migrasi otomatis skema 13), maks. 500 label & 500 karakter per
   label. Ikut duplikat event dan backup / pulihkan (panah ke perangkat dipetakan ke perangkat salinan / pulihan).
+- **Kunci posisi**: tombol *🔒 Kunci posisi* di panel label (pintasan **K**). Label terkunci tidak bisa digeser dan
+  ujung panahnya tidak bisa ditarik (tarikan menggeser peta); ditandai gembok kecil. Teks & warna tetap bisa diubah.
 - Perubahan label belum masuk riwayat Ctrl+Z.
 
 **Port LAN gedung (jaringan existing venue).** Jenis perangkat **Port LAN gedung** (singkatan WP, *wall port*) untuk

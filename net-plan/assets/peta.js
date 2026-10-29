@@ -215,7 +215,7 @@
           })()}
           ${NP.terkunci(d) ? `<g class="lock" transform="translate(${-b},${-b})"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3" /></g>` : ''}
           <text class="lbl" y="${R + 15}">${esc(d.nama)}</text>
-          <title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`;
+          ${cb.onHover ? '' : `<title>${esc(d.nama)} — ${esc(t.label)}\n${esc(k.label)}${d.model ? '\n' + esc(d.model) : ''}${d.ip ? '\n' + esc(d.ip) : ''}</title>`}`; // ada kartu hover (app): tanpa tooltip bawaan
         gNodes.appendChild(g);
         nodeEls.set(d.id, g);
       }
@@ -366,12 +366,14 @@
       for (const a of anotTampil()) {
         const W = NP.ANOT_WARNA[a.warna] || NP.ANOT_WARNA.hijau;
         const baris = String(a.teks || '').split('\n').slice(0, 12);
-        const g = el('g', { class: 'anot' + (a.id === st.anotSel ? ' sel' : ''), 'data-anot': a.id });
+        const g = el('g', { class: 'anot' + (a.id === st.anotSel ? ' sel' : '') + (a.kunci ? ' kunci' : ''), 'data-anot': a.id });
         g.innerHTML = (a.panah !== false ? `<line class="an-case"/><line class="an-ln" stroke="${W.tepi}"/><path class="an-head" fill="${W.tepi}"/>` : '') +
           `<g class="an-box"><rect rx="6" fill="${W.bg}" stroke="${W.tepi}"/><text fill="${W.fg}">${baris.map((t, i) =>
-            `<tspan x="0" dy="${i ? '1.3em' : '0'}">${esc(t) || (baris.length === 1 ? 'Label' : ' ')}</tspan>`).join('')}</text></g>` +
-          (a.id === st.anotSel && st.canEdit && a.panah !== false ? '<circle class="an-tip" r="7"><title>Tarik ujung panah · lepas di atas perangkat agar menempel</title></circle>' : '') +
-          (st.canEdit ? '<title>Geser untuk memindah · klik ganda untuk mengubah teks</title>' : '');
+            `<tspan x="0" dy="${i ? '1.3em' : '0'}">${esc(t) || (baris.length === 1 ? 'Label' : ' ')}</tspan>`).join('')}</text>` +
+          // Label terkunci: gembok kecil di pojok kanan atas (sama dengan perangkat terkunci).
+          (a.kunci ? `<g class="an-lock"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3"/></g>` : '') + '</g>' +
+          (a.id === st.anotSel && st.canEdit && !a.kunci && a.panah !== false ? '<circle class="an-tip" r="7"><title>Tarik ujung panah · lepas di atas perangkat agar menempel</title></circle>' : '') +
+          (st.canEdit ? `<title>${a.kunci ? 'Posisi terkunci · klik untuk memilih, buka kunci di panel' : 'Geser untuk memindah · klik ganda untuk mengubah teks'}</title>` : '');
         gAnot.appendChild(g);
       }
       layoutAnot();
@@ -392,6 +394,8 @@
         rect.setAttribute('width', w.toFixed(1));
         rect.setAttribute('height', h.toFixed(1));
         text.setAttribute('transform', `translate(${(w / 2).toFixed(1)},${(h / 2 - bb.y - bb.height / 2).toFixed(1)})`);
+        const lock = box.querySelector('.an-lock');
+        if (lock) lock.setAttribute('transform', `translate(${(w - 1).toFixed(1)},1)`);
         if (a.panah === false) continue;
         // Panah keluar dari tengah sisi kotak yang menghadap ujung (atas/bawah/kiri/kanan), berhenti di tepi titik
         // bila menunjuk perangkat; garis berhenti di pangkal kepala panah agar ujungnya runcing.
@@ -757,8 +761,9 @@
       const a = an && st.anot.find(x => x.id === an.dataset.anot);
       if (a) {
         const tip = !!e.target.closest('.an-tip');
-        gesture = { type: tip ? 'anotTip' : 'anot', id: a.id, start: p, moved: false, edit: st.canEdit,
-          orig: { x: a.x, y: a.y, tx: a.tx, ty: a.ty, ke: a.ke } };
+        // Label terkunci (atau tanpa hak ubah): tarikan menggeser peta, klik tetap memilih label.
+        gesture = { type: tip ? 'anotTip' : 'anot', id: a.id, start: p, moved: false, edit: st.canEdit && !a.kunci,
+          tx: st.tx, ty: st.ty, orig: { x: a.x, y: a.y, tx: a.tx, ty: a.ty, ke: a.ke } };
         return;
       }
       const rot = !middle && e.target.closest && e.target.closest('.rot');
@@ -840,8 +845,14 @@
       const dx = p.x - gesture.start.x, dy = p.y - gesture.start.y;
       if (!gesture.moved && Math.hypot(dx, dy) < 5) return;
       if (gesture.type === 'anot' || gesture.type === 'anotTip') {
-        if (!gesture.edit) return;
         gesture.moved = true;
+        if (!gesture.edit) {
+          st.userView = true;
+          st.tx = gesture.tx + dx;
+          st.ty = gesture.ty + dy;
+          layout();
+          return;
+        }
         const a = st.anot.find(x => x.id === gesture.id);
         if (!a) return;
         if (gesture.type === 'anot') {
@@ -922,6 +933,7 @@
       if (g.type === 'anot' || g.type === 'anotTip') {
         const a = st.anot.find(x => x.id === g.id);
         if (!a) return;
+        if (g.moved && !g.edit) return; // label terkunci: tadi menggeser peta
         if (g.moved && e.type === 'pointercancel') {
           Object.assign(a, g.orig);
           layoutAnot();
@@ -979,6 +991,23 @@
       if (g.moved || g.middle) return;
       click(local(e), g.hit, e);
     }
+    // Kartu info saat kursor mouse di atas titik perangkat (bukan sentuh, tidak saat menarik).
+    let hoverId = null;
+    svg.addEventListener('pointermove', e => {
+      if (!cb.onHover || e.pointerType !== 'mouse') return;
+      const g = !gesture && !st.dragging && e.target.closest && e.target.closest('.node');
+      const id = g ? +g.dataset.id : null;
+      if (id !== hoverId || id != null) cb.onHover(id, e.clientX, e.clientY);
+      hoverId = id;
+    });
+    svg.addEventListener('pointerleave', () => {
+      if (hoverId != null && cb.onHover) cb.onHover(null);
+      hoverId = null;
+    });
+    svg.addEventListener('pointerdown', () => {
+      if (hoverId != null && cb.onHover) cb.onHover(null);
+      hoverId = null;
+    });
     svg.addEventListener('pointerup', endPointer);
     svg.addEventListener('pointercancel', endPointer);
     svg.addEventListener('pointerleave', () => {

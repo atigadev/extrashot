@@ -728,6 +728,9 @@
       if (id == null && S.anotSel != null) S.anotSel = null; // klik area kosong: lepas label juga
       selectDev(id, false);
     },
+    onHover(id, x, y) {
+      kartuHover(id, x, y);
+    },
     // Label & panah (anotasi): peta sudah mengubah objek label saat digeser; app hanya menyimpan.
     onAnotBaru(a) {
       if (!S.canEdit) return;
@@ -1643,6 +1646,86 @@
     const b = e.target.closest('[data-lantai]');
     if (b) setLantai(b.dataset.lantai);
   });
+  // ------------------------------------------------------------------------ kartu info saat hover titik
+
+  /** Waktu singkat "29 Okt 10:15" (tahun ditulis bila bukan tahun ini). */
+  function waktuSingkat(s) {
+    const t = s ? new Date(String(s).replace(' ', 'T')) : null;
+    if (!t || isNaN(t)) return '';
+    const opsi = { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+    if (t.getFullYear() !== new Date().getFullYear()) opsi.year = 'numeric';
+    return t.toLocaleString('id-ID', opsi);
+  }
+
+  let hoverEl = null, hoverIdAktif = null;
+  /** Kartu info titik di dekat kursor: status pemasangan, koneksi uplink, SSID (AP), IP/VLAN, dst. id null = tutup. */
+  function kartuHover(id, x, y) {
+    const d = id != null && S.model && S.model.byId.get(id);
+    if (!hoverEl) {
+      hoverEl = document.createElement('div');
+      hoverEl.className = 'hover-card';
+      hoverEl.setAttribute('role', 'tooltip');
+      document.body.appendChild(hoverEl);
+    }
+    if (!d) {
+      hoverEl.classList.remove('show');
+      hoverIdAktif = null;
+      return;
+    }
+    if (hoverIdAktif !== id) {
+      hoverIdAktif = id;
+      hoverEl.innerHTML = isiHover(d);
+    }
+    hoverEl.classList.add('show');
+    // Di kanan bawah kursor; dibalik bila mepet tepi layar.
+    const r = hoverEl.getBoundingClientRect();
+    let left = x + 16, top = y + 16;
+    if (left + r.width > innerWidth - 8) left = x - r.width - 16;
+    if (top + r.height > innerHeight - 8) top = Math.max(8, y - r.height - 16);
+    hoverEl.style.left = Math.max(8, left) + 'px';
+    hoverEl.style.top = top + 'px';
+  }
+
+  function isiHover(d) {
+    const m = S.model;
+    const a = d.atribut || {};
+    const t = NP.tampil(d);
+    const kt = m.kat(d);
+    const baris = [];
+    const row = (l, v) => { if (v) baris.push(`<div class="hc-row"><span>${l}</span><b>${v}</b></div>`); };
+    const st = STATUS[d.status] || STATUS.rencana;
+    row('Pemasangan', `<i class="hc-dot" style="background:${st.color}"></i>${esc(st.label)}${d.updated_at ? ` <small>· ${esc(waktuSingkat(d.updated_at))}</small>` : ''}`);
+    if (!NP.nonJaringan(d)) {
+      const K = KONEKSI[m.koneksi(d)];
+      row('Internet', `<i class="hc-dot" style="background:${K.color}"></i>${esc(K.label)}`);
+      const p = m.parentOf(d);
+      if (p) {
+        const kl = KONEKSI[m.koneksiLink(d)];
+        const kabel = NP.kabelTertanam(d) ? 'tertanam di gedung' : NP.perluKabel(d) ? NP.KABEL[NP.kabelSt(d)].label.toLowerCase() : '';
+        row('Uplink', `${esc(p.nama)}${d.port_uplink ? ' port ' + esc(d.port_uplink) : ''}<small> · ${esc(MEDIA[d.media] ? MEDIA[d.media].short || MEDIA[d.media].label : d.media || '—')}${kabel ? ' · kabel ' + esc(kabel) : ''}</small>`);
+        row('Status uplink', `<i class="hc-dot" style="background:${kl.color}"></i>${esc(kl.label)}${d.status === 'bermasalah' ? ' <small>· perangkat ini bermasalah</small>' : ''}`);
+      } else if (d.jenis === 'isp' || d.jenis === 'lan_gedung') {
+        row('Uplink', `<small>${d.jenis === 'isp' ? 'sumber WAN' : 'jaringan gedung'}</small>`);
+      } else row('Uplink', '<small class="bad">belum tersambung</small>');
+    }
+    if (d.jenis === 'ap' || d.jenis === 'bridge') {
+      row('SSID', a.ssid ? esc(a.ssid) + (a.keamanan ? ` <small>· ${esc(a.keamanan)}</small>` : '') : '<small>belum diisi</small>');
+      if (a.ssid_lain) row('SSID lain', esc(a.ssid_lain));
+      row('Radio', esc([a.band, a.channel ? 'ch ' + a.channel : '', a.lebar_kanal].filter(Boolean).join(' · ')));
+    }
+    row('IP / VLAN', esc([d.ip, d.vlan ? 'VLAN ' + d.vlan : ''].filter(Boolean).join(' · ')));
+    const anak = m.kids(d.id).length;
+    if (anak) row('Terhubung ke sini', anak + ' perangkat');
+    const v = NP.verifOf(d);
+    if (v && NP.VERIF[v.h]) row('Pengecekan', `<span style="color:${NP.VERIF[v.h].color}">${NP.VERIF[v.h].icon} ${esc(NP.VERIF[v.h].label)}</span>`);
+    if (multiLapisan()) row('Layer', esc(m.lapisanById(m.lapisanOf(d)).nama));
+    if (multiLantai()) row('Lantai', esc(namaLantai(d)));
+    if (d.pic) row('PIC', esc(d.pic));
+    return `<div class="hc-head"><i class="hc-ico" style="background:${t.color}">${esc(t.short)}</i><div><b>${esc(d.nama)}</b>
+        <small>${esc(jenisLabel(d))}${kt ? ' · ' + esc([kt.merek, kt.model].filter(Boolean).join(' ')) : d.model ? ' · ' + esc(d.model) : ''}</small></div></div>
+      ${baris.join('')}${NP.terkunci(d) ? '<div class="hc-foot">🔒 Posisi terkunci</div>' : ''}`;
+  }
+
   // ------------------------------------------------------------------------ label & panah (anotasi denah)
 
   /** Daftar label event (objek yang sama dipakai peta; dimutasi langsung lalu disimpan utuh). */
@@ -1722,6 +1805,17 @@
     }, 500);
   }
 
+  /** Kunci / buka kunci posisi label (kotak & ujung panah tidak bisa digeser). */
+  function kunciLabel(id) {
+    const a = anotList().find(x => x.id === id);
+    if (!a) return;
+    a.kunci = !a.kunci;
+    terapkanAnot();
+    renderPanel();
+    simpanAnot();
+    toast(a.kunci ? 'Posisi label dikunci' : 'Kunci label dibuka');
+  }
+
   function hapusAnot(id) {
     const list = anotList();
     const i = list.findIndex(a => a.id === id);
@@ -1748,8 +1842,10 @@
           <option value="titik"${arah === 'titik' ? ' selected' : ''}>Titik di denah (tarik ujung panah)</option>
           <option value="tanpa"${arah === 'tanpa' ? ' selected' : ''}>Tanpa panah</option>
           <optgroup label="Perangkat">${devs.map(d => `<option value="${d.id}"${arah === String(d.id) ? ' selected' : ''}>${esc(d.nama)}</option>`).join('')}</optgroup></select></label>
-        <p class="muted small">Geser kotak untuk memindah. Tarik ujung panah (bulatan) dan lepas di atas perangkat agar panah menempel ke perangkat itu. Klik ganda label untuk mengubah teks.</p>
-        ${S.canEdit ? '<div class="btn-row"><button type="button" class="small danger" data-anot-hapus>Hapus label</button><span class="spacer"></span><button type="button" class="small" data-anot-selesai>Selesai</button></div>' : ''}
+        <p class="muted small">${a.kunci ? '🔒 Posisi label & panah terkunci — tidak bisa tergeser saat menata denah. Teks & warna tetap bisa diubah.'
+          : 'Geser kotak untuk memindah. Tarik ujung panah (bulatan) dan lepas di atas perangkat agar panah menempel ke perangkat itu. Klik ganda label untuk mengubah teks.'}</p>
+        ${S.canEdit ? `<div class="btn-row"><button type="button" class="small${a.kunci ? ' primary' : ''}" data-anot-kunci title="Pintasan K">${a.kunci ? '🔓 Buka kunci' : '🔒 Kunci posisi'}</button>
+          <button type="button" class="small danger" data-anot-hapus>Hapus label</button><span class="spacer"></span><button type="button" class="small" data-anot-selesai>Selesai</button></div>` : ''}
       </div>`;
   }
   $('#panel').addEventListener('input', e => {
@@ -1784,6 +1880,7 @@
       renderPanel();
       return simpanAnot();
     }
+    if (e.target.closest('[data-anot-kunci]')) return kunciLabel(a.id);
     if (e.target.closest('[data-anot-hapus]')) return hapusAnot(a.id);
     if (e.target.closest('[data-anot-selesai]')) pilihAnot(null);
   });
@@ -1822,6 +1919,7 @@
       if (p) selectDev(p.id, true);
       else toast('Perangkat ini belum punya uplink');
     } else if (k === 'p' && !mqSheet.matches) togglePanel();
+    else if (k === 'k' && S.anotSel != null && S.canEdit) kunciLabel(S.anotSel);
     else if (k === 'k' && S.sel != null && S.canEdit) kunciPerangkat([S.sel], !NP.terkunci(S.model.byId.get(S.sel)));
     else if (k === 'v') setTool('pilih');
     else if (k === 'l' && S.canEdit) setTool('hubung');

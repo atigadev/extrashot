@@ -481,7 +481,8 @@ AP / wireless bridge tidak diberi port.
   pegangan bulat di atas furniture terpilih (snap 15°, Alt = bebas), tombol **R** / **Shift+R** (±15°), atau klik kanan →
   *Putar 90°*. Duplikat menaruh salinan berjajar tepat di sebelahnya. **Urutan tumpukan** (semua titik): klik kanan →
   *Naikkan / Turunkan satu lapis* (Ctrl+] / Ctrl+[) atau *Bawa ke paling depan / Kirim ke paling belakang* (+ Shift);
-  bawaan furniture di bawah perangkat jaringan. Furniture tidak
+  bawaan furniture di bawah perangkat jaringan. Kabel ikut lapisan perangkat yang dihubungkannya (lapisan tertinggi kedua
+  ujungnya), jadi kabel tidak tertutup furniture kecuali furniture-nya dinaikkan di atas perangkat itu. Furniture tidak
   punya koneksi jaringan maupun listrik, dan tidak masuk rekap listrik/topologi. Tampilkan saja lewat tombol
   **🪑 Furniture** di atas peta.
 

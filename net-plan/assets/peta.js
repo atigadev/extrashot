@@ -224,9 +224,31 @@
         gNodes.appendChild(g);
         nodeEls.set(d.id, g);
       }
+      susunTumpukan(ordered);
       buildCoverage();
       applyClasses();
       buildAnot();
+    }
+
+    /**
+     * Kabel ikut lapisan perangkat yang dihubungkannya: z kabel = z tertinggi kedua ujungnya (uplink, WAN/UP tambahan,
+     * garis daya). Kabel & titik digabung dalam satu urutan (bawah -> atas); pada z yang sama kabel di bawah titik, jadi
+     * kabel perangkat jaringan tidak tertutup furniture di bawahnya. Perangkat terpilih (bukan furniture) tetap paling atas.
+     */
+    function susunTumpukan(ordered) {
+      const m = st.model;
+      const zKabel = (a, b) => Math.max(NP.zOf(a), b ? NP.zOf(b) : -Infinity);
+      const tumpuk = [];
+      let i = 0;
+      for (const [id, g] of linkEls) {
+        const d = m.byId.get(id);
+        tumpuk.push({ g, z: zKabel(d, m.parentOf(d)), k: 0, i: i++ });
+      }
+      for (const w of wanEls) tumpuk.push({ g: w.g, z: zKabel(w.d, w.isp), k: 0, i: i++ });
+      for (const w of pwrEls) tumpuk.push({ g: w.g, z: zKabel(w.d, w.L), k: 0, i: i++ });
+      for (const d of ordered) tumpuk.push({ g: nodeEls.get(d.id), z: NP.zOf(d), k: 1, i: i++, s: d.id === st.sel && d.jenis !== 'furniture' });
+      tumpuk.sort((a, b) => (!!a.s - !!b.s) || a.z - b.z || a.k - b.k || a.i - b.i);
+      for (const t of tumpuk) gNodes.appendChild(t.g);
     }
 
     function buildCoverage() {

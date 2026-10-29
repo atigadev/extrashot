@@ -8275,6 +8275,13 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     const utama = d => diLantai(d) && lolos(d);
     const samar = d => diLantai(d) && !lolos(d) && !!opts.redup && opts.redup(d);
     const tampil = d => utama(d) || samar(d);
+    // Furniture yang lapisannya di bawah perangkat jaringan (z < 0, bawaan) digambar sebelum kabel, sama seperti di peta.
+    const furnBawah = d => d.jenis === 'furniture' && NP.zOf(d) < 0;
+    const gambarFurn = d => {
+      const f = NP.furnSimbol(d, m.lantaiById(lid).skala, { sw: 0.9 * u });
+      return `<g transform="translate(${d.x},${d.y}) rotate(${f.rot})"${samar(d) ? ' opacity=".35"' : ''}>${f.svg}</g>`;
+    };
+    for (const d of NP.urutZ(m.list)) if (tampil(d) && furnBawah(d)) h += gambarFurn(d);
     if (opts.pwr) {
       for (const d of m.list) {
         const L = m.listrikOf(d);
@@ -8312,9 +8319,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
     for (const d of NP.urutZ(m.list)) { // urutan tumpukan sama seperti di peta
       if (!tampil(d)) continue;
       if (d.jenis === 'furniture') {
-        // Furniture: simbol denah 2D berskala, sama seperti di peta.
-        const f = NP.furnSimbol(d, m.lantaiById(lid).skala, { sw: 0.9 * u });
-        h += `<g transform="translate(${d.x},${d.y}) rotate(${f.rot})"${samar(d) ? ' opacity=".35"' : ''}>${f.svg}</g>`;
+        // Furniture yang dinaikkan (z >= 0) di atas kabel; yang di bawah sudah digambar sebelum kabel.
+        if (!furnBawah(d)) h += gambarFurn(d);
         continue;
       }
       const t = NP.tampil(d);

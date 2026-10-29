@@ -34,7 +34,8 @@
       <g class="nodes"></g>
       <g class="anots"></g>
       <g class="handles"></g>
-      <g class="tool"></g>`;
+      <g class="tool"></g>
+      <g class="guides"></g>`;
     const gWorld = svg.querySelector('.world');
     const gBg = svg.querySelector('.bg');
     const gCov = svg.querySelector('.cov');
@@ -43,6 +44,7 @@
     const gTool = svg.querySelector('.tool');
     const gAnot = svg.querySelector('.anots');
     const gHandles = svg.querySelector('.handles');
+    const gGuide = svg.querySelector('.guides');
 
     const st = {
       model: null, W: DEFAULT_W, H: DEFAULT_H, img: null,
@@ -228,6 +230,54 @@
       buildCoverage();
       applyClasses();
       buildAnot();
+    }
+
+    /** Kotak sejajar sumbu (koordinat denah) sebuah titik: furniture = simbol setelah diputar; lainnya = titik pusatnya. */
+    function kotakDunia(x) {
+      if (x.jenis !== 'furniture') return { x0: x.x, x1: x.x, y0: x.y, y1: x.y, cx: x.x, cy: x.y, furn: false };
+      const f = NP.furnSimbol(x, st.skala);
+      const t = f.rot * Math.PI / 180, c = Math.abs(Math.cos(t)), s = Math.abs(Math.sin(t));
+      const hw = (f.w * c + f.h * s) / 2, hh = (f.w * s + f.h * c) / 2;
+      return { x0: x.x - hw, x1: x.x + hw, y0: x.y - hh, y1: x.y + hh, cx: x.x, cy: x.y, furn: true };
+    }
+
+    /**
+     * Garis bantu saat menggeser furniture: tepi kiri / tengah / kanan dan atas / tengah / bawah yang hampir sejajar
+     * (≤ 6 px layar) dengan furniture lain (atau pusat perangkat) ditempelkan, lalu ditandai garis putus-putus.
+     * bebas (Alt ditahan) = tanpa snap.
+     */
+    function garisBantu(d, bebas) {
+      gGuide.textContent = '';
+      if (bebas || d.jenis !== 'furniture') return;
+      const tol = 6 / st.z;
+      const k = kotakDunia(d);
+      let bx = null, by = null;
+      for (const o of st.model.list) {
+        if (o.id === d.id || tersembunyi(o)) continue;
+        const ko = kotakDunia(o);
+        const tx = ko.furn ? [ko.x0, ko.cx, ko.x1] : [ko.cx], ty = ko.furn ? [ko.y0, ko.cy, ko.y1] : [ko.cy];
+        for (const a of [k.x0, k.cx, k.x1]) for (const b of tx) {
+          const dd = b - a;
+          if (Math.abs(dd) <= tol && (!bx || Math.abs(dd) < Math.abs(bx.dd))) bx = { dd, x: b, ko };
+        }
+        for (const a of [k.y0, k.cy, k.y1]) for (const b of ty) {
+          const dd = b - a;
+          if (Math.abs(dd) <= tol && (!by || Math.abs(dd) < Math.abs(by.dd))) by = { dd, y: b, ko };
+        }
+      }
+      if (bx) d.x += bx.dd;
+      if (by) d.y += by.dd;
+      const k2 = kotakDunia(d);
+      let h = '';
+      if (bx) {
+        const y0 = Math.min(k2.y0, bx.ko.y0) - 12 / st.z, y1 = Math.max(k2.y1, bx.ko.y1) + 12 / st.z;
+        h += `<line x1="${sx(bx.x).toFixed(1)}" y1="${sy(y0).toFixed(1)}" x2="${sx(bx.x).toFixed(1)}" y2="${sy(y1).toFixed(1)}"/>`;
+      }
+      if (by) {
+        const x0 = Math.min(k2.x0, by.ko.x0) - 12 / st.z, x1 = Math.max(k2.x1, by.ko.x1) + 12 / st.z;
+        h += `<line x1="${sx(x0).toFixed(1)}" y1="${sy(by.y).toFixed(1)}" x2="${sx(x1).toFixed(1)}" y2="${sy(by.y).toFixed(1)}"/>`;
+      }
+      gGuide.innerHTML = h;
     }
 
     /**
@@ -922,6 +972,7 @@
         const d = st.model.byId.get(gesture.id);
         d.x = clampX(gesture.ox + dx / st.z);
         d.y = clampY(gesture.oy + dy / st.z);
+        garisBantu(d, e.altKey);
         st.dragging = true;
         svg.classList.add('dragging');
         layout();
@@ -1020,6 +1071,7 @@
         }
         return;
       }
+      gGuide.textContent = ''; // garis bantu sejajar hanya selama menggeser
       if (e.type === 'pointercancel') return;
       if (g.type === 'drag') {
         if (g.moved) {

@@ -326,6 +326,7 @@ button.kb:hover { filter: brightness(1.08); box-shadow: 0 0 0 2px rgba(0,0,0,.08
 .map .handles .rot.furn circle { stroke: #a21caf; }
 .map .handles .rot.furn circle:hover { fill: #a21caf; }
 .map .handles .rot.furn text { fill: #86198f; }
+.map .guides line { stroke: #e11d48; stroke-width: 1.2; stroke-dasharray: 5 3; pointer-events: none; }
 .map .ms-line { stroke: #f59e0b; stroke-width: 2.5; stroke-dasharray: 6 4; }
 .map .ms-pt { fill: #f59e0b; stroke: #fff; stroke-width: 2; }
 .map .ms-lbl { font: 700 13px system-ui, sans-serif; text-anchor: middle; fill: #92400e; stroke: #fff; stroke-width: 4px; paint-order: stroke; }

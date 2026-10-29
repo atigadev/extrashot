@@ -209,8 +209,8 @@
             return V ? `<g class="vf vf-${v.h}" transform="translate(${b},${b})"><circle r="${BADGE}" fill="${V.color}"/><text dy="0.36em">${V.icon}</text></g>` : '';
           })()}
           ${(() => {
-            // Layer jaringan (bila event punya > 1 layer): titik warna layer di kiri bawah.
-            if (m.lapisanList().length < 2) return '';
+            // Layer jaringan (bila event punya > 1 layer): titik warna layer di kiri bawah (tidak untuk furniture).
+            if (m.lapisanList().length < 2 || fur) return '';
             const L = m.lapisanById(m.lapisanOf(d));
             return `<g class="lp" transform="translate(${-b},${b})"><circle r="${BADGE - 0.5}" fill="${esc(L.warna)}"/><title>Layer ${esc(L.nama)}</title></g>`;
           })()}

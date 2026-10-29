@@ -86,6 +86,10 @@ admin.
   (titik ungu putus-putus) dan belum bisa diubah statusnya. Admin memutuskan di tab Proyek → *Usulan alat baru* atau di
   panel perangkat: **Bisa dipasang** (masuk plan sebagai *Rencana*) atau **Tolak** (titik dihapus, alasan tercatat di
   aktivitas). Installer bisa menarik usulannya sendiri selama belum diputuskan.
+  Installer juga bisa **mengubah data perangkat** pada kategori tugasnya: tab *Identitas* (nama, alat katalog, merek/tipe,
+  PIC), *Koneksi* (uplink, port, media, VLAN, jalur kabel), tab jenis (*Switch / AP / Router* …), dan *Unit* (pasang /
+  ganti / lepas unit gudang, ubah SN/MAC/firmware/catatan unit). Kategori, layer, lantai, posisi, kunci, hapus, dan file
+  konfigurasi unit tetap milik admin; password yang tersamar tidak menimpa password asli.
 - Opsi per link: boleh melihat password WiFi/admin, dan aktif/nonaktif. **Ganti link** membuat link lama langsung tidak
   berlaku.
 - Setiap perubahan status (oleh tim maupun admin) dan catatan lapangan **tercatat**: siapa, kapan, dari → ke. Riwayat

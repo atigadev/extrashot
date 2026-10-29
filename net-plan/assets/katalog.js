@@ -517,7 +517,7 @@
         <label class="field"><span>Kondisi</span><select name="kondisi"${dis}>${Object.keys(NP.UNIT_KONDISI).map(x => `<option value="${x}"${x === kd ? ' selected' : ''}>${esc(NP.UNIT_KONDISI[x].label)}</option>`).join('')}</select></label></div>
       <label class="field"><span>Catatan konfigurasi unit <small class="muted">(yang dipakai unit ini: SSID/VLAN khusus, channel dikunci, perubahan dari standar)</small></span>
         <textarea name="catatan" rows="4" class="mono"${dis}>${esc(u.catatan || '')}</textarea></label>
-      ${baru ? '<p class="muted small">File konfigurasi / backup bisa diunggah setelah unit disimpan.</p>' : `<div class="ue-file">
+      ${baru ? '<p class="muted small">File konfigurasi / backup bisa diunggah setelah unit disimpan.</p>' : NP.Katalog.timToken ? '<p class="muted small">File konfigurasi / backup unit dikelola admin.</p>' : `<div class="ue-file">
         <h3 class="sec-title">File konfigurasi / backup <small class="muted">${u.berkas.length}/10 · maks. 10 MB per file</small></h3>
         ${u.berkas.length ? `<ul class="berkas-list">${u.berkas.map(b => `<li><a href="api/berkas.php?id=${b.id}" download>📄 <b>${esc(b.nama)}</b></a>
           <small class="muted">${esc(ukuran(b.ukuran))} · ${esc(waktu(b.created_at))}${b.oleh ? ' · ' + esc(b.oleh) : ''}</small>
@@ -541,7 +541,8 @@
     const f = d.querySelector('[data-ue]');
     const body = Object.assign({ action: 'unit_save', id: d._u.id || null, katalog_id: d._k.id }, extra);
     [...f.elements].forEach(el => { if (el.name) body[el.name] = el.value; });
-    const res = await api(API, body);
+    // Installer (link tim): hanya data unit yang terpasang di titik tugasnya, lewat api/tim.php.
+    const res = NP.Katalog.timToken ? await api('api/tim.php', Object.assign(body, { t: NP.Katalog.timToken })) : await api(API, body);
     return res.unit;
   }
 

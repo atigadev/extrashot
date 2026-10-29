@@ -157,11 +157,12 @@
     Object.assign(d, patch);
     refreshModel(opts);
     pendingById.set(id, (pendingById.get(id) || 0) + 1);
-    return enqueue(() => api(API, Object.assign({ action: 'perangkat_save', id }, patch)))
+    return enqueue(() => apiDev('simpan', Object.assign({ action: 'perangkat_save', id }, patch)))
       .then(res => {
         const n = pendingById.get(id) - 1;
         pendingById.set(id, n);
         if ('status' in patch) riwayat.id = null; // riwayat status perangkat ini dimuat ulang
+        if (res.unit) S.unit = res.unit; // installer: unit gudang lama bisa kembali ke gudang saat alat katalog diganti
         // Terapkan versi server hanya bila tidak ada perubahan lain yang masih antre untuk perangkat ini.
         if (!n) {
           const i = S.list.findIndex(x => x.id === id);
@@ -225,6 +226,7 @@
         : await api(API + '?action=get&id=' + id);
     if (res.akses) S.akses = res.akses;
     if (isInstaller() && !$('#toolbar .usul')) buildToolbar(); // alat usulan baru tahu kategori tugas setelah akses dimuat
+    if (isInstaller()) NP.Katalog.timToken = S.tim; // modal data unit menyimpan lewat api/tim.php
     const changed = !S.proyek || S.proyek.id !== res.proyek.id;
     S.proyek = res.proyek;
     S.list = res.perangkat;
@@ -232,7 +234,17 @@
     S.foto = res.foto || [];
     S.unit = res.unit || []; // unit gudang yang dipakai perangkat event ini
     NP.setEndpointTipe(res.endpoint_tipe);
-    if (S.lihat) {
+    if (isInstaller()) {
+      // Installer memilih alat katalog di tab Identitas: butuh seluruh katalog, bukan hanya yang dipakai event ini.
+      if (!S.katalogTim) {
+        try {
+          S.katalogTim = (await api(`api/tim.php?t=${encodeURIComponent(S.tim)}&action=katalog`)).katalog;
+        } catch (e) {
+          S.katalogTim = null;
+        }
+      }
+      S.katalog = S.katalogTim || res.katalog || [];
+    } else if (S.lihat) {
       S.katalog = res.katalog || [];
     } else if (changed || S.katalogBasi || !S.katalog.length) {
       await muatKatalog();
@@ -1255,7 +1267,7 @@
   function putusKoneksi(id) {
     const d = S.model.byId.get(id);
     const p = d && S.model.parentOf(d);
-    if (!p || !S.canEdit) return;
+    if (!p || !bolehIsi(d)) return;
     const sebelum = { uplink_id: d.uplink_id, port_uplink: d.port_uplink, jalur: d.jalur };
     saveDev(id, { uplink_id: null, port_uplink: '', jalur: null })
       .then(() => toast(`Koneksi ${d.nama} → ${p.nama} dihapus`, false, {
@@ -2699,7 +2711,7 @@
    * menyimpan pilihan di perangkat itu (sama dengan kotak VLAN di tab Koneksi); port kosong di mt.port.
    */
   function vlanPortTabel(r) {
-    const dis = S.canEdit ? '' : ' disabled';
+    const dis = bolehIsiSel() ? '' : ' disabled';
     const rows = r.portVlan.map(p => {
       const cfg = p.dev ? { mode: (p.dev.atribut || {}).vlan_mode || '', izin: (p.dev.atribut || {}).vlan_izin || '' } : (r.mt.port[p.iface] || {});
       const mode = cfg.mode || '';
@@ -2960,14 +2972,14 @@
       const ada = k && pm.ports.some(p => p.key === k);
       return vlanBadge(c) + (c.port_uplink ? `<span class="port-tag${pm.ports.length && !ada ? ' bad' : ''}" title="Port di ${esc(P.nama)}">${esc(c.port_uplink)}</span>` : '<span class="port-tag kosong">tanpa port</span>');
     };
-    h += `<div class="path wrap">${kids.map(c => `<span class="chip-x">${chip(c)}${portLbl(c)}${S.canEdit ? `<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button>` : ''}</span>`).join('')}</div>`;
+    h += `<div class="path wrap">${kids.map(c => `<span class="chip-x">${chip(c)}${portLbl(c)}${bolehIsiSel() ? `<button type="button" data-unlink="${c.id}" title="Hapus koneksi ${esc(c.nama)} ke sini" aria-label="Putuskan ${esc(c.nama)}">✕</button>` : ''}</span>`).join('')}</div>`;
     // Belum punya port: pilih langsung dari port yang masih kosong.
-    if (S.canEdit && pm.tanpa.length && pm.ports.length) {
+    if (bolehIsiSel() && pm.tanpa.length && pm.ports.length) {
       const kosong = portKosong2(P);
       h += `<div class="port-pilih"><span class="muted small">Belum ada port:</span>${pm.tanpa.map(c => `<label class="port-pilih-row"><b>${esc(c.nama)}</b>
         <select data-port-anak="${c.id}"><option value="">pilih port…</option>${kosong.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('')}</select></label>`).join('')}
         ${kosong.length >= pm.tanpa.length ? `<button type="button" class="small" data-port-otomatis>Isi otomatis berurutan</button>` : `<span class="small bad">Port kosong kurang ${pm.tanpa.length - kosong.length}</span>`}</div>`;
-    } else if (S.canEdit && pm.tanpa.length) {
+    } else if (bolehIsiSel() && pm.tanpa.length) {
       // Jumlah port belum diketahui: tetap bisa diketik langsung.
       h += `<div class="port-pilih"><span class="muted small">Belum ada port:</span>${pm.tanpa.map(c => `<label class="port-pilih-row"><b>${esc(c.nama)}</b>
         <input type="text" data-port-anak="${c.id}" placeholder="mis. ether2 / 5" style="width:9em"></label>`).join('')}</div>`;
@@ -2985,7 +2997,7 @@
     const lvUp = m.parentOf(P) ? m.linkVlan(P) : null;
     const vlanAda = urutVlan([...m.vlanDef().keys(), ...(lvUp ? lvUp.butuh : [])]);
     if (!vlanAda.length) return '';
-    const dis = S.canEdit ? '' : ' disabled';
+    const dis = bolehIsiSel() ? '' : ' disabled';
     const conf = m.vlanPortSw(P);
     const hasil = lv => (lv.mode === 'trunk' ? `<span class="vl vl-trunk">T ${lv.tagged.join(',') || '—'}</span>`
       : lv.mode === 'access' ? `<span class="vl vl-access">A ${lv.untagged}</span>` : '<span class="muted small">LAN</span>');
@@ -3018,7 +3030,7 @@
     const opsiPort = pm.ports.map((pt, i) => `<option value="${i}">${esc(pt.sfp ? 'sfp' + pt.label.slice(3) : (pm.prefix || '') + pt.label)}</option>`).join('');
     return `<details class="vs-box"${S.vsBuka ? ' open' : ''}>
       <summary>VLAN per port <span class="muted small">${lvUp && lvUp.mode === 'trunk' ? `trunk masuk: VLAN ${lvUp.tagged.join(', ')}` : `VLAN ${vlanAda.join(', ')}`}</span></summary>
-      ${S.canEdit ? `<div class="vs-bagi">Port <select data-vs-dari>${opsiPort}</select> s/d <select data-vs-sampai>${opsiPort}</select>
+      ${bolehIsiSel() ? `<div class="vs-bagi">Port <select data-vs-dari>${opsiPort}</select> s/d <select data-vs-sampai>${opsiPort}</select>
         → <select data-vs-mode><option value="access">Access</option><option value="trunk">Trunk</option><option value="">LAN saja</option></select>
         VLAN <input type="text" data-vs-vlan placeholder="${esc(String(vlanAda[0]))}" style="width:5.5em"> <button type="button" class="small primary" data-vs-terapkan>Terapkan</button></div>` : ''}
       <table class="mini mt-vlan mt-vport"><colgroup><col style="width:34%"><col style="width:30%"><col style="width:36%"></colgroup>
@@ -3059,7 +3071,7 @@
   }, true);
   $('#panel').addEventListener('change', async e => {
     const el = e.target.closest('[data-vs]');
-    if (!el || !S.canEdit || S.sel == null) return;
+    if (!el || !bolehIsiSel() || S.sel == null) return;
     const P = S.model.byId.get(S.sel);
     const tr = el.closest('tr');
     const modeEl = tr.querySelector('select[data-vs]');
@@ -3071,7 +3083,7 @@
     for (const [id, patch] of patchVlanPort(P, [{ anak, key: el.dataset.vsPort || el.dataset.vsKey, mode, izin }])) await saveDev(id, patch, { keepPanel: true }).catch(() => {});
   });
   $('#panel').addEventListener('click', async e => {
-    if (!e.target.closest('[data-vs-terapkan]') || !S.canEdit || S.sel == null) return;
+    if (!e.target.closest('[data-vs-terapkan]') || !bolehIsiSel() || S.sel == null) return;
     const box = e.target.closest('.vs-box');
     const P = S.model.byId.get(S.sel);
     const pm = S.model.portMap(P);
@@ -3098,13 +3110,13 @@
 
   $('#panel').addEventListener('change', e => {
     const s = e.target.closest('[data-port-anak]');
-    if (!s || !s.value || !S.canEdit) return;
+    if (!s || !s.value || !bolehIsiSel()) return;
     const c = S.model.byId.get(+s.dataset.portAnak);
     if (c) saveDev(c.id, { port_uplink: s.value.trim().slice(0, 50) }).then(() => toast(`${c.nama} → port ${s.value}`)).catch(() => {});
   });
   // Isi otomatis: perangkat tanpa port mendapat port kosong berurutan (satu langkah Ctrl+Z).
   $('#panel').addEventListener('click', async e => {
-    if (!e.target.closest('[data-port-otomatis]') || !S.canEdit || S.sel == null) return;
+    if (!e.target.closest('[data-port-otomatis]') || !bolehIsiSel() || S.sel == null) return;
     const P = S.model.byId.get(S.sel);
     const tanpa = S.model.portMap(P).tanpa;
     const kosong = portKosong2(P);
@@ -3511,12 +3523,12 @@
           ${u.catatan ? `<div class="kv col"><span>Catatan konfigurasi unit</span><pre class="unit-cat">${esc(u.catatan)}</pre></div>` : ''}
           ${u.berkas.length ? `<div class="kv col"><span>File konfigurasi / backup</span><ul class="berkas-list">${u.berkas.map(b =>
             `<li><a href="api/berkas.php?id=${b.id}" download>📄 <b>${esc(b.nama)}</b></a><small class="muted">${esc(ukuranFile(b.ukuran))} · ${esc(waktuSingkat(b.created_at))}</small></li>`).join('')}</ul></div>` : ''}
-          ${S.canEdit ? `<div class="btn-row" style="margin-top:8px"><button type="button" class="small primary" data-unit-ubah>✎ Data &amp; file unit</button>
+          ${bolehIsiSel() ? `<div class="btn-row" style="margin-top:8px"><button type="button" class="small primary" data-unit-ubah>✎ Data &amp; file unit</button>
             <button type="button" class="small" data-unit-ganti>Ganti unit</button>
             <button type="button" class="small" data-unit-lepas title="Unit kembali tersedia di gudang">Lepas ke gudang</button></div>` : ''}
         </div>`;
     }
-    if (!S.canEdit) return `<div class="pn-sec"><h4>Unit dari gudang</h4><p class="muted small">Belum ada unit fisik ${nama} yang dipasang di titik ini.</p></div>`;
+    if (!bolehIsiSel()) return `<div class="pn-sec"><h4>Unit dari gudang</h4><p class="muted small">Belum ada unit fisik ${nama} yang dipasang di titik ini.</p></div>`;
     return `<div class="pn-sec"><h4>Pasang unit dari gudang <span class="small">${nama}</span></h4>
         <div id="unit-pilih"><p class="muted small">Memuat stok gudang…</p></div></div>`;
   }
@@ -3528,7 +3540,7 @@
     if (!box || !k) return;
     let units;
     try {
-      units = (await api(API + '?action=unit_list&katalog_id=' + k.id)).unit;
+      units = (await api(isInstaller() ? `api/tim.php?t=${encodeURIComponent(S.tim)}&action=unit_list&katalog_id=${k.id}` : API + '?action=unit_list&katalog_id=' + k.id)).unit;
       unitPilihanCache.set(k.id, units);
     } catch (err) {
       box.innerHTML = `<p class="err-text small">${esc(err.message)}</p>`;
@@ -3543,13 +3555,13 @@
         <div class="inline"><select data-unit-pilih>${ada.map(u => `<option value="${u.id}">${esc(ket(u))}</option>`).join('')}</select>
           <button type="button" class="small primary" data-unit-pasang>Pasang</button></div>`
       : `<p class="muted small" style="margin:0 0 6px">${units.length ? `Tidak ada unit tersedia — ${dipakai} unit sedang dipakai di event lain / servis.` : 'Gudang alat ini masih kosong.'}</p>`;
-    box.innerHTML += `<div class="btn-row" style="margin-top:8px"><button type="button" class="small super-only" data-unit-baru>＋ Unit baru ke gudang</button>
+    if (!isInstaller()) box.innerHTML += `<div class="btn-row" style="margin-top:8px"><button type="button" class="small super-only" data-unit-baru>＋ Unit baru ke gudang</button>
       <button type="button" class="small ghost" data-unit-gudang>Lihat gudang</button></div>`;
   }
 
   async function pasangUnit(d, unitId) {
     try {
-      S.unit = (await api(API, { action: 'unit_pasang', perangkat_id: d.id, unit_id: unitId })).unit;
+      S.unit = (await apiDev('unit_pasang', { action: 'unit_pasang', perangkat_id: d.id, unit_id: unitId })).unit;
       const u = unitOf(d);
       toast(`${d.nama}: unit ${u ? u.sn || u.aset || '#' + u.id : ''} terpasang`);
       renderPanel();
@@ -3566,7 +3578,7 @@
     if (e.target.closest('[data-unit-lepas]')) {
       if (!confirm(`Lepas unit dari ${d.nama}? Unit kembali tersedia di gudang (datanya tetap tersimpan).`)) return;
       try {
-        S.unit = (await api(API, { action: 'unit_lepas', perangkat_id: d.id })).unit;
+        S.unit = (await apiDev('unit_lepas', { action: 'unit_lepas', perangkat_id: d.id })).unit;
         renderPanel();
         toast('Unit kembali ke gudang');
       } catch (err) {
@@ -3669,7 +3681,7 @@
     const k = S.model.kat(d);
     const items = S.katalog.filter(x => x.jenis === d.jenis);
     const ringkas = k ? NP.specSummary(k.spesifikasi) : '';
-    if (!S.canEdit) {
+    if (!bolehIsiSel()) {
       return k ? `<div class="field wide kat-info"><span>Alat dari katalog</span><b>${esc(NP.Katalog.label(k))}</b>${ringkas ? `<small>${esc(ringkas)}</small>` : ''}</div>` : '';
     }
     const opt = x => `<option value="${x.id}"${x.id === d.katalog_id ? ' selected' : ''}>${esc(NP.Katalog.label(x))}${x.stok != null ? ` · stok ${x.stok}` : ''}</option>`;
@@ -3719,7 +3731,8 @@
 
   function panelDev(d) {
     const t = TYPES[d.jenis] || TYPES.lainnya;
-    const dis = S.canEdit ? '' : ' disabled';
+    const dis = bolehIsiSel() ? '' : ' disabled';
+    const disAdmin = S.canEdit ? '' : ' disabled'; // isian khusus admin (installer: jenis, layer, lantai, listrik)
     const a = d.atribut || {};
     return `
       <div class="pn-top">
@@ -3758,13 +3771,13 @@
         <div class="pn-sec" data-pp="identitas">
           <div class="fgrid">
             ${fieldHtml({ k: 'nama', label: 'Nama / label *' }, d.nama, dis)}
-            <label class="field"><span>Jenis</span><select data-f="jenis"${dis}>${TYPE_ORDER.map(j => `<option value="${j}"${j === d.jenis ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select></label>
+            <label class="field"><span>Jenis</span><select data-f="jenis"${disAdmin}>${TYPE_ORDER.map(j => `<option value="${j}"${j === d.jenis ? ' selected' : ''}>${esc(TYPES[j].label)}</option>`).join('')}</select></label>
             ${katalogField(d, dis)}
             ${fieldHtml({ k: 'model', label: d.katalog_id != null ? 'Nama alat (dari katalog, bisa disesuaikan)' : 'Nama alat (merek/tipe)', ph: 'mis. MikroTik hAP ax², TP-Link EAP650', wide: true }, d.model, dis)}
             <div class="field wide"><span>Status pemasangan</span>${d.status === 'usulan' ? '<p class="small"><span class="st st-usulan">Usulan baru</span> — putuskan di kotak usulan (tab Info).</p>' : statusPicker(d, S.canEdit ? 'admin' : '')}</div>
             ${fieldHtml({ k: 'pic', label: 'PIC / teknisi' }, d.pic, dis)}
-            ${multiLapisan() ? `<label class="field"><span>Layer jaringan</span><select data-lapisan-dev${dis}>${S.model.lapisanList().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lapisanOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
-            ${multiLantai() ? `<label class="field"><span>Lantai (denah)</span><select data-lantai-dev${dis}>${S.model.lantaiList().slice().reverse().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lantaiOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
+            ${multiLapisan() ? `<label class="field"><span>Layer jaringan</span><select data-lapisan-dev${disAdmin}>${S.model.lapisanList().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lapisanOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
+            ${multiLantai() ? `<label class="field"><span>Lantai (denah)</span><select data-lantai-dev${disAdmin}>${S.model.lantaiList().slice().reverse().map(l => `<option value="${esc(l.id)}"${l.id === S.model.lantaiOf(d) ? ' selected' : ''}>${esc(l.nama)}</option>`).join('')}</select></label>` : ''}
           </div>
         </div>
         <div class="pn-sec" data-pp="koneksi">
@@ -3772,7 +3785,7 @@
             <label class="field wide"><span>Uplink (sumber koneksi)</span>
               <div class="inline"><select data-f="uplink_id"${dis}>${uplinkOptions(d)}</select>
               ${S.canEdit ? '<button type="button" class="small" data-act="pick" title="Pilih uplink dengan klik di denah">Pilih di denah</button>' : ''}
-              ${S.canEdit && d.uplink_id != null ? '<button type="button" class="small danger" data-act="unlink" title="Hapus koneksi ke uplink">Putuskan</button>' : ''}</div></label>
+              ${bolehIsiSel() && d.uplink_id != null ? '<button type="button" class="small danger" data-act="unlink" title="Hapus koneksi ke uplink">Putuskan</button>' : ''}</div></label>
             ${fieldHtml({ k: 'port_uplink', label: 'Port di uplink', ph: S.model.parentOf(d) && portKosong2(S.model.parentOf(d)).length ? 'pilih port kosong / ketik' : 'mis. ether3 / port 5', list: S.model.parentOf(d) ? portKosong2(S.model.parentOf(d)) : null }, d.port_uplink, dis)}
             ${fieldHtml({ k: 'port_lokal', label: 'Port di perangkat ini', ph: 'mis. ether1 / WAN' }, d.port_lokal, dis)}
             <label class="field"><span>Media ke uplink</span><select data-f="media"${dis}>${Object.keys(MEDIA).map(k => `<option value="${k}"${k === d.media ? ' selected' : ''}>${esc(MEDIA[k].label)}</option>`).join('')}</select></label>
@@ -3802,12 +3815,12 @@
       </form>
       ${d.jenis === "router" && S.canEdit ? `<div data-pp="mikrotik">${mtPanelHtml(d)}</div>` : ""}
       <div data-pp="ceklis">${ceklisPanelHtml(d)}</div>
-      ${NP.isListrik(d) ? "" : `<div data-pp="listrik">${dayaSection(d, dis)}</div>`}
+      ${NP.isListrik(d) ? "" : `<div data-pp="listrik">${dayaSection(d, disAdmin)}</div>`}
       <div data-pp="grup">
         <div class="pn-sec" id="pn-grup-sec"><h4>Group perangkat ini</h4><div id="pn-grup"></div></div>
         <div class="pn-sec" id="pn-grup-anak-sec"><h4>Group perangkat yang terhubung ke sini</h4><div id="pn-grup-anak-box"></div></div>
       </div>
-      ${S.canEdit ? '<p class="muted small pn-auto">Semua isian tersimpan otomatis saat pindah isian · Ctrl+Z membatalkan.</p>' : ''}`;
+      ${bolehIsiSel() ? `<p class="muted small pn-auto">Semua isian tersimpan otomatis saat pindah isian${S.canEdit ? ' · Ctrl+Z membatalkan' : ''}.</p>` : ''}`;
   }
 
   // ------------------------------------------------------------------------ multi-WAN (router)
@@ -3848,7 +3861,7 @@
 
   function uplinkEditor(d) {
     const m = S.model;
-    const dis = S.canEdit ? '' : ' disabled';
+    const dis = bolehIsiSel() ? '' : ' disabled';
     const lain = m.uplinkLain(d);
     const mode = m.uplinkMode(d);
     const p = m.parentOf(d);
@@ -3862,10 +3875,10 @@
       h += baris(i + 2, w.dev, `${kabelLainBtn(d, { dev: w.dev, kabel: w.kabel, kunci: 'uplink_lain' }, bolehKabel(d))}`) +
         `<div class="wan-row sub"><input type="text" class="wan-port" data-up-port="${w.dev.id}" value="${esc(w.port)}" placeholder="port, mis. sfp1 / ge24" aria-label="Port UP${i + 2}"${dis}>
           <select data-up-media="${w.dev.id}" aria-label="Media UP${i + 2}"${dis}><option value="utp"${w.media === 'utp' ? ' selected' : ''}>UTP</option><option value="fiber"${w.media === 'fiber' ? ' selected' : ''}>Fiber optik</option></select>
-          ${S.canEdit ? `<button type="button" class="small danger" data-up-del="${w.dev.id}" title="Lepas UP${i + 2}">✕</button>` : ''}</div>`;
+          ${bolehIsiSel() ? `<button type="button" class="small danger" data-up-del="${w.dev.id}" title="Lepas UP${i + 2}">✕</button>` : ''}</div>`;
     });
     h += '</div>';
-    if (S.canEdit) {
+    if (bolehIsiSel()) {
       h += `<div class="inline wan-add">${calon.length
         ? `<select data-up-add aria-label="Tambah uplink kedua"><option value="">+ Tambah uplink kedua (redundan / LACP)…</option>${calon.map(x => `<option value="${x.id}">${esc(x.nama)} — ${esc(TYPES[x.jenis].label)}${p && x.id === p.id ? ' (kabel kedua ke uplink yang sama = LACP)' : ''}</option>`).join('')}</select>`
         : '<span class="muted small">Tidak ada router/switch lain yang bisa jadi uplink kedua.</span>'}</div>`;
@@ -3880,7 +3893,7 @@
   }
 
   $('#panel').addEventListener('change', e => {
-    if (!S.canEdit || S.sel == null) return;
+    if (!bolehIsiSel() || S.sel == null) return;
     const d = S.model.byId.get(S.sel);
     const add = e.target.closest('[data-up-add]');
     if (add && add.value) {
@@ -3898,7 +3911,7 @@
   });
   $('#panel').addEventListener('click', e => {
     const del = e.target.closest('[data-up-del]');
-    if (!del || !S.canEdit || S.sel == null) return;
+    if (!del || !bolehIsiSel() || S.sel == null) return;
     const d = S.model.byId.get(S.sel);
     simpanUplink(d, upList(d).filter(w => w.id !== +del.dataset.upDel), S.model.uplinkMode(d));
   });
@@ -3906,7 +3919,7 @@
   /** Editor WAN: WAN utama (lewat uplink) + WAN tambahan ke Sumber WAN/ISP lain, mode failover / load balance. */
   function wanEditor(d) {
     const m = S.model;
-    const dis = S.canEdit ? '' : ' disabled';
+    const dis = bolehIsiSel() ? '' : ' disabled';
     const utama = m.wanOf(d);
     const lain = m.wanLain(d);
     const mode = m.wanMode(d);
@@ -3924,10 +3937,10 @@
     lain.forEach((w, i) => {
       h += baris(i + 2, w.dev, kabelLainBtn(d, { dev: w.dev, kabel: statusLain(d, { ke: w.dev.id, kunci: 'wan_lain' }), kunci: 'wan_lain' }, bolehKabel(d)) +
         `<input type="text" class="wan-port" data-wan-port="${w.dev.id}" value="${esc(w.port)}" placeholder="port, mis. ether2" aria-label="Port WAN${i + 2}"${dis}>` +
-        (S.canEdit ? `<button type="button" class="small danger" data-wan-del="${w.dev.id}" title="Lepas WAN${i + 2}">✕</button>` : ''));
+        (bolehIsiSel() ? `<button type="button" class="small danger" data-wan-del="${w.dev.id}" title="Lepas WAN${i + 2}">✕</button>` : ''));
     });
     h += '</div>';
-    if (S.canEdit) {
+    if (bolehIsiSel()) {
       h += `<div class="inline wan-add">${calon.length
         ? `<select data-wan-add aria-label="Tambah WAN"><option value="">+ Tambah WAN dari Sumber WAN/ISP…</option>${calon.map(x => `<option value="${x.id}">${esc(x.nama)}${x.atribut.provider ? ' — ' + esc(x.atribut.provider) : ''}${esc(bw(x))}</option>`).join('')}</select>`
         : '<span class="muted small">Taruh Sumber WAN/ISP lain di denah untuk menambah WAN (atau alat Hubungkan: router → ISP kedua).</span>'}</div>`;
@@ -3942,7 +3955,7 @@
   }
 
   $('#panel').addEventListener('change', e => {
-    if (!S.canEdit || S.sel == null) return;
+    if (!bolehIsiSel() || S.sel == null) return;
     const d = S.model.byId.get(S.sel);
     const add = e.target.closest('[data-wan-add]');
     if (add && add.value) {
@@ -3957,7 +3970,7 @@
   });
   $('#panel').addEventListener('click', e => {
     const del = e.target.closest('[data-wan-del]');
-    if (!del || !S.canEdit || S.sel == null) return;
+    if (!del || !bolehIsiSel() || S.sel == null) return;
     const d = S.model.byId.get(S.sel);
     simpanWan(d, wanList(d).filter(w => w.id !== +del.dataset.wanDel), S.model.wanMode(d));
   });
@@ -4363,6 +4376,19 @@
   /** Link tim berperan installer (pemasang perangkat). */
   function isInstaller() {
     return !!(S.tim && S.akses && S.akses.peran === 'installer');
+  }
+  /** Boleh mengubah isian perangkat d di panel (Identitas, Koneksi, jenis, Unit): admin, atau installer pada titik tugasnya. */
+  function bolehIsi(d) {
+    return S.canEdit || (isInstaller() && !!d && tugasTim(d));
+  }
+  function bolehIsiSel() {
+    return bolehIsi(S.sel != null && S.model ? S.model.byId.get(S.sel) : null);
+  }
+  /** Panggil API admin, atau padanannya di api/tim.php untuk installer (aksi tim: simpan, unit_*). */
+  function apiDev(aksiTim, body) {
+    if (!isInstaller()) return api(API, body);
+    const b = Object.assign({}, body, { t: S.tim, action: aksiTim });
+    return api('api/tim.php', b);
   }
   /** Kategori yang boleh diusulkan installer ini (kosong = semua; port LAN gedung bukan alat yang dipasang). */
   const bolehUsul = j => isInstaller() && j !== 'lan_gedung' && (!S.akses.jenis_boleh.length || S.akses.jenis_boleh.includes(j));
@@ -5077,9 +5103,9 @@
       ['bebas', 'Ikuti gedung', '<path d="M3 19v-7h7V5h9"/>'],
     ];
     box.innerHTML = `<span class="route-lbl">Bentuk jalur kabel</span>
-      <div class="seg">${opts.map(([k, lbl, ic]) => `<button type="button" data-route="${k}" class="${mode === k ? 'active' : ''}"${S.canEdit ? '' : ' disabled'}>
+      <div class="seg">${opts.map(([k, lbl, ic]) => `<button type="button" data-route="${k}" class="${mode === k ? 'active' : ''}"${bolehIsiSel() ? '' : ' disabled'}>
         <svg viewBox="0 0 22 22" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">${ic}</svg>${lbl}</button>`).join('')}</div>
-      ${S.canEdit ? `<p class="muted small route-tip">${mode === 'bebas'
+      ${bolehIsiSel() ? `<p class="muted small route-tip">${mode === 'bebas'
         ? `${n} lekukan. Tarik <b>bulatan</b> di tengah garis untuk menambah lekukan, geser <b>kotak</b> untuk memindahkan, klik ganda/klik kanan kotak untuk menghapus. Otomatis lurus/siku saat sejajar (tahan <kbd>Alt</kbd> untuk bebas).`
         : 'Tarik bulatan di tengah garis pada denah untuk membelokkan jalur mengikuti dinding/koridor.'}</p>` : ''}`;
   }
@@ -5109,7 +5135,7 @@
     const ul = e.target.closest('[data-unlink]');
     if (ul) return putusKoneksi(+ul.dataset.unlink);
     const rt = e.target.closest('[data-route]');
-    if (rt && S.canEdit && S.sel != null) {
+    if (rt && bolehIsiSel() && S.sel != null) {
       const d = S.model.byId.get(S.sel);
       const k = rt.dataset.route;
       let jalur = null;
@@ -5202,14 +5228,14 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
   // Simpan otomatis tiap isian berubah.
   $('#panel').addEventListener('change', e => {
     const ks = e.target.closest('[data-kat]');
-    if (ks && S.canEdit && S.sel != null && ks.value === 'baru') {
+    if (ks && bolehIsiSel() && S.sel != null && ks.value === 'baru') {
       const d = S.model.byId.get(S.sel);
       ks.value = d.katalog_id != null ? String(d.katalog_id) : '';
       return katalogBaru(d);
     }
-    if (ks && S.canEdit && S.sel != null) return pilihKatalog(S.model.byId.get(S.sel), ks.value ? +ks.value : null);
+    if (ks && bolehIsiSel() && S.sel != null) return pilihKatalog(S.model.byId.get(S.sel), ks.value ? +ks.value : null);
     const inp = e.target.closest('[data-f]');
-    if (!inp || !S.canEdit || S.sel == null) return;
+    if (!inp || !bolehIsiSel() || S.sel == null) return;
     const d = S.model.byId.get(S.sel);
     const k = inp.dataset.f;
     let v = inp.value;

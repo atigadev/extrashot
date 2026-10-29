@@ -15,6 +15,11 @@
  * POST {"t":TOKEN,"action":"tambah","jenis":"ap","nama":"AP-12","x":..,"y":..,"lantai":"F2","model":"..","uplink_id":N,"catatan":".."}
  *      (peran "installer") -> usulan alat baru (status "usulan"); admin memutuskan bisa dipasang (-> rencana) atau ditolak
  * POST {"t":TOKEN,"action":"usulan_hapus","id":N} (peran "installer") -> tarik usulan sendiri yang belum diputuskan admin
+ * GET  ?t=TOKEN&action=katalog | unit_list&katalog_id=N (peran "installer") -> katalog alat & stok gudang
+ * POST {"t":TOKEN,"action":"simpan","id":N, nama, model, ip, vlan, port_*, media, uplink_id, katalog_id, atribut, ...}
+ *      (peran "installer") -> ubah isian tab Identitas / Koneksi / jenis perangkat (status, posisi, layer, lantai: admin)
+ * POST {"t":TOKEN,"action":"unit_pasang","perangkat_id":N,"unit_id":M} | unit_lepas | unit_save (peran "installer")
+ *      -> pasang / lepas / ubah data unit gudang di titik tugasnya
  *
  * Peran: lihat (baca saja) | status (ubah status, kabel, ceklis, foto, catatan) | installer (hak "status" + mengusulkan
  * alat baru di denah) | cek (checker: pengecekan penempatan sesuai plan, foto bukti, catatan).
@@ -24,6 +29,7 @@
  * POST wajib header "X-NP: 1" (pengaman CSRF, sama seperti admin).
  */
 require __DIR__ . '/db.php';
+require __DIR__ . '/perangkat.inc.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'POST') {
@@ -257,6 +263,135 @@ if ($method === 'POST' && ($action === 'status' || $action === 'catatan')) {
     $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ?');
     $st->execute([$d['id']]);
     json_out(['ok' => true, 'perangkat' => perangkat_row($st->fetch(), !$akses['lihat_password'])]);
+}
+
+// ------------------------------------------------------------------ installer: ubah data perangkat & unit gudang
+
+/** Perangkat tugas installer ini (event sama, kategori tugasnya), atau berhenti dengan galat. */
+$perangkatTugas = function ($pid) use ($pdo, $akses, $proyek) {
+    if ($akses['peran'] !== 'installer') {
+        json_error('Hanya installer yang bisa mengubah data perangkat', 403);
+    }
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ? AND proyek_id = ?');
+    $st->execute([(int) $pid, $proyek['id']]);
+    $d = $st->fetch();
+    if (!$d) {
+        json_error('Perangkat tidak ditemukan (mungkin sudah dihapus)', 404);
+    }
+    if ($akses['jenis_boleh'] && !in_array($d['jenis'], $akses['jenis_boleh'], true)) {
+        json_error($d['nama'] . ' di luar tugas "' . $akses['nama'] . '"', 403);
+    }
+    return $d;
+};
+$unitEvent = function () use ($proyek, $akses) {
+    return unit_list(['proyek' => (int) $proyek['id']], !$akses['lihat_password']);
+};
+
+if ($method === 'GET' && $action === 'katalog') {
+    // Installer memilih alat katalog di tab Identitas: semua katalog (password tersamar bila tidak boleh lihat).
+    if ($akses['peran'] !== 'installer') {
+        json_error('Akses ditolak', 403);
+    }
+    $out = [];
+    foreach ($pdo->query('SELECT * FROM np_katalog ORDER BY jenis, merek, model')->fetchAll() as $r) {
+        $out[] = katalog_row($r, !$akses['lihat_password']);
+    }
+    json_out(['ok' => true, 'katalog' => $out]);
+}
+
+if ($method === 'GET' && $action === 'unit_list') {
+    // Stok gudang satu alat katalog (untuk dipasang di titik tugas installer).
+    if ($akses['peran'] !== 'installer') {
+        json_error('Akses ditolak', 403);
+    }
+    json_out(['ok' => true, 'unit' => unit_list(['katalog' => isset($req['katalog_id']) ? (int) $req['katalog_id'] : 0], !$akses['lihat_password'])]);
+}
+
+if ($method === 'POST' && $action === 'simpan') {
+    // Isian tab Identitas / Koneksi / jenis perangkat. Status, posisi, kunci, lantai, layer, ceklis, verifikasi & data
+    // usulan tetap milik admin / aksi masing-masing; password tersamar tidak menimpa password asli.
+    $d = $perangkatTugas(isset($req['id']) ? $req['id'] : 0);
+    $isi = ['id' => (int) $d['id']];
+    foreach (['nama', 'model', 'ip', 'vlan', 'port_uplink', 'port_lokal', 'media', 'bandwidth_mbps', 'catatan', 'pic', 'katalog_id', 'uplink_id', 'jalur'] as $k) {
+        if (array_key_exists($k, $req)) {
+            $isi[$k] = $req[$k];
+        }
+    }
+    if (array_key_exists('jenis', $req) && $req['jenis'] !== $d['jenis']) {
+        if ($req['jenis'] === 'lan_gedung' || ($akses['jenis_boleh'] && !in_array($req['jenis'], $akses['jenis_boleh'], true))) {
+            json_error('Kategori ini di luar tugas "' . $akses['nama'] . '"', 403);
+        }
+        $isi['jenis'] = $req['jenis'];
+    }
+    if (isset($req['atribut']) && is_array($req['atribut'])) {
+        $lama = json_decode((string) $d['atribut'], true);
+        $lama = is_array($lama) ? $lama : [];
+        $baru = $req['atribut'];
+        $tetap = ['kunci', 'lantai', 'lapisan', 'kabel', 'ceklis', 'ceklis_x', 'verif', 'usulan_oleh', 'usulan_akses', 'usulan_waktu'];
+        if (!$akses['lihat_password']) {
+            $tetap[] = 'mt'; // konfigurasi MikroTik berisi password PPPoE
+            foreach (NP_RAHASIA as $k) {
+                if (isset($baru[$k]) && $baru[$k] === '••••••') {
+                    $tetap[] = $k;
+                }
+            }
+        }
+        foreach ($tetap as $k) {
+            unset($baru[$k]);
+            if (isset($lama[$k])) {
+                $baru[$k] = $lama[$k];
+            }
+        }
+        $isi['atribut'] = $baru;
+    }
+    $simpan = simpan_perangkat($isi);
+    // Ganti / lepas alat katalog = unit gudang lama kembali ke gudang (sama seperti admin).
+    $pdo->prepare('UPDATE np_unit SET perangkat_id = NULL WHERE perangkat_id = ? AND NOT (katalog_id <=> ?)')
+        ->execute([$d['id'], $simpan['katalog_id']]);
+    $st = $pdo->prepare('SELECT * FROM np_perangkat WHERE id = ?');
+    $st->execute([$d['id']]);
+    json_out(['ok' => true, 'perangkat' => perangkat_row($st->fetch(), !$akses['lihat_password']), 'unit' => $unitEvent()]);
+}
+
+if ($method === 'POST' && ($action === 'unit_pasang' || $action === 'unit_lepas')) {
+    $d = $perangkatTugas(isset($req['perangkat_id']) ? $req['perangkat_id'] : 0);
+    if ($action === 'unit_pasang') {
+        $u = find_unit(isset($req['unit_id']) ? (int) $req['unit_id'] : 0);
+        if ((int) $u['katalog_id'] !== (int) $d['katalog_id']) {
+            json_error('Unit ini dari alat katalog lain — pilih alat katalog yang sama di tab Identitas dulu');
+        }
+        if ($u['perangkat_id'] !== null && (int) $u['perangkat_id'] !== (int) $d['id']) {
+            json_error('Unit ini sedang dipakai perangkat lain — lepas dulu di sana');
+        }
+        if ($u['kondisi'] === 'rusak') {
+            json_error('Unit ini berstatus rusak — tidak bisa dipasang');
+        }
+    }
+    $pdo->beginTransaction();
+    $pdo->prepare('UPDATE np_unit SET perangkat_id = NULL WHERE perangkat_id = ?')->execute([$d['id']]);
+    if ($action === 'unit_pasang') {
+        $pdo->prepare('UPDATE np_unit SET perangkat_id = ? WHERE id = ?')->execute([$d['id'], $u['id']]);
+    }
+    $pdo->commit();
+    json_out(['ok' => true, 'unit' => $unitEvent()]);
+}
+
+if ($method === 'POST' && $action === 'unit_save') {
+    // Data unit yang sedang terpasang di titik tugas installer (SN, MAC, firmware, IP, catatan konfigurasi...).
+    $u = find_unit(isset($req['id']) ? (int) $req['id'] : 0);
+    if ($u['perangkat_id'] === null) {
+        json_error('Unit ini tidak terpasang di event ini', 403);
+    }
+    $perangkatTugas($u['perangkat_id']);
+    $v = unit_isian($req, $u);
+    if (!$akses['lihat_password']) {
+        $v['pass_admin'] = $u['pass_admin'];
+    }
+    unit_cek_unik($v, (int) $u['id']);
+    $pdo->prepare('UPDATE np_unit SET sn = ?, mac = ?, firmware = ?, aset = ?, ip_mgmt = ?, user_admin = ?, pass_admin = ?, kondisi = ?,
+        lokasi = ?, catatan = ? WHERE id = ?')->execute([$v['sn'], $v['mac'], $v['firmware'], $v['aset'], $v['ip_mgmt'], $v['user_admin'],
+        $v['pass_admin'], $v['kondisi'], $v['lokasi'], $v['catatan'], $u['id']]);
+    json_out(['ok' => true, 'unit' => unit_list(['id' => (int) $u['id']], !$akses['lihat_password'])[0]]);
 }
 
 if ($method === 'POST' && $action === 'tambah') {

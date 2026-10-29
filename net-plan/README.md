@@ -375,6 +375,17 @@ dan tarikan LAN**, tanpa status pemasangan, progres foto, dan hasil pengecekan:
 
 Pustaka PptxGenJS 3.12.0 (MIT) ada di `vendor/pptxgenjs.bundle.js` dan hanya dimuat saat tombol diklik.
 
+**Denah dari PDF.** Semua upload denah (event baru, kartu *Denah venue*, dan denah per lantai) menerima **PDF** selain
+PNG/JPG/WEBP/GIF.
+- PDF diubah menjadi gambar langsung di browser memakai pdf.js 3.11.174 (Apache-2.0, `vendor/pdf.min.js` +
+  `vendor/pdf.worker.min.js`, dimuat hanya saat upload PDF). Server tetap menerima gambar biasa.
+- PDF lebih dari 1 halaman: pilih nomor halaman yang dipakai.
+- Resolusi: sisi terpanjang ±6000 px (maks. 100 MP), latar putih. Hasilnya PNG, atau JPEG bila PNG > 10 MB.
+- Ada progress selama konversi. PDF ber-password ditolak dengan pesan yang jelas.
+- Event baru: PDF dikonversi dulu sebelum event dibuat, jadi tidak ada event yang terlanjur dibuat bila PDF gagal
+  dibaca atau dibatalkan.
+- File CAD (DWG): ekspor dulu ke PDF.
+
 **Salin SSID & password WiFi.** Di tab *Access Point* (juga *Wireless bridge*) dan tab *Info*, kotak WiFi punya
 tombol **⧉ SSID**, **⧉ Password**, dan **⧉ SSID + password**. Nilai diambil langsung dari isian saat itu, jadi yang
 baru diketik pun ikut. Format salin keduanya: `SSID: …` / `Password: …`. Di link lihat-saja / tim tanpa izin lihat

@@ -586,8 +586,9 @@
     }
     btn.disabled = true;
     try {
+      // Denah PDF diubah jadi gambar dulu, agar event tidak terlanjur dibuat bila PDF gagal dibaca / dibatalkan.
+      const file = !editing && f.elements.denah.files[0] ? await siapkanDenah(f.elements.denah.files[0]) : null;
       const res = await api(API, body);
-      const file = !editing && f.elements.denah.files[0];
       if (file) await uploadDenah(res.proyek.id, file, false);
       $('#dlg-proyek').close();
       if (!editing && body.password) {
@@ -608,7 +609,62 @@
     }
   });
 
+  /**
+   * File denah siap upload: gambar dikirim apa adanya; PDF (denah arsitek / CAD yang diekspor ke PDF) dirender di browser
+   * dengan pdf.js menjadi gambar. PDF lebih dari 1 halaman: pilih halamannya. Sisi terpanjang ±6000 px (tajam saat
+   * di-zoom), dibatasi 100 MP agar muat di kanvas browser. PNG (garis tajam); JPEG bila PNG terlalu besar.
+   */
+  async function siapkanDenah(file) {
+    if (!file || !(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) return file;
+    progres.buka('Mengubah PDF menjadi gambar', 'Memuat pembaca PDF…');
+    let pdf = null;
+    try {
+      await muatSkrip('vendor/pdf.min.js?v=3.11.174');
+      const lib = window.pdfjsLib;
+      lib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js?v=3.11.174';
+      progres.set(10, 'Membaca file PDF…');
+      pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+      const jml = pdf.numPages;
+      let no = 1;
+      if (jml > 1) {
+        progres.tutup();
+        const j = prompt(`PDF berisi ${jml} halaman. Halaman berapa yang dipakai sebagai denah? (1–${jml})`, '1');
+        if (j == null) throw new Error('Upload denah dibatalkan');
+        no = Math.min(jml, Math.max(1, parseInt(j, 10) || 1));
+        progres.buka('Mengubah PDF menjadi gambar');
+      }
+      progres.set(25, `Merender halaman ${no}${jml > 1 ? ' dari ' + jml : ''}…`);
+      const page = await pdf.getPage(no);
+      const v1 = page.getViewport({ scale: 1 });
+      let scale = 6000 / Math.max(v1.width, v1.height);
+      const MAKS_AREA = 100e6;
+      if (v1.width * v1.height * scale * scale > MAKS_AREA) scale = Math.sqrt(MAKS_AREA / (v1.width * v1.height));
+      const vp = page.getViewport({ scale });
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(vp.width);
+      cv.height = Math.round(vp.height);
+      const g = cv.getContext('2d');
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, cv.width, cv.height);
+      await page.render({ canvasContext: g, viewport: vp }).promise;
+      progres.set(85, `Menyimpan gambar ${cv.width} × ${cv.height} px…`);
+      await progres.jeda();
+      let blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+      if (!blob || blob.size > 10 * 1024 * 1024) blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.9));
+      if (!blob) throw new Error('PDF gagal diubah menjadi gambar (halaman terlalu besar untuk browser ini)');
+      progres.set(100, 'Selesai');
+      const nama = file.name.replace(/\.pdf$/i, '') + (jml > 1 ? '-hal' + no : '') + (blob.type === 'image/png' ? '.png' : '.jpg');
+      return new File([blob], nama, { type: blob.type });
+    } catch (e) {
+      throw new Error(e && e.name === 'PasswordException' ? 'PDF dilindungi password — buka kuncinya dulu' : (e && e.message) || 'PDF tidak bisa dibaca');
+    } finally {
+      if (pdf) pdf.destroy();
+      progres.tutup();
+    }
+  }
+
   async function uploadDenah(id, file, sesuaikan) {
+    file = await siapkanDenah(file);
     const fd = new FormData();
     fd.append('action', 'denah_upload');
     fd.append('id', id);
@@ -6559,12 +6615,12 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       <div class="card">
         <h2>Denah venue</h2>
         ${p.denah_v ? `<img class="denah-prev" src="${esc(denahUrl())}" alt="Denah"><p class="muted small">${p.denah_w} × ${p.denah_h} piksel</p>` : '<p class="muted">Belum ada denah.</p>'}
-        <label class="field"><span>${p.denah_v ? 'Ganti' : 'Upload'} gambar denah (PNG/JPG/WEBP, maks. 30 MB)</span>
-          <input type="file" id="denah-file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+        <label class="field"><span>${p.denah_v ? 'Ganti' : 'Upload'} denah (PDF/PNG/JPG/WEBP, maks. 30 MB)</span>
+          <input type="file" id="denah-file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf"></label>
         ${p.denah_v ? `<label class="check"><input type="checkbox" id="denah-sesuaikan" checked>
           <span>Denah baru = venue yang sama (hanya resolusi/versi berbeda)<small>Posisi perangkat & skala diskalakan mengikuti ukuran gambar baru. Hapus centang bila denahnya berbeda — skala perlu dikalibrasi ulang.</small></span></label>
           <button type="button" class="small danger" data-p="denah-del">Hapus denah</button>` : ''}
-        <p class="muted small">Denah PDF/CAD: ekspor/screenshot menjadi PNG dulu. Resolusi lebih tinggi = lebih tajam saat di-zoom.</p>
+        <p class="muted small">PDF diubah otomatis menjadi gambar di browser (PDF banyak halaman: pilih halamannya). File CAD (DWG): ekspor dulu ke PDF. Resolusi lebih tinggi = lebih tajam saat di-zoom.</p>
       </div>
       <div class="card">
         <h2>Skala denah</h2>
@@ -6818,7 +6874,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
               <label class="lt-tinggi" title="Tinggi lantai ke lantai (untuk panjang kabel riser)"><input type="number" min="0" max="50" step="0.1" value="${l.tinggi}" data-lt-tinggi aria-label="Tinggi lantai"> m</label></div>
             <p class="muted small">${n(l.id)} perangkat · ${l.denah_w ? `${l.denah_w} × ${l.denah_h} px · ` : ''}skala ${skalaTxt(l)} · elevasi ${l.elev.toLocaleString('id-ID')} m</p>
             ${l.utama ? '<p class="muted small">Denah utama — ganti gambarnya di kartu <b>Denah venue</b>.</p>'
-              : `<div class="inline lt-up"><label class="btn small">${l.denah_v ? 'Ganti' : 'Upload'} denah<input type="file" data-lt-file accept="image/png,image/jpeg,image/webp,image/gif" hidden></label>
+              : `<div class="inline lt-up"><label class="btn small">${l.denah_v ? 'Ganti' : 'Upload'} denah<input type="file" data-lt-file accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf" hidden></label>
                 ${l.denah_v ? `<label class="check small"><input type="checkbox" data-lt-sesuai checked><span>Venue sama (skalakan posisi)</span></label>` : ''}
                 ${l.skala ? '<button type="button" class="small ghost" data-lt-skala-reset>Hapus kalibrasi</button>' : ''}</div>`}
           </div>
@@ -6853,7 +6909,12 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
       fd.append('id', S.proyek.id);
       fd.append('lantai_id', lid);
       fd.append('sesuaikan', s && s.checked ? '1' : '0');
-      fd.append('denah', t.files[0]);
+      try {
+        fd.append('denah', await siapkanDenah(t.files[0]));
+      } catch (err) {
+        t.value = '';
+        return toast(err.message, true);
+      }
       toast('Mengunggah denah…');
       try {
         const res = await api(API, fd);

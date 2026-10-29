@@ -1019,7 +1019,7 @@ function terima_gambar_denah()
     $info = @getimagesize($f['tmp_name']);
     $ext = [IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif'];
     if (!$info || !isset($ext[$info[2]])) {
-        json_error('Format denah harus PNG, JPG, WEBP, atau GIF. File PDF/CAD: ekspor dulu menjadi gambar.');
+        json_error('Format denah harus PDF, PNG, JPG, WEBP, atau GIF. File CAD (DWG): ekspor dulu ke PDF.');
     }
     list($w, $h) = $info;
     if ($w < 50 || $h < 50 || $w > 20000 || $h > 20000) {

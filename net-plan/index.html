@@ -1,536 +1,700 @@
 ﻿<!doctype html>
 <html lang="id">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
-<title>Net Plan — Perencanaan Jaringan Event</title>
-<link rel="stylesheet" href="assets/np.css?v=138">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <!-- Naikkan angka ?v= di bawah setiap kali assets diubah, agar browser (terutama HP) tidak memakai versi lama dari cache. -->
+  <title>Net Plan — Perencanaan Jaringan Event</title>
+  <link rel="stylesheet" href="assets/np.css?v=138">
 </head>
+
 <body>
 
-<div class="overlay" id="login" hidden>
-  <form class="card" id="login-form">
-    <h2>Net Plan — Masuk</h2>
-    <label class="field">
-      <span>Password admin utama, atau password admin event</span>
-      <input type="password" id="login-pass" autocomplete="current-password" required>
-    </label>
-    <label class="check login-ingat"><input type="checkbox" id="login-ingat">
-      <span>Ingat saya<small>Admin utama: 1 minggu · admin event: sampai event selesai (min. 1 minggu). Jangan dicentang di komputer umum.</small></span></label>
-    <button class="primary" type="submit" style="width:100%">Masuk</button>
-    <p class="err-text" id="login-err" hidden></p>
-  </form>
-</div>
-
-<header class="topbar">
-  <a class="brand" href="#/" id="brand">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><circle cx="5" cy="18" r="2.6"/><circle cx="19" cy="18" r="2.6"/><path d="M12 7.6v4.4M12 12l-5.4 4M12 12l5.4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
-    <span class="brand-txt">Net Plan</span>
-  </a>
-  <div class="crumb" id="crumb"></div>
-  <span class="spacer"></span>
-  <span class="save-state" id="save-state"></span>
-  <button type="button" id="btn-print" class="hide-phone" hidden>Cetak</button>
-  <details class="menu menu-akun" id="menu-akun">
-    <summary aria-label="Menu akun" title="Menu akun">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
-    </summary>
-    <div class="menu-pop">
-      <button type="button" id="btn-akun" hidden>Ganti password</button>
-      <button type="button" id="btn-pintasan">Pintasan keyboard <kbd>?</kbd></button>
-      <button type="button" id="btn-logout" class="danger" hidden>Keluar</button>
-    </div>
-  </details>
-</header>
-
-<!-- Daftar event -->
-<main id="home" class="home" hidden>
-  <div class="home-head">
-    <div>
-      <h1>Event</h1>
-      <p class="muted">Setiap event berisi denah venue dan titik-titik jaringannya.</p>
-    </div>
-    <div class="btn-row">
-      <a class="btn" href="#/katalog">Katalog perangkat</a>
-      <button type="button" id="btn-backup-semua" title="Simpan semua event + katalog ke satu file">Backup semua</button>
-      <button type="button" id="btn-pulihkan" title="Buka file backup sebagai event baru">Buka backup…</button>
-      <input type="file" id="file-pulihkan" accept=".json,.netplan,application/json" hidden>
-      <button type="button" class="primary super-only" id="btn-new">+ Event baru</button>
-    </div>
+  <div class="overlay" id="login" hidden>
+    <form class="card" id="login-form">
+      <h2>Net Plan — Masuk</h2>
+      <label class="field">
+        <span>Password admin utama, atau password admin event</span>
+        <input type="password" id="login-pass" autocomplete="current-password" required>
+      </label>
+      <label class="check login-ingat"><input type="checkbox" id="login-ingat">
+        <span>Ingat saya</span></label>
+      <button class="primary" type="submit" style="width:100%">Masuk</button>
+      <p class="err-text" id="login-err" hidden></p>
+    </form>
   </div>
-  <div class="proj-grid" id="proj-grid"></div>
-</main>
 
-<!-- Katalog perangkat (standar alat untuk semua event) -->
-<main id="katalog-page" class="home kat-page" hidden>
-  <div class="kat-head">
-    <div class="kat-judul">
-      <h1>Katalog &amp; gudang perangkat</h1>
-      <p class="muted">Alat standar per kategori (spesifikasi &amp; konfigurasi standar) beserta unit fisiknya di gudang — dipilih saat menaruh perangkat di denah.</p>
-    </div>
-    <div class="kat-aksi">
-      <button type="button" id="kat-ep" class="super-only" title="Kelola tipe endpoint (laptop, EDC, printer, …)">Tipe endpoint</button>
-      <button type="button" id="kat-csv" title="Unduh daftar katalog (CSV)">⬇ CSV</button>
-      <button type="button" class="primary super-only" id="kat-new">＋ Tambah alat</button>
-    </div>
-  </div>
-  <div class="kat-stat" id="kat-stat"></div>
-  <div class="kat-tools">
-    <label class="kat-cari"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <input type="search" id="kat-q" placeholder="Cari merek, tipe, spesifikasi, keterangan…" aria-label="Cari katalog"></label>
-    <div class="chips kat-chips" id="kat-chips" role="group" aria-label="Filter kategori"></div>
-  </div>
-  <div id="kat-list"></div>
-</main>
-
-<!-- Editor satu event -->
-<div id="editor" class="editor" hidden>
-  <nav class="tabs" id="tabs">
-    <button type="button" data-tab="denah">Denah</button>
-    <button type="button" data-tab="daftar">Daftar<span class="hide-phone"> perangkat</span></button>
-    <button type="button" data-tab="topologi">Topologi<span class="hide-phone"> &amp; cek</span></button>
-    <button type="button" data-tab="support">Support<span class="hide-phone"> &amp; listrik</span></button>
-    <button type="button" data-tab="ceklis">Ceklis</button>
-    <button type="button" data-tab="port" title="Penggunaan port switch &amp; router">Port</button>
-    <button type="button" data-tab="proyek">Proyek</button>
+  <header class="topbar">
+    <a class="brand" href="#/" id="brand">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <circle cx="12" cy="5" r="2.6" />
+        <circle cx="5" cy="18" r="2.6" />
+        <circle cx="19" cy="18" r="2.6" />
+        <path d="M12 7.6v4.4M12 12l-5.4 4M12 12l5.4 4" fill="none" stroke="currentColor" stroke-width="1.8" />
+      </svg>
+      <span class="brand-txt">Net Plan</span>
+    </a>
+    <div class="crumb" id="crumb"></div>
     <span class="spacer"></span>
-    <div class="tab-actions">
-      <button type="button" class="ta edit-only" id="btn-undo" disabled title="Batalkan (Ctrl+Z)" aria-label="Batalkan">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>
-      </button>
-      <button type="button" class="ta edit-only" id="btn-redo" disabled title="Ulangi (Ctrl+Y)" aria-label="Ulangi">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 000 10h3"/></svg>
-      </button>
-      <button type="button" class="ta cari-btn" id="btn-cari" title="Cari perangkat &amp; perintah (Ctrl+K)">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-        <span class="hide-phone">Cari</span><kbd class="hide-phone">Ctrl K</kbd>
-      </button>
-    </div>
-  </nav>
+    <span class="save-state" id="save-state"></span>
+    <button type="button" id="btn-print" class="hide-phone" hidden>Cetak</button>
+    <details class="menu menu-akun" id="menu-akun">
+      <summary aria-label="Menu akun" title="Menu akun">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+          aria-hidden="true">
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" />
+        </svg>
+      </summary>
+      <div class="menu-pop">
+        <button type="button" id="btn-akun" hidden>Ganti password</button>
+        <button type="button" id="btn-pintasan">Pintasan keyboard <kbd>?</kbd></button>
+        <button type="button" id="btn-logout" class="danger" hidden>Keluar</button>
+      </div>
+    </details>
+  </header>
 
-  <section class="tab-pane" data-pane="denah">
-    <div class="peta-layout">
-      <div class="toolbar" id="toolbar"></div>
-      <div class="peta-area">
-        <svg id="map" class="map"></svg>
-        <div class="map-filters">
-          <div class="view-switch" id="view-switch" role="group" aria-label="Tampilkan perangkat">
-            <button type="button" data-view="semua" title="Semua perangkat">Semua</button>
-            <button type="button" data-view="jaringan" title="Hanya perangkat jaringan">Jaringan</button>
-            <button type="button" data-view="jenis:ap" title="Hanya access point (WiFi)">AP</button>
-            <button type="button" data-view="jenis:switch" title="Hanya switch">Switch</button>
-            <button type="button" data-view="support" title="Hanya titik listrik &amp; peralatan support">⚡ Support</button>
-          </div>
-          <div class="lapisan-switch lantai-switch" id="lantai-switch" role="group" aria-label="Lantai gedung" hidden></div>
-          <div class="lapisan-switch" id="lapisan-switch" role="group" aria-label="Layer jaringan" hidden></div>
-          <button type="button" class="anot-toggle" id="btn-anot" aria-pressed="true" hidden><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 5h16v10H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Label <b></b></button>
-          <span class="mf-break" aria-hidden="true"></span>
-          <div class="map-hint" id="map-hint" hidden></div>
-          <div class="ep-picker" id="ep-picker" hidden></div>
-        </div>
-        <div class="map-ctrl">
-          <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
-          <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
-          <button type="button" data-zoom="fit" title="Seluruh denah (F)">⤢</button>
-          <button type="button" id="btn-panel" class="hide-sheet" title="Sembunyikan panel kanan (P)" aria-label="Sembunyikan / tampilkan panel kanan" aria-pressed="true">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path class="pnl-fill" d="M15 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4z" fill="currentColor" stroke="none"/></svg>
-          </button>
-          <button type="button" id="btn-full" title="Peta layar penuh" aria-label="Peta layar penuh" aria-pressed="false">⛶</button>
-          <button type="button" class="layers-btn" id="btn-layers" title="Tampilan peta: label, garis, cakupan AP, progres kabel, kecerahan denah" aria-expanded="false">☰</button>
-        </div>
-        <div class="map-layers" id="map-layers">
-          <span class="ml-h">Tampilan peta</span>
-          <label><input type="checkbox" data-layer="label" checked> Label</label>
-          <label><input type="checkbox" data-layer="garis" checked> Garis uplink</label>
-          <label><input type="checkbox" data-layer="jarak"> Panjang kabel</label>
-          <label><input type="checkbox" data-layer="cakupan" checked> Cakupan AP</label>
-          <label><input type="checkbox" data-layer="internet" checked> Status internet</label>
-          <label title="Warna garis = status penarikan kabel"><input type="checkbox" data-layer="kabel"> Progres kabel</label>
-          <label title="Garis dari perangkat ke titik listrik pemasoknya"><input type="checkbox" data-layer="listrik"> Jalur listrik</label>
-          <label class="opacity-ctl" title="Pudarkan denah agar titik perangkat lebih jelas">Denah
-            <input type="range" id="denah-opacity" min="10" max="100" step="5" value="100">
-            <output id="denah-opacity-val">100%</output></label>
-        </div>
+  <!-- Daftar event -->
+  <main id="home" class="home" hidden>
+    <div class="home-head">
+      <div>
+        <h1>Event</h1>
+        <p class="muted">Setiap event berisi denah venue dan titik-titik jaringannya.</p>
       </div>
-      <aside class="panel" id="panel" data-sheet="peek">
-        <div class="sheet-bar" id="sheet-bar">
-          <span class="grip"></span>
-          <span class="sheet-title" id="sheet-title"></span>
-          <button type="button" class="icon" id="sheet-toggle" aria-label="Perbesar/perkecil panel">▴</button>
-        </div>
-        <div id="panel-body"></div>
-      </aside>
-    </div>
-  </section>
-
-  <section class="tab-pane scroll" data-pane="daftar" hidden>
-    <div class="page">
-      <div class="list-tools">
-        <input type="search" id="list-q" placeholder="Cari nama, IP, SSID, merek, keterangan…">
-        <select id="list-jenis"><option value="">Semua jenis</option></select>
-        <select id="list-status"><option value="">Semua status</option></select>
-        <select id="list-koneksi"><option value="">Semua koneksi</option></select>
-        <select id="list-kabel" aria-label="Filter status kabel"><option value="">Semua status kabel</option></select>
-        <button type="button" class="small ghost" id="list-reset" hidden>Reset filter</button>
-        <span class="spacer"></span>
-        <span class="muted small" id="list-count"></span>
-        <button type="button" id="btn-unit-seri" title="Data unit fisik (SN, MAC, firmware, file backup) per merek &amp; seri">📦 Unit per seri</button>
-        <button type="button" id="btn-csv">Unduh CSV</button>
-        <details class="menu">
-          <summary class="btn">Lainnya ▾</summary>
-          <div class="menu-pop right">
-            <button type="button" id="btn-export">Ekspor JSON</button>
-            <button type="button" id="btn-import" class="edit-only">Impor JSON…</button>
-            <button type="button" id="btn-rapikan" class="edit-only" title="Namai ulang anggota setiap group bernama agar berurutan">Rapikan nama group</button>
-            <button type="button" id="btn-kolom">Kolom kosong: <b id="kolom-mode">disembunyikan</b></button>
-            <hr class="edit-only">
-            <button type="button" id="btn-del-all" class="edit-only danger">Hapus semua perangkat…</button>
-          </div>
-        </details>
-        <input type="file" id="import-file" accept=".json,application/json" hidden>
-      </div>
-      <div class="bulk-bar pilih-only" id="bulk-bar" hidden>
-        <b id="bulk-n"></b>
-        <span class="spacer"></span>
-        <button type="button" class="small" id="bulk-all">Pilih semua yang tampil</button>
-        <select id="bulk-status" class="small-select" aria-label="Ubah status perangkat terpilih"><option value="">Ubah status…</option></select>
-        <select id="bulk-kabel" class="small-select" aria-label="Ubah status kabel perangkat terpilih"><option value="">Status kabel…</option></select>
-        <select id="bulk-listrik" class="small-select edit-only" aria-label="Pasang titik listrik ke perangkat terpilih"><option value="">⚡ Titik listrik…</option></select>
-        <select id="bulk-lapisan" class="small-select edit-only" aria-label="Pindahkan perangkat terpilih ke layer jaringan" hidden><option value="">◧ Layer…</option></select>
-        <select id="bulk-lantai" class="small-select edit-only" aria-label="Pindahkan perangkat terpilih ke lantai lain" hidden><option value="">⇅ Lantai…</option></select>
-        <button type="button" class="small edit-only" id="bulk-kunci" title="Kunci posisi titik terpilih agar tidak tergeser di denah">🔒 Kunci posisi</button>
-        <button type="button" class="small edit-only" id="bulk-buka" title="Buka kunci posisi titik terpilih">🔓 Buka kunci</button>
-        <button type="button" class="small edit-only" id="bulk-unlink" title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
-        <button type="button" class="small danger edit-only" id="bulk-del">Hapus terpilih</button>
-        <button type="button" class="small" id="bulk-clear">Batal pilih</button>
-      </div>
-      <div class="table-wrap"><table class="dev-table" id="dev-table"></table></div>
-    </div>
-  </section>
-
-  <section class="tab-pane scroll" data-pane="topologi" hidden>
-    <div class="page topo-layout">
-      <div class="card">
-        <div class="tree-head">
-          <h2>Pohon topologi <span class="muted small" id="topo-count"></span></h2>
-          <div class="btn-row">
-            <button type="button" class="small" data-tree="buka" title="Tampilkan semua cabang">Buka semua</button>
-            <button type="button" class="small" data-tree="ringkas" title="Tutup cabang yang isinya hanya endpoint (laptop, printer, …)">Tutup endpoint</button>
-            <button type="button" class="small" data-tree="tutup" title="Tampilkan hanya perangkat akar">Tutup semua</button>
-          </div>
-        </div>
-        <div class="tree" id="tree"></div>
-      </div>
-      <div class="topo-side">
-        <div class="card"><h2>Progres penarikan kabel</h2><div id="kabel-progres"></div></div>
-        <div class="card"><h2>Pemeriksaan desain</h2><div id="checks"></div></div>
-        <div class="card"><h2>VLAN</h2><div id="vlan-sum"></div></div>
-        <div class="card"><h2>Kebutuhan listrik</h2><div id="listrik-sum"></div></div>
-        <div class="card"><h2>Sumber WAN</h2><div id="wan-sum"></div></div>
-        <div class="card"><h2>SSID</h2><div id="ssid-sum"></div></div>
-        <div class="card"><h2>Kebutuhan perangkat</h2><div id="bom"></div></div>
-        <div class="card"><h2>Estimasi kabel</h2><div id="kabel-sum"></div></div>
+      <div class="btn-row">
+        <a class="btn" href="#/katalog">Katalog perangkat</a>
+        <button type="button" id="btn-backup-semua" title="Simpan semua event + katalog ke satu file">Backup
+          semua</button>
+        <button type="button" id="btn-pulihkan" title="Buka file backup sebagai event baru">Buka backup…</button>
+        <input type="file" id="file-pulihkan" accept=".json,.netplan,application/json" hidden>
+        <button type="button" class="primary super-only" id="btn-new">+ Event baru</button>
       </div>
     </div>
-  </section>
+    <div class="proj-grid" id="proj-grid"></div>
+  </main>
 
-  <section class="tab-pane scroll" data-pane="support" hidden>
-    <div class="page" id="support-pane"></div>
-  </section>
-
-  <section class="tab-pane scroll" data-pane="ceklis" hidden>
-    <div class="page" id="ceklis-pane"></div>
-  </section>
-  <section class="tab-pane scroll" data-pane="port" hidden>
-    <div class="page" id="port-pane"></div>
-  </section>
-
-  <section class="tab-pane scroll" data-pane="proyek" hidden>
-    <div class="page proj-layout" id="proyek-pane"></div>
-  </section>
-</div>
-
-<!-- Dialog event baru / ubah -->
-<dialog id="dlg-proyek" class="dlg">
-  <form method="dialog" id="form-proyek" autocomplete="off">
-    <h2 id="dlg-proyek-title">Event baru</h2>
-    <label class="field"><span>Nama event *</span>
-      <input type="text" name="nama" maxlength="150" required placeholder="mis. Jakarta Muslim Fair 2026"></label>
-    <label class="field"><span>Venue</span>
-      <input type="text" name="venue" maxlength="200" placeholder="mis. JCC Senayan, Hall A"></label>
-    <div class="row2">
-      <label class="field"><span>Tanggal mulai</span><input type="date" name="tanggal_mulai"></label>
-      <label class="field"><span>Tanggal selesai</span><input type="date" name="tanggal_selesai"></label>
-    </div>
-    <label class="field new-only"><span>Password admin event — untuk login admin khusus event ini (min. 8 karakter, boleh dikosongkan)</span>
-      <div class="inline">
-        <input type="password" name="password" minlength="8" maxlength="72" autocomplete="new-password" class="mono">
-        <button type="button" class="small" data-pw="lihat" title="Tampilkan / sembunyikan">👁</button>
-        <button type="button" class="small" data-pw="acak" title="Buat password acak">Acak</button>
-        <button type="button" class="small" data-pw="salin" title="Salin password">Salin</button>
+  <!-- Katalog perangkat (standar alat untuk semua event) -->
+  <main id="katalog-page" class="home kat-page" hidden>
+    <div class="kat-head">
+      <div class="kat-judul">
+        <h1>Katalog &amp; gudang perangkat</h1>
+        <p class="muted">Alat standar per kategori (spesifikasi &amp; konfigurasi standar) beserta unit fisiknya di
+          gudang — dipilih saat menaruh perangkat di denah.</p>
       </div>
-      <small class="muted">Admin event hanya bisa mengelola event ini (tidak bisa membuat/menghapus event lain). Catat &amp; berikan ke PIC event.</small></label>
-    <label class="field new-only"><span>Denah venue (PDF/PNG/JPG/WEBP) — bisa menyusul</span>
-      <input type="file" name="denah" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf"></label>
-    <div class="btn-row end">
-      <button type="button" value="cancel" data-close>Batal</button>
-      <button type="submit" class="primary" value="ok">Simpan</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Dialog item katalog -->
-<dialog id="dlg-kat" class="dlg dlg-wide">
-  <form method="dialog" id="form-kat" autocomplete="off">
-    <h2 id="dlg-kat-title">Tambah alat</h2>
-    <div class="fgrid3">
-      <label class="field"><span>Kategori</span><select name="jenis" id="kat-jenis"></select></label>
-      <label class="field"><span>Merek</span><input type="text" name="merek" maxlength="80" placeholder="mis. MikroTik, TP-Link, Ubiquiti"></label>
-      <label class="field"><span>Tipe / model *</span><input type="text" name="model" maxlength="120" required placeholder="mis. RB5009UG+S+IN"></label>
-      <label class="field"><span>Stok (unit)</span><input type="number" name="stok" min="0" step="1" placeholder="kosong = tidak dicatat"></label>
-    </div>
-    <div class="kat-tipe" id="kat-tipe" hidden></div>
-    <h3 class="sec-title">Spesifikasi</h3>
-    <div class="fgrid3" id="kat-spec"></div>
-    <h3 class="sec-title">Konfigurasi standar <small class="muted">diisikan otomatis ke perangkat yang memakai alat ini</small></h3>
-    <div class="fgrid3" id="kat-konf"></div>
-    <label class="field"><span>Template keterangan konfigurasi</span>
-      <textarea name="catatan_konfig" rows="5" class="mono" placeholder="mis.&#10;- Band steering ON, client isolation ON&#10;- Minimum RSSI -75 dBm&#10;- Firmware minimal 1.2.3"></textarea></label>
-    <label class="field"><span>Keterangan katalog</span>
-      <textarea name="keterangan" rows="2" placeholder="mis. lokasi gudang, aksesoris (adaptor, bracket), nomor aset"></textarea></label>
-    <div class="btn-row end">
-      <button type="button" data-close>Batal</button>
-      <button type="submit" class="primary">Simpan</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Dialog ganti password login -->
-<dialog id="dlg-akun" class="dlg">
-  <form method="dialog" id="form-akun" autocomplete="off">
-    <h2>Ganti password</h2>
-    <p class="muted small" id="akun-info"></p>
-    <label class="field"><span>Password lama</span>
-      <input type="password" name="lama" required autocomplete="current-password"></label>
-    <label class="field"><span>Password baru (8–72 karakter)</span>
-      <div class="inline"><input type="password" name="baru" minlength="8" maxlength="72" required autocomplete="new-password" class="mono">
-        <button type="button" class="small" data-pw="lihat" title="Tampilkan">👁</button>
-        <button type="button" class="small" data-pw="acak">Acak</button>
-        <button type="button" class="small" data-pw="salin">Salin</button></div></label>
-    <label class="field"><span>Ulangi password baru</span>
-      <input type="password" name="ulang" minlength="8" maxlength="72" required autocomplete="new-password" class="mono"></label>
-    <p class="err-text" id="akun-err" hidden></p>
-    <div class="btn-row end">
-      <button type="button" data-close>Batal</button>
-      <button type="submit" class="primary">Simpan password</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Dialog akses tim -->
-<dialog id="dlg-akses" class="dlg dlg-akses">
-  <form method="dialog" id="form-akses" autocomplete="off">
-    <h2 id="dlg-akses-title" class="ak-head">Tambah akses tim</h2>
-    <div class="ak-body">
-      <label class="field"><span>Nama tim / anggota *</span>
-        <input type="text" name="nama" maxlength="100" required placeholder="mis. Tim WiFi, Tim Kabel, QA — Budi"></label>
-
-      <section class="ak-sec">
-        <h3>Peran</h3>
-        <div class="peran-grid">
-          <label class="peran-opt"><input type="radio" name="peran" value="lihat" checked><i>👁</i>
-            <span><b>Lihat saja</b><small>Hanya membaca</small></span></label>
-          <label class="peran-opt"><input type="radio" name="peran" value="status"><i>✎</i>
-            <span><b>Update status</b><small>Status &amp; catatan lapangan</small></span></label>
-          <label class="peran-opt"><input type="radio" name="peran" value="installer"><i>🛠</i>
-            <span><b>Installer</b><small>Pasang &amp; isi data alat</small></span></label>
-          <label class="peran-opt"><input type="radio" name="peran" value="cek"><i>✓</i>
-            <span><b>Checker penempatan</b><small>Cek sesuai plan + foto</small></span></label>
-        </div>
-        <div class="peran-detail" id="akses-detail"></div>
-      </section>
-
-      <section class="ak-sec" id="akses-status">
-        <h3>Status yang boleh diset</h3>
-        <div class="chip-cek" id="akses-status-list"></div>
-      </section>
-
-      <section class="ak-sec">
-        <h3>Kategori tugas <small class="muted">kosong = semua kategori</small>
-          <span class="spacer"></span><button type="button" class="small ghost" data-jenis-semua="1">Centang semua</button><button type="button" class="small ghost" data-jenis-semua="0">Kosongkan</button></h3>
-        <div id="akses-jenis-list"></div>
-      </section>
-
-      <section class="ak-sec ak-opsi">
-        <h3>Opsi link</h3>
-        <label class="check"><input type="checkbox" name="lihat_password">
-          <span>Boleh melihat password<small>WiFi &amp; admin — perlu untuk tim yang menyetel AP / router.</small></span></label>
-        <label class="check"><input type="checkbox" name="aktif" checked>
-          <span>Aktif<small>Matikan untuk mencabut akses tanpa menghapusnya.</small></span></label>
-      </section>
-    </div>
-    <div class="btn-row end ak-foot">
-      <button type="button" data-close>Batal</button>
-      <button type="submit" class="primary">Simpan</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Dialog usulan alat baru (link tim installer) -->
-<dialog id="dlg-usul" class="dlg">
-  <form method="dialog" id="form-usul" autocomplete="off">
-    <h2>Usulkan alat baru: <span id="usul-jenis"></span></h2>
-    <p class="muted small">Alat masuk denah sebagai <span class="st st-usulan">Usulan baru</span>. Admin yang menentukan bisa dipasang atau tidak.</p>
-    <label class="field"><span>Nama / label *</span><input type="text" name="nama" maxlength="100" required></label>
-    <label class="field"><span>Merek / tipe alat (opsional)</span><input type="text" name="model" maxlength="150" placeholder="mis. TP-Link EAP650"></label>
-    <label class="field"><span>Alasan / keterangan untuk admin</span>
-      <textarea name="catatan" rows="3" maxlength="2000" placeholder="mis. Area booth B belum tercover, sinyal -80 dBm"></textarea></label>
-    <p class="small" id="usul-uplink"></p>
-    <div class="btn-row end">
-      <button type="button" data-close>Batal</button>
-      <button type="submit" class="primary">Kirim usulan</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- Dialog kelola tipe endpoint -->
-<dialog id="dlg-ep" class="dlg dlg-wide">
-  <div class="dlg-head">
-    <h2>Tipe endpoint</h2>
-    <button type="button" class="icon" data-close aria-label="Tutup">✕</button>
-  </div>
-  <p class="muted small">Tipe perangkat klien (laptop, PC, printer, scanner, …) yang terhubung ke titik LAN. <b>Ikon</b> &amp; warna tampil di titik denah, <b>prefix</b> dipakai untuk nama otomatis (mis. PRN → PRN-01). Perubahan tersimpan otomatis.</p>
-  <div class="ep-table" id="ep-rows"></div>
-  <form class="ep-row ep-new" id="ep-new" autocomplete="off">
-    <input type="color" name="warna" value="#ea580c" aria-label="Warna">
-    <input type="text" name="nama" maxlength="60" placeholder="Tipe baru, mis. Access control" required aria-label="Nama tipe">
-    <input type="text" name="singkatan" maxlength="4" placeholder="ACS" required aria-label="Singkatan">
-    <input type="text" name="prefix" maxlength="12" placeholder="prefix" aria-label="Prefix nama">
-    <select name="ikon" id="ep-new-ikon" aria-label="Ikon"></select>
-    <button type="submit" class="primary small">+ Tambah</button>
-  </form>
-</dialog>
-
-<!-- Dialog cetak / unduh laporan -->
-<dialog id="dlg-print" class="dlg dlg-print" aria-labelledby="pr-judul">
-  <form method="dialog" id="form-print">
-    <header class="pr-dlg-head">
-      <div><h2 id="pr-judul">Cetak &amp; unduh laporan</h2><p class="muted small" id="print-info"></p></div>
-      <button type="button" class="icon" data-close aria-label="Tutup">✕</button>
-    </header>
-    <div class="pr-dlg-body">
-      <h3 class="pr-sec">Jenis laporan</h3>
-      <div class="pr-jenis" role="radiogroup" aria-label="Jenis laporan">
-        <label><input type="radio" name="jenis" value="ap" checked>
-          <i class="pr-ico" style="--c:#16a34a"><svg viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor"/></svg></i>
-          <span><b>Sheet konfigurasi AP</b><small>Kartu setting per AP: SSID, password, channel, IP/VLAN, uplink.</small><em>A4 tegak · CSV</em></span></label>
-        <label><input type="radio" name="jenis" value="lengkap">
-          <i class="pr-ico" style="--c:#2563eb"><svg viewBox="0 0 24 24"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg></i>
-          <span><b>Laporan lengkap</b><small>Denah bertitik, daftar perangkat, kebutuhan &amp; kabel, pemeriksaan.</small><em>A4 mendatar</em></span></label>
-        <label><input type="radio" name="jenis" value="support">
-          <i class="pr-ico" style="--c:#ca8a04"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></i>
-          <span><b>Support &amp; listrik</b><small>Titik listrik, jalur &amp; beban daya, peralatan support.</small><em>A4 mendatar</em></span></label>
-        <label><input type="radio" name="jenis" value="port">
-          <i class="pr-ico" style="--c:#7c3aed"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 11v2M10 11v2M14 11v2M18 11v2"/></svg></i>
-          <span><b>Penggunaan port</b><small>Isi tiap port switch &amp; router, VLAN, port kosong.</small><em>A4 tegak · CSV</em></span></label>
-        <label><input type="radio" name="jenis" value="foto">
-          <i class="pr-ico" style="--c:#ea580c"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></i>
-          <span><b>Foto pemasangan</b><small>Foto bukti per titik + GPS; penempatan &amp; tarikan LAN.</small><em>A4 tegak · PowerPoint</em></span></label>
-      </div>
-      <p class="pr-detail" id="print-detail"></p>
-
-      <div class="pr-set" id="print-set">
-        <h3 class="pr-sec">Pengaturan</h3>
-        <label class="field" id="print-lapisan" hidden><span>Layer jaringan</span><select name="lapisan"></select>
-          <small class="muted">Semua layer = laporan gabungan (tiap perangkat diberi label layer). Pilih satu layer untuk laporan jaringan itu saja.</small></label>
-        <fieldset class="print-opts" id="ap-opts">
-          <label class="check"><input type="checkbox" name="password" checked>
-            <span>Tampilkan password WiFi<small>Matikan bila lembar akan ditempel/dibagikan di area publik.</small></span></label>
-          <label class="check"><input type="checkbox" name="peta" checked>
-            <span>Potongan denah lokasi tiap AP</span></label>
-          <label class="check" id="opt-bridge"><input type="checkbox" name="bridge" checked>
-            <span>Sertakan wireless bridge (PtP/PtMP)</span></label>
-        </fieldset>
-        <fieldset class="print-opts" id="foto-opts" hidden>
-          <label class="check"><input type="checkbox" name="panjang_kabel">
-            <span>PowerPoint: tampilkan panjang kabel LAN<small>Bila mati, laporan hanya berisi jumlah perangkat &amp; jumlah tarikan LAN (tanpa meter).</small></span></label>
-        </fieldset>
+      <div class="kat-aksi">
+        <button type="button" id="kat-ep" class="super-only" title="Kelola tipe endpoint (laptop, EDC, printer, …)">Tipe
+          endpoint</button>
+        <button type="button" id="kat-csv" title="Unduh daftar katalog (CSV)">⬇ CSV</button>
+        <button type="button" class="primary super-only" id="kat-new">＋ Tambah alat</button>
       </div>
     </div>
-    <footer class="pr-dlg-foot">
-      <button type="button" data-close>Batal</button>
+    <div class="kat-stat" id="kat-stat"></div>
+    <div class="kat-tools">
+      <label class="kat-cari"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
+          <path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+        <input type="search" id="kat-q" placeholder="Cari merek, tipe, spesifikasi, keterangan…"
+          aria-label="Cari katalog"></label>
+      <div class="chips kat-chips" id="kat-chips" role="group" aria-label="Filter kategori"></div>
+    </div>
+    <div id="kat-list"></div>
+  </main>
+
+  <!-- Editor satu event -->
+  <div id="editor" class="editor" hidden>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-tab="denah">Denah</button>
+      <button type="button" data-tab="daftar">Daftar<span class="hide-phone"> perangkat</span></button>
+      <button type="button" data-tab="topologi">Topologi<span class="hide-phone"> &amp; cek</span></button>
+      <button type="button" data-tab="support">Support<span class="hide-phone"> &amp; listrik</span></button>
+      <button type="button" data-tab="ceklis">Ceklis</button>
+      <button type="button" data-tab="port" title="Penggunaan port switch &amp; router">Port</button>
+      <button type="button" data-tab="proyek">Proyek</button>
       <span class="spacer"></span>
-      <button type="button" id="btn-ap-csv">⬇ CSV</button>
-      <button type="button" id="btn-port-csv" hidden>⬇ CSV</button>
-      <button type="button" id="btn-foto-pptx" hidden>⬇ PowerPoint</button>
-      <button type="submit" class="primary">🖨 Cetak / PDF</button>
-    </footer>
-  </form>
-</dialog>
+      <div class="tab-actions">
+        <button type="button" class="ta edit-only" id="btn-undo" disabled title="Batalkan (Ctrl+Z)"
+          aria-label="Batalkan">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+            aria-hidden="true">
+            <path d="M9 14L4 9l5-5" />
+            <path d="M4 9h11a5 5 0 010 10h-3" />
+          </svg>
+        </button>
+        <button type="button" class="ta edit-only" id="btn-redo" disabled title="Ulangi (Ctrl+Y)" aria-label="Ulangi">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+            aria-hidden="true">
+            <path d="M15 14l5-5-5-5" />
+            <path d="M20 9H9a5 5 0 000 10h3" />
+          </svg>
+        </button>
+        <button type="button" class="ta cari-btn" id="btn-cari" title="Cari perangkat &amp; perintah (Ctrl+K)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"
+            aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-4-4" />
+          </svg>
+          <span class="hide-phone">Cari</span><kbd class="hide-phone">Ctrl K</kbd>
+        </button>
+      </div>
+    </nav>
 
-<!-- Data unit fisik per merek & seri -->
-<dialog id="dlg-unit" class="dlg dlg-wide dlg-unit" aria-labelledby="us-judul">
-  <div class="us-head"><div><h2 id="us-judul">Unit per seri</h2>
-    <p class="muted small">Titik di event ini per alat katalog, beserta unit fisik dari gudang yang terpasang. Klik nama titik untuk memasang / mengganti unit (tab 📦 Unit); tombol 📦 Gudang membuka stok alat itu.</p></div>
-    <button type="button" class="icon" data-close aria-label="Tutup">✕</button></div>
-  <div class="us-isi"></div>
-  <div class="btn-row end"><button type="button" data-us-csv>⬇ Unduh CSV</button><button type="button" class="primary" data-close>Tutup</button></div>
-</dialog>
-
-<!-- Cari cepat (Ctrl+K): perangkat + perintah -->
-<dialog id="dlg-cari" class="dlg dlg-cari" aria-label="Cari perangkat dan perintah">
-  <div class="cari-box">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-    <input type="search" id="cari-q" placeholder="Cari nama, IP, SSID, merek… atau perintah" autocomplete="off" spellcheck="false">
-    <kbd>Esc</kbd>
-  </div>
-  <div class="cari-list" id="cari-list" role="listbox"></div>
-  <div class="cari-foot muted small"><span><kbd>↑</kbd><kbd>↓</kbd> pilih</span><span><kbd>Enter</kbd> buka di denah</span><span><kbd>Shift</kbd>+<kbd>Enter</kbd> lihat di daftar</span></div>
-</dialog>
-
-<!-- Daftar pintasan keyboard -->
-<dialog id="dlg-pintasan" class="dlg dlg-wide">
-  <h2>Pintasan keyboard</h2>
-  <div class="pintasan">
-    <section>
-      <h3>Umum</h3>
-      <p><kbd>Ctrl</kbd> <kbd>K</kbd> atau <kbd>/</kbd><span>Cari perangkat &amp; perintah</span></p>
-      <p><kbd>Ctrl</kbd> <kbd>Z</kbd><span>Batalkan perubahan terakhir</span></p>
-      <p><kbd>Ctrl</kbd> <kbd>Y</kbd> / <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd><span>Ulangi</span></p>
-      <p><kbd>Alt</kbd> <kbd>1</kbd>–<kbd>7</kbd><span>Pindah tab Denah · Daftar · Topologi · Support · Ceklis · Port · Proyek</span></p>
-      <p><kbd>?</kbd><span>Tampilkan bantuan ini</span></p>
+    <section class="tab-pane" data-pane="denah">
+      <div class="peta-layout">
+        <div class="toolbar" id="toolbar"></div>
+        <div class="peta-area">
+          <svg id="map" class="map"></svg>
+          <div class="map-filters">
+            <div class="view-switch" id="view-switch" role="group" aria-label="Tampilkan perangkat">
+              <button type="button" data-view="semua" title="Semua perangkat">Semua</button>
+              <button type="button" data-view="jaringan" title="Hanya perangkat jaringan">Jaringan</button>
+              <button type="button" data-view="jenis:ap" title="Hanya access point (WiFi)">AP</button>
+              <button type="button" data-view="jenis:switch" title="Hanya switch">Switch</button>
+              <button type="button" data-view="support" title="Hanya titik listrik &amp; peralatan support">⚡
+                Support</button>
+            </div>
+            <div class="lapisan-switch lantai-switch" id="lantai-switch" role="group" aria-label="Lantai gedung" hidden>
+            </div>
+            <div class="lapisan-switch" id="lapisan-switch" role="group" aria-label="Layer jaringan" hidden></div>
+            <button type="button" class="anot-toggle" id="btn-anot" aria-pressed="true" hidden><svg viewBox="0 0 24 24"
+                width="15" height="15" aria-hidden="true">
+                <path d="M4 5h16v10H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linejoin="round" />
+              </svg>Label <b></b></button>
+            <span class="mf-break" aria-hidden="true"></span>
+            <div class="map-hint" id="map-hint" hidden></div>
+            <div class="ep-picker" id="ep-picker" hidden></div>
+          </div>
+          <div class="map-ctrl">
+            <button type="button" data-zoom="in" title="Perbesar (+)">+</button>
+            <button type="button" data-zoom="out" title="Perkecil (−)">−</button>
+            <button type="button" data-zoom="fit" title="Seluruh denah (F)">⤢</button>
+            <button type="button" id="btn-panel" class="hide-sheet" title="Sembunyikan panel kanan (P)"
+              aria-label="Sembunyikan / tampilkan panel kanan" aria-pressed="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M15 4v16" />
+                <path class="pnl-fill" d="M15 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4z" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
+            <button type="button" id="btn-full" title="Peta layar penuh" aria-label="Peta layar penuh"
+              aria-pressed="false">⛶</button>
+            <button type="button" class="layers-btn" id="btn-layers"
+              title="Tampilan peta: label, garis, cakupan AP, progres kabel, kecerahan denah"
+              aria-expanded="false">☰</button>
+          </div>
+          <div class="map-layers" id="map-layers">
+            <span class="ml-h">Tampilan peta</span>
+            <label><input type="checkbox" data-layer="label" checked> Label</label>
+            <label><input type="checkbox" data-layer="garis" checked> Garis uplink</label>
+            <label><input type="checkbox" data-layer="jarak"> Panjang kabel</label>
+            <label><input type="checkbox" data-layer="cakupan" checked> Cakupan AP</label>
+            <label><input type="checkbox" data-layer="internet" checked> Status internet</label>
+            <label title="Warna garis = status penarikan kabel"><input type="checkbox" data-layer="kabel"> Progres
+              kabel</label>
+            <label title="Garis dari perangkat ke titik listrik pemasoknya"><input type="checkbox" data-layer="listrik">
+              Jalur listrik</label>
+            <label class="opacity-ctl" title="Pudarkan denah agar titik perangkat lebih jelas">Denah
+              <input type="range" id="denah-opacity" min="10" max="100" step="5" value="100">
+              <output id="denah-opacity-val">100%</output></label>
+          </div>
+        </div>
+        <aside class="panel" id="panel" data-sheet="peek">
+          <div class="sheet-bar" id="sheet-bar">
+            <span class="grip"></span>
+            <span class="sheet-title" id="sheet-title"></span>
+            <button type="button" class="icon" id="sheet-toggle" aria-label="Perbesar/perkecil panel">▴</button>
+          </div>
+          <div id="panel-body"></div>
+        </aside>
+      </div>
     </section>
-    <section>
-      <h3>Denah</h3>
-      <p><kbd>V</kbd><span>Pilih / geser</span></p>
-      <p><kbd>L</kbd><span>Hubungkan ke uplink</span></p>
-      <p><kbd>M</kbd><span>Ukur jarak / kalibrasi</span></p>
-      <p><kbd>1</kbd>–<kbd>9</kbd><span>Tambah perangkat (urutan toolbar)</span></p>
-      <p><kbd>Ctrl</kbd> <kbd>D</kbd><span>Duplikat perangkat terpilih</span></p>
-      <p><kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd><span>Geser perangkat terpilih (Shift = 10×)</span></p>
-      <p><kbd>Tab</kbd> / <kbd>Shift</kbd> <kbd>Tab</kbd><span>Perangkat berikut / sebelumnya</span></p>
-      <p><kbd>U</kbd><span>Lompat ke uplink perangkat terpilih</span></p>
-      <p><kbd>Del</kbd><span>Hapus perangkat terpilih</span></p>
-      <p><kbd>F</kbd> · <kbd>+</kbd> · <kbd>−</kbd><span>Seluruh denah · perbesar · perkecil</span></p>
-      <p><kbd>P</kbd><span>Sembunyikan / tampilkan panel kanan</span></p>
-      <p><kbd>K</kbd><span>Kunci / buka kunci posisi perangkat terpilih</span></p>
-      <p><kbd>Esc</kbd><span>Selesai alat / batal pilih</span></p>
+
+    <section class="tab-pane scroll" data-pane="daftar" hidden>
+      <div class="page">
+        <div class="list-tools">
+          <input type="search" id="list-q" placeholder="Cari nama, IP, SSID, merek, keterangan…">
+          <select id="list-jenis">
+            <option value="">Semua jenis</option>
+          </select>
+          <select id="list-status">
+            <option value="">Semua status</option>
+          </select>
+          <select id="list-koneksi">
+            <option value="">Semua koneksi</option>
+          </select>
+          <select id="list-kabel" aria-label="Filter status kabel">
+            <option value="">Semua status kabel</option>
+          </select>
+          <button type="button" class="small ghost" id="list-reset" hidden>Reset filter</button>
+          <span class="spacer"></span>
+          <span class="muted small" id="list-count"></span>
+          <button type="button" id="btn-unit-seri"
+            title="Data unit fisik (SN, MAC, firmware, file backup) per merek &amp; seri">📦 Unit per seri</button>
+          <button type="button" id="btn-csv">Unduh CSV</button>
+          <details class="menu">
+            <summary class="btn">Lainnya ▾</summary>
+            <div class="menu-pop right">
+              <button type="button" id="btn-export">Ekspor JSON</button>
+              <button type="button" id="btn-import" class="edit-only">Impor JSON…</button>
+              <button type="button" id="btn-rapikan" class="edit-only"
+                title="Namai ulang anggota setiap group bernama agar berurutan">Rapikan nama group</button>
+              <button type="button" id="btn-kolom">Kolom kosong: <b id="kolom-mode">disembunyikan</b></button>
+              <hr class="edit-only">
+              <button type="button" id="btn-del-all" class="edit-only danger">Hapus semua perangkat…</button>
+            </div>
+          </details>
+          <input type="file" id="import-file" accept=".json,application/json" hidden>
+        </div>
+        <div class="bulk-bar pilih-only" id="bulk-bar" hidden>
+          <b id="bulk-n"></b>
+          <span class="spacer"></span>
+          <button type="button" class="small" id="bulk-all">Pilih semua yang tampil</button>
+          <select id="bulk-status" class="small-select" aria-label="Ubah status perangkat terpilih">
+            <option value="">Ubah status…</option>
+          </select>
+          <select id="bulk-kabel" class="small-select" aria-label="Ubah status kabel perangkat terpilih">
+            <option value="">Status kabel…</option>
+          </select>
+          <select id="bulk-listrik" class="small-select edit-only"
+            aria-label="Pasang titik listrik ke perangkat terpilih">
+            <option value="">⚡ Titik listrik…</option>
+          </select>
+          <select id="bulk-lapisan" class="small-select edit-only"
+            aria-label="Pindahkan perangkat terpilih ke layer jaringan" hidden>
+            <option value="">◧ Layer…</option>
+          </select>
+          <select id="bulk-lantai" class="small-select edit-only"
+            aria-label="Pindahkan perangkat terpilih ke lantai lain" hidden>
+            <option value="">⇅ Lantai…</option>
+          </select>
+          <button type="button" class="small edit-only" id="bulk-kunci"
+            title="Kunci posisi titik terpilih agar tidak tergeser di denah">🔒 Kunci posisi</button>
+          <button type="button" class="small edit-only" id="bulk-buka" title="Buka kunci posisi titik terpilih">🔓 Buka
+            kunci</button>
+          <button type="button" class="small edit-only" id="bulk-unlink"
+            title="Hapus koneksi uplink perangkat terpilih">Putuskan koneksi</button>
+          <button type="button" class="small danger edit-only" id="bulk-del">Hapus terpilih</button>
+          <button type="button" class="small" id="bulk-clear">Batal pilih</button>
+        </div>
+        <div class="table-wrap">
+          <table class="dev-table" id="dev-table"></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-pane scroll" data-pane="topologi" hidden>
+      <div class="page topo-layout">
+        <div class="card">
+          <div class="tree-head">
+            <h2>Pohon topologi <span class="muted small" id="topo-count"></span></h2>
+            <div class="btn-row">
+              <button type="button" class="small" data-tree="buka" title="Tampilkan semua cabang">Buka semua</button>
+              <button type="button" class="small" data-tree="ringkas"
+                title="Tutup cabang yang isinya hanya endpoint (laptop, printer, …)">Tutup endpoint</button>
+              <button type="button" class="small" data-tree="tutup" title="Tampilkan hanya perangkat akar">Tutup
+                semua</button>
+            </div>
+          </div>
+          <div class="tree" id="tree"></div>
+        </div>
+        <div class="topo-side">
+          <div class="card">
+            <h2>Progres penarikan kabel</h2>
+            <div id="kabel-progres"></div>
+          </div>
+          <div class="card">
+            <h2>Pemeriksaan desain</h2>
+            <div id="checks"></div>
+          </div>
+          <div class="card">
+            <h2>VLAN</h2>
+            <div id="vlan-sum"></div>
+          </div>
+          <div class="card">
+            <h2>Kebutuhan listrik</h2>
+            <div id="listrik-sum"></div>
+          </div>
+          <div class="card">
+            <h2>Sumber WAN</h2>
+            <div id="wan-sum"></div>
+          </div>
+          <div class="card">
+            <h2>SSID</h2>
+            <div id="ssid-sum"></div>
+          </div>
+          <div class="card">
+            <h2>Kebutuhan perangkat</h2>
+            <div id="bom"></div>
+          </div>
+          <div class="card">
+            <h2>Estimasi kabel</h2>
+            <div id="kabel-sum"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-pane scroll" data-pane="support" hidden>
+      <div class="page" id="support-pane"></div>
+    </section>
+
+    <section class="tab-pane scroll" data-pane="ceklis" hidden>
+      <div class="page" id="ceklis-pane"></div>
+    </section>
+    <section class="tab-pane scroll" data-pane="port" hidden>
+      <div class="page" id="port-pane"></div>
+    </section>
+
+    <section class="tab-pane scroll" data-pane="proyek" hidden>
+      <div class="page proj-layout" id="proyek-pane"></div>
     </section>
   </div>
-  <div class="btn-row end"><button type="button" class="primary" data-close>Tutup</button></div>
-</dialog>
 
-<div id="print" class="print"></div>
+  <!-- Dialog event baru / ubah -->
+  <dialog id="dlg-proyek" class="dlg">
+    <form method="dialog" id="form-proyek" autocomplete="off">
+      <h2 id="dlg-proyek-title">Event baru</h2>
+      <label class="field"><span>Nama event *</span>
+        <input type="text" name="nama" maxlength="150" required placeholder="mis. Jakarta Muslim Fair 2026"></label>
+      <label class="field"><span>Venue</span>
+        <input type="text" name="venue" maxlength="200" placeholder="mis. JCC Senayan, Hall A"></label>
+      <div class="row2">
+        <label class="field"><span>Tanggal mulai</span><input type="date" name="tanggal_mulai"></label>
+        <label class="field"><span>Tanggal selesai</span><input type="date" name="tanggal_selesai"></label>
+      </div>
+      <label class="field new-only"><span>Password admin event — untuk login admin khusus event ini (min. 8 karakter,
+          boleh dikosongkan)</span>
+        <div class="inline">
+          <input type="password" name="password" minlength="8" maxlength="72" autocomplete="new-password" class="mono">
+          <button type="button" class="small" data-pw="lihat" title="Tampilkan / sembunyikan">👁</button>
+          <button type="button" class="small" data-pw="acak" title="Buat password acak">Acak</button>
+          <button type="button" class="small" data-pw="salin" title="Salin password">Salin</button>
+        </div>
+        <small class="muted">Admin event hanya bisa mengelola event ini (tidak bisa membuat/menghapus event lain). Catat
+          &amp; berikan ke PIC event.</small>
+      </label>
+      <label class="field new-only"><span>Denah venue (PDF/PNG/JPG/WEBP) — bisa menyusul</span>
+        <input type="file" name="denah" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,.pdf"></label>
+      <div class="btn-row end">
+        <button type="button" value="cancel" data-close>Batal</button>
+        <button type="submit" class="primary" value="ok">Simpan</button>
+      </div>
+    </form>
+  </dialog>
 
-<script src="vendor/qrcode.min.js?v=138"></script>
-<script src="assets/common.js?v=138"></script>
-<script src="assets/analisis.js?v=138"></script>
-<script src="assets/peta.js?v=138"></script>
-<script src="assets/katalog.js?v=138"></script>
-<script src="assets/mikrotik.js?v=138"></script>
-<script src="assets/backup.js?v=138"></script>
-<script src="assets/app.js?v=138"></script>
+  <!-- Dialog item katalog -->
+  <dialog id="dlg-kat" class="dlg dlg-wide">
+    <form method="dialog" id="form-kat" autocomplete="off">
+      <h2 id="dlg-kat-title">Tambah alat</h2>
+      <div class="fgrid3">
+        <label class="field"><span>Kategori</span><select name="jenis" id="kat-jenis"></select></label>
+        <label class="field"><span>Merek</span><input type="text" name="merek" maxlength="80"
+            placeholder="mis. MikroTik, TP-Link, Ubiquiti"></label>
+        <label class="field"><span>Tipe / model *</span><input type="text" name="model" maxlength="120" required
+            placeholder="mis. RB5009UG+S+IN"></label>
+        <label class="field"><span>Stok (unit)</span><input type="number" name="stok" min="0" step="1"
+            placeholder="kosong = tidak dicatat"></label>
+      </div>
+      <div class="kat-tipe" id="kat-tipe" hidden></div>
+      <h3 class="sec-title">Spesifikasi</h3>
+      <div class="fgrid3" id="kat-spec"></div>
+      <h3 class="sec-title">Konfigurasi standar <small class="muted">diisikan otomatis ke perangkat yang memakai alat
+          ini</small></h3>
+      <div class="fgrid3" id="kat-konf"></div>
+      <label class="field"><span>Template keterangan konfigurasi</span>
+        <textarea name="catatan_konfig" rows="5" class="mono"
+          placeholder="mis.&#10;- Band steering ON, client isolation ON&#10;- Minimum RSSI -75 dBm&#10;- Firmware minimal 1.2.3"></textarea></label>
+      <label class="field"><span>Keterangan katalog</span>
+        <textarea name="keterangan" rows="2"
+          placeholder="mis. lokasi gudang, aksesoris (adaptor, bracket), nomor aset"></textarea></label>
+      <div class="btn-row end">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="primary">Simpan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog ganti password login -->
+  <dialog id="dlg-akun" class="dlg">
+    <form method="dialog" id="form-akun" autocomplete="off">
+      <h2>Ganti password</h2>
+      <p class="muted small" id="akun-info"></p>
+      <label class="field"><span>Password lama</span>
+        <input type="password" name="lama" required autocomplete="current-password"></label>
+      <label class="field"><span>Password baru (8–72 karakter)</span>
+        <div class="inline"><input type="password" name="baru" minlength="8" maxlength="72" required
+            autocomplete="new-password" class="mono">
+          <button type="button" class="small" data-pw="lihat" title="Tampilkan">👁</button>
+          <button type="button" class="small" data-pw="acak">Acak</button>
+          <button type="button" class="small" data-pw="salin">Salin</button>
+        </div>
+      </label>
+      <label class="field"><span>Ulangi password baru</span>
+        <input type="password" name="ulang" minlength="8" maxlength="72" required autocomplete="new-password"
+          class="mono"></label>
+      <p class="err-text" id="akun-err" hidden></p>
+      <div class="btn-row end">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="primary">Simpan password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog akses tim -->
+  <dialog id="dlg-akses" class="dlg dlg-akses">
+    <form method="dialog" id="form-akses" autocomplete="off">
+      <h2 id="dlg-akses-title" class="ak-head">Tambah akses tim</h2>
+      <div class="ak-body">
+        <label class="field"><span>Nama tim / anggota *</span>
+          <input type="text" name="nama" maxlength="100" required
+            placeholder="mis. Tim WiFi, Tim Kabel, QA — Budi"></label>
+
+        <section class="ak-sec">
+          <h3>Peran</h3>
+          <div class="peran-grid">
+            <label class="peran-opt"><input type="radio" name="peran" value="lihat" checked><i>👁</i>
+              <span><b>Lihat saja</b><small>Hanya membaca</small></span></label>
+            <label class="peran-opt"><input type="radio" name="peran" value="status"><i>✎</i>
+              <span><b>Update status</b><small>Status &amp; catatan lapangan</small></span></label>
+            <label class="peran-opt"><input type="radio" name="peran" value="installer"><i>🛠</i>
+              <span><b>Installer</b><small>Pasang &amp; isi data alat</small></span></label>
+            <label class="peran-opt"><input type="radio" name="peran" value="cek"><i>✓</i>
+              <span><b>Checker penempatan</b><small>Cek sesuai plan + foto</small></span></label>
+          </div>
+          <div class="peran-detail" id="akses-detail"></div>
+        </section>
+
+        <section class="ak-sec" id="akses-status">
+          <h3>Status yang boleh diset</h3>
+          <div class="chip-cek" id="akses-status-list"></div>
+        </section>
+
+        <section class="ak-sec">
+          <h3>Kategori tugas <small class="muted">kosong = semua kategori</small>
+            <span class="spacer"></span><button type="button" class="small ghost" data-jenis-semua="1">Centang
+              semua</button><button type="button" class="small ghost" data-jenis-semua="0">Kosongkan</button>
+          </h3>
+          <div id="akses-jenis-list"></div>
+        </section>
+
+        <section class="ak-sec ak-opsi">
+          <h3>Opsi link</h3>
+          <label class="check"><input type="checkbox" name="lihat_password">
+            <span>Boleh melihat password<small>WiFi &amp; admin — perlu untuk tim yang menyetel AP /
+                router.</small></span></label>
+          <label class="check"><input type="checkbox" name="aktif" checked>
+            <span>Aktif<small>Matikan untuk mencabut akses tanpa menghapusnya.</small></span></label>
+        </section>
+      </div>
+      <div class="btn-row end ak-foot">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="primary">Simpan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog usulan alat baru (link tim installer) -->
+  <dialog id="dlg-usul" class="dlg">
+    <form method="dialog" id="form-usul" autocomplete="off">
+      <h2>Usulkan alat baru: <span id="usul-jenis"></span></h2>
+      <p class="muted small">Alat masuk denah sebagai <span class="st st-usulan">Usulan baru</span>. Admin yang
+        menentukan bisa dipasang atau tidak.</p>
+      <label class="field"><span>Nama / label *</span><input type="text" name="nama" maxlength="100" required></label>
+      <label class="field"><span>Merek / tipe alat (opsional)</span><input type="text" name="model" maxlength="150"
+          placeholder="mis. TP-Link EAP650"></label>
+      <label class="field"><span>Alasan / keterangan untuk admin</span>
+        <textarea name="catatan" rows="3" maxlength="2000"
+          placeholder="mis. Area booth B belum tercover, sinyal -80 dBm"></textarea></label>
+      <p class="small" id="usul-uplink"></p>
+      <div class="btn-row end">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="primary">Kirim usulan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dialog kelola tipe endpoint -->
+  <dialog id="dlg-ep" class="dlg dlg-wide">
+    <div class="dlg-head">
+      <h2>Tipe endpoint</h2>
+      <button type="button" class="icon" data-close aria-label="Tutup">✕</button>
+    </div>
+    <p class="muted small">Tipe perangkat klien (laptop, PC, printer, scanner, …) yang terhubung ke titik LAN.
+      <b>Ikon</b> &amp; warna tampil di titik denah, <b>prefix</b> dipakai untuk nama otomatis (mis. PRN → PRN-01).
+      Perubahan tersimpan otomatis.</p>
+    <div class="ep-table" id="ep-rows"></div>
+    <form class="ep-row ep-new" id="ep-new" autocomplete="off">
+      <input type="color" name="warna" value="#ea580c" aria-label="Warna">
+      <input type="text" name="nama" maxlength="60" placeholder="Tipe baru, mis. Access control" required
+        aria-label="Nama tipe">
+      <input type="text" name="singkatan" maxlength="4" placeholder="ACS" required aria-label="Singkatan">
+      <input type="text" name="prefix" maxlength="12" placeholder="prefix" aria-label="Prefix nama">
+      <select name="ikon" id="ep-new-ikon" aria-label="Ikon"></select>
+      <button type="submit" class="primary small">+ Tambah</button>
+    </form>
+  </dialog>
+
+  <!-- Dialog cetak / unduh laporan -->
+  <dialog id="dlg-print" class="dlg dlg-print" aria-labelledby="pr-judul">
+    <form method="dialog" id="form-print">
+      <header class="pr-dlg-head">
+        <div>
+          <h2 id="pr-judul">Cetak &amp; unduh laporan</h2>
+          <p class="muted small" id="print-info"></p>
+        </div>
+        <button type="button" class="icon" data-close aria-label="Tutup">✕</button>
+      </header>
+      <div class="pr-dlg-body">
+        <h3 class="pr-sec">Jenis laporan</h3>
+        <div class="pr-jenis" role="radiogroup" aria-label="Jenis laporan">
+          <label><input type="radio" name="jenis" value="ap" checked>
+            <i class="pr-ico" style="--c:#16a34a"><svg viewBox="0 0 24 24">
+                <path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0" />
+                <circle cx="12" cy="19.5" r="1.2" fill="currentColor" />
+              </svg></i>
+            <span><b>Sheet konfigurasi AP</b><small>Kartu setting per AP: SSID, password, channel, IP/VLAN,
+                uplink.</small><em>A4 tegak · CSV</em></span></label>
+          <label><input type="radio" name="jenis" value="lengkap">
+            <i class="pr-ico" style="--c:#2563eb"><svg viewBox="0 0 24 24">
+                <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
+                <path d="M9 4v14M15 6v14" />
+              </svg></i>
+            <span><b>Laporan lengkap</b><small>Denah bertitik, daftar perangkat, kebutuhan &amp; kabel,
+                pemeriksaan.</small><em>A4 mendatar</em></span></label>
+          <label><input type="radio" name="jenis" value="support">
+            <i class="pr-ico" style="--c:#ca8a04"><svg viewBox="0 0 24 24">
+                <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
+              </svg></i>
+            <span><b>Support &amp; listrik</b><small>Titik listrik, jalur &amp; beban daya, peralatan
+                support.</small><em>A4 mendatar</em></span></label>
+          <label><input type="radio" name="jenis" value="port">
+            <i class="pr-ico" style="--c:#7c3aed"><svg viewBox="0 0 24 24">
+                <rect x="2" y="7" width="20" height="10" rx="2" />
+                <path d="M6 11v2M10 11v2M14 11v2M18 11v2" />
+              </svg></i>
+            <span><b>Penggunaan port</b><small>Isi tiap port switch &amp; router, VLAN, port kosong.</small><em>A4 tegak
+                · CSV</em></span></label>
+          <label><input type="radio" name="jenis" value="foto">
+            <i class="pr-ico" style="--c:#ea580c"><svg viewBox="0 0 24 24">
+                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg></i>
+            <span><b>Foto pemasangan</b><small>Foto bukti per titik + GPS; penempatan &amp; tarikan LAN.</small><em>A4
+                tegak · PowerPoint</em></span></label>
+        </div>
+        <p class="pr-detail" id="print-detail"></p>
+
+        <div class="pr-set" id="print-set">
+          <h3 class="pr-sec">Pengaturan</h3>
+          <label class="field" id="print-lapisan" hidden><span>Layer jaringan</span><select name="lapisan"></select>
+            <small class="muted">Semua layer = laporan gabungan (tiap perangkat diberi label layer). Pilih satu layer
+              untuk laporan jaringan itu saja.</small></label>
+          <fieldset class="print-opts" id="ap-opts">
+            <label class="check"><input type="checkbox" name="password" checked>
+              <span>Tampilkan password WiFi<small>Matikan bila lembar akan ditempel/dibagikan di area
+                  publik.</small></span></label>
+            <label class="check"><input type="checkbox" name="peta" checked>
+              <span>Potongan denah lokasi tiap AP</span></label>
+            <label class="check" id="opt-bridge"><input type="checkbox" name="bridge" checked>
+              <span>Sertakan wireless bridge (PtP/PtMP)</span></label>
+          </fieldset>
+          <fieldset class="print-opts" id="foto-opts" hidden>
+            <label class="check"><input type="checkbox" name="panjang_kabel">
+              <span>PowerPoint: tampilkan panjang kabel LAN<small>Bila mati, laporan hanya berisi jumlah perangkat &amp;
+                  jumlah tarikan LAN (tanpa meter).</small></span></label>
+          </fieldset>
+        </div>
+      </div>
+      <footer class="pr-dlg-foot">
+        <button type="button" data-close>Batal</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-ap-csv">⬇ CSV</button>
+        <button type="button" id="btn-port-csv" hidden>⬇ CSV</button>
+        <button type="button" id="btn-foto-pptx" hidden>⬇ PowerPoint</button>
+        <button type="submit" class="primary">🖨 Cetak / PDF</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Data unit fisik per merek & seri -->
+  <dialog id="dlg-unit" class="dlg dlg-wide dlg-unit" aria-labelledby="us-judul">
+    <div class="us-head">
+      <div>
+        <h2 id="us-judul">Unit per seri</h2>
+        <p class="muted small">Titik di event ini per alat katalog, beserta unit fisik dari gudang yang terpasang. Klik
+          nama titik untuk memasang / mengganti unit (tab 📦 Unit); tombol 📦 Gudang membuka stok alat itu.</p>
+      </div>
+      <button type="button" class="icon" data-close aria-label="Tutup">✕</button>
+    </div>
+    <div class="us-isi"></div>
+    <div class="btn-row end"><button type="button" data-us-csv>⬇ Unduh CSV</button><button type="button" class="primary"
+        data-close>Tutup</button></div>
+  </dialog>
+
+  <!-- Cari cepat (Ctrl+K): perangkat + perintah -->
+  <dialog id="dlg-cari" class="dlg dlg-cari" aria-label="Cari perangkat dan perintah">
+    <div class="cari-box">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"
+        aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <path d="M20 20l-4-4" />
+      </svg>
+      <input type="search" id="cari-q" placeholder="Cari nama, IP, SSID, merek… atau perintah" autocomplete="off"
+        spellcheck="false">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="cari-list" id="cari-list" role="listbox"></div>
+    <div class="cari-foot muted small"><span><kbd>↑</kbd><kbd>↓</kbd> pilih</span><span><kbd>Enter</kbd> buka di
+        denah</span><span><kbd>Shift</kbd>+<kbd>Enter</kbd> lihat di daftar</span></div>
+  </dialog>
+
+  <!-- Daftar pintasan keyboard -->
+  <dialog id="dlg-pintasan" class="dlg dlg-wide">
+    <h2>Pintasan keyboard</h2>
+    <div class="pintasan">
+      <section>
+        <h3>Umum</h3>
+        <p><kbd>Ctrl</kbd> <kbd>K</kbd> atau <kbd>/</kbd><span>Cari perangkat &amp; perintah</span></p>
+        <p><kbd>Ctrl</kbd> <kbd>Z</kbd><span>Batalkan perubahan terakhir</span></p>
+        <p><kbd>Ctrl</kbd> <kbd>Y</kbd> / <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd><span>Ulangi</span></p>
+        <p><kbd>Alt</kbd> <kbd>1</kbd>–<kbd>7</kbd><span>Pindah tab Denah · Daftar · Topologi · Support · Ceklis · Port
+            · Proyek</span></p>
+        <p><kbd>?</kbd><span>Tampilkan bantuan ini</span></p>
+      </section>
+      <section>
+        <h3>Denah</h3>
+        <p><kbd>V</kbd><span>Pilih / geser</span></p>
+        <p><kbd>L</kbd><span>Hubungkan ke uplink</span></p>
+        <p><kbd>M</kbd><span>Ukur jarak / kalibrasi</span></p>
+        <p><kbd>1</kbd>–<kbd>9</kbd><span>Tambah perangkat (urutan toolbar)</span></p>
+        <p><kbd>Ctrl</kbd> <kbd>D</kbd><span>Duplikat perangkat terpilih</span></p>
+        <p><kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd><span>Geser perangkat terpilih (Shift = 10×)</span></p>
+        <p><kbd>Tab</kbd> / <kbd>Shift</kbd> <kbd>Tab</kbd><span>Perangkat berikut / sebelumnya</span></p>
+        <p><kbd>U</kbd><span>Lompat ke uplink perangkat terpilih</span></p>
+        <p><kbd>Del</kbd><span>Hapus perangkat terpilih</span></p>
+        <p><kbd>F</kbd> · <kbd>+</kbd> · <kbd>−</kbd><span>Seluruh denah · perbesar · perkecil</span></p>
+        <p><kbd>P</kbd><span>Sembunyikan / tampilkan panel kanan</span></p>
+        <p><kbd>K</kbd><span>Kunci / buka kunci posisi perangkat terpilih</span></p>
+        <p><kbd>Esc</kbd><span>Selesai alat / batal pilih</span></p>
+      </section>
+    </div>
+    <div class="btn-row end"><button type="button" class="primary" data-close>Tutup</button></div>
+  </dialog>
+
+  <div id="print" class="print"></div>
+
+  <script src="vendor/qrcode.min.js?v=138"></script>
+  <script src="assets/common.js?v=138"></script>
+  <script src="assets/analisis.js?v=138"></script>
+  <script src="assets/peta.js?v=138"></script>
+  <script src="assets/katalog.js?v=138"></script>
+  <script src="assets/mikrotik.js?v=138"></script>
+  <script src="assets/backup.js?v=138"></script>
+  <script src="assets/app.js?v=138"></script>
 </body>
+
 </html>

@@ -108,8 +108,8 @@
       linkEls.clear();
       wanEls.length = 0;
       pwrEls.length = 0;
-      // Perangkat terpilih digambar paling akhir agar berada di atas.
-      const ordered = m.list.slice().sort((a, b) => (a.id === st.sel) - (b.id === st.sel));
+      // Urutan tumpukan (atribut z, furniture bawaan di bawah); perangkat terpilih (bukan furniture) paling atas.
+      const ordered = NP.urutZ(m.list, st.sel);
       // Kabel yang terkena error pemeriksaan desain -> garis merah + pesan error saat disorot.
       const errLink = new Map();
       m.checks().filter(c => c.level === 'err').forEach(c => c.links.forEach(id => {

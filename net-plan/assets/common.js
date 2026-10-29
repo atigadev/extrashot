@@ -407,6 +407,12 @@
 
   /** Bukan perangkat jaringan (tanpa uplink, status internet & kabel jaringan): titik listrik, support, furniture. */
   const nonJaringan = d => !!d && grupJenis(d.jenis) !== 'jaringan';
+  /**
+   * Urutan tumpukan di denah (atribut "z"; makin besar makin di atas). Bawaan: furniture -1 (di bawah perangkat), lainnya 0.
+   * urutZ: urutan gambar (bawah -> atas); sama-sama z -> urutan data. selId (bukan furniture) digambar paling atas.
+   */
+  const zOf = d => { const z = parseFloat((d.atribut || {}).z); return isFinite(z) ? z : grupJenis(d.jenis) === 'furniture' ? -1 : 0; };
+  const urutZ = (list, selId) => list.map((d, i) => [d, i]).sort((A, B) => ((A[0].id === selId && A[0].jenis !== 'furniture') - (B[0].id === selId && B[0].jenis !== 'furniture')) || zOf(A[0]) - zOf(B[0]) || A[1] - B[1]).map(x => x[0]);
   /** Furniture: tanpa koneksi apa pun (jaringan maupun listrik). */
   const isFurniture = d => !!d && grupJenis(d.jenis) === 'furniture';
   /** Titik listrik (sumber daya dengan MCB). */
@@ -825,5 +831,5 @@
     return String(s || 'netplan').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'netplan';
   }
 
-  window.NP = { TYPES, TYPE_ORDER, GRUP_ORDER, isFurniture, furnSimbol, FURN_UKURAN, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, ANOT_WARNA, UNIT_FIELDS, UNIT_KONDISI, macNorm, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
+  window.NP = { TYPES, TYPE_ORDER, GRUP_ORDER, isFurniture, zOf, urutZ, furnSimbol, FURN_UKURAN, VERIF, verifOf, CEKLIS_GRUP, ceklisItems, ceklisData, ceklisProgres, grupJenis, GRUP, nonJaringan, isListrik, LISTRIK, dayaMcb, STATUS, MEDIA, KONEKSI, KABEL, ANOT_WARNA, UNIT_FIELDS, UNIT_KONDISI, macNorm, perluKabel, kabelTertanam, titikLan, kabelSt, SPEC, specFields, specSummary, poeKelas, sektor, polar, wedgePath, ET, setEndpointTipe, tipeEp, tampil, terkunci, IKON, ikonSvg, api, esc, toast, progres, copy, downloadBlob, downloadCsv, fmtBw, fmtM, fmtDate, slug };
 })();

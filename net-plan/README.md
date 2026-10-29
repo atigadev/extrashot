@@ -479,7 +479,9 @@ AP / wireless bridge tidak diberi port.
   Digambar sebagai **simbol denah 2D** (tampak atas, gaya floorplan/CAD) sesuai ukuran asli bila skala denah sudah
   dikalibrasi, ikut zoom & rotasi; unit lebih dari satu disusun berjajar (*unit per baris*). **Putar di tempat**: geser
   pegangan bulat di atas furniture terpilih (snap 15°, Alt = bebas), tombol **R** / **Shift+R** (±15°), atau klik kanan →
-  *Putar 90°*. Duplikat menaruh salinan berjajar tepat di sebelahnya. Furniture tidak
+  *Putar 90°*. Duplikat menaruh salinan berjajar tepat di sebelahnya. **Urutan tumpukan** (semua titik): klik kanan →
+  *Naikkan / Turunkan satu lapis* (Ctrl+] / Ctrl+[) atau *Bawa ke paling depan / Kirim ke paling belakang* (+ Shift);
+  bawaan furniture di bawah perangkat jaringan. Furniture tidak
   punya koneksi jaringan maupun listrik, dan tidak masuk rekap listrik/topologi. Tampilkan saja lewat tombol
   **🪑 Furniture** di atas peta.
 

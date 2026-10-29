@@ -1864,6 +1864,36 @@
     saveDev(id, { atribut: Object.assign({}, d.atribut, { rotasi: String(rot) }) }).catch(() => {});
   }
 
+  /**
+   * Ubah urutan tumpukan titik di denah (atribut z). arah: 'depan' / 'belakang' = paling atas / bawah dari semua;
+   * 'naik' / 'turun' = melewati satu titik yang bertumpuk dengannya (kotak titik di layar beririsan).
+   */
+  function ubahTumpukan(id, arah) {
+    const d = S.model.byId.get(id);
+    if (!d || !S.canEdit) return;
+    const urut = NP.urutZ(S.model.list);
+    const zs = urut.map(NP.zOf);
+    let z = null;
+    if (arah === 'depan') z = Math.max(...zs) + 1;
+    else if (arah === 'belakang') z = Math.min(...zs) - 1;
+    else {
+      const kotak = x => { const g = $(`#map .node[data-id="${x.id}"]`); return g && g.style.display !== 'none' ? g.getBoundingClientRect() : null; };
+      const a = kotak(d);
+      const iris = x => { const b = kotak(x); return a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; };
+      const i = urut.indexOf(d);
+      const lawan = arah === 'naik' ? urut.slice(i + 1).find(iris) : urut.slice(0, i).reverse().find(iris);
+      if (!lawan) return toast(arah === 'naik' ? `${d.nama} sudah paling atas di tumpukannya` : `${d.nama} sudah paling bawah di tumpukannya`);
+      // Selipkan tepat setelah / sebelum titik yang dilewati (tengah-tengah z-nya dan z titik berikutnya).
+      const j = urut.indexOf(lawan) + (arah === 'naik' ? 1 : -1);
+      const tetangga = urut[j] && urut[j] !== d ? NP.zOf(urut[j]) : null;
+      const zl = NP.zOf(lawan);
+      z = tetangga != null && tetangga !== zl ? (zl + tetangga) / 2 : zl + (arah === 'naik' ? 0.5 : -0.5);
+      z = Math.round(z * 10000) / 10000;
+    }
+    if (z === NP.zOf(d)) return;
+    saveDev(id, { atribut: Object.assign({}, d.atribut, { z: String(z) }) }, { keepPanel: true }).catch(() => {});
+  }
+
   function menuPerangkat(id, x, y) {
     const d = S.model.byId.get(id);
     if (!d) return;
@@ -1881,6 +1911,10 @@
       { label: 'Salin info perangkat', ikon: '📄', fn: () => copy(teksInfo(d)) },
       edit && '-',
       edit && { label: kunci ? 'Buka kunci posisi' : 'Kunci posisi', ikon: kunci ? '🔓' : '🔒', pintas: 'K', fn: () => kunciPerangkat([id], !kunci) },
+      edit && { label: 'Bawa ke paling depan', ikon: '⤒', pintas: 'Ctrl+Shift+]', fn: () => ubahTumpukan(id, 'depan') },
+      edit && { label: 'Naikkan satu lapis', ikon: '↑', pintas: 'Ctrl+]', fn: () => ubahTumpukan(id, 'naik') },
+      edit && { label: 'Turunkan satu lapis', ikon: '↓', pintas: 'Ctrl+[', fn: () => ubahTumpukan(id, 'turun') },
+      edit && { label: 'Kirim ke paling belakang', ikon: '⤓', pintas: 'Ctrl+Shift+[', fn: () => ubahTumpukan(id, 'belakang') },
       '-',
       { label: 'Pusatkan di peta', ikon: '◎', fn: () => selectDev(id, true) },
       edit && { label: 'Hapus perangkat', ikon: '🗑', pintas: 'Del', bahaya: true, fn: () => deleteDev(id) },
@@ -2104,6 +2138,11 @@
     if ((e.ctrlKey || e.metaKey) && k === 'd' && S.anotSel != null && S.canEdit) {
       e.preventDefault();
       return duplikatAnot(S.anotSel);
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.code === 'BracketRight' || e.code === 'BracketLeft') && S.sel != null && S.canEdit) {
+      // Urutan tumpukan: Ctrl+] naik, Ctrl+[ turun; + Shift = paling depan / paling belakang.
+      e.preventDefault();
+      return ubahTumpukan(S.sel, e.code === 'BracketRight' ? (e.shiftKey ? 'depan' : 'naik') : (e.shiftKey ? 'belakang' : 'turun'));
     }
     if ((e.ctrlKey || e.metaKey) && k === 'd' && S.sel != null && S.canEdit) {
       e.preventDefault();
@@ -4273,6 +4312,7 @@
     if (a.bahan) h += `<div class="kv"><span>Warna / bahan</span><b>${esc(a.bahan)}</b></div>`;
     if (a.pemilik) h += `<div class="kv"><span>Pemilik / vendor</span><b>${esc(a.pemilik)}</b></div>`;
     if (!S.model.skalaOf(d)) h += '<p class="note small">Skala denah belum dikalibrasi — simbol digambar dengan perkiraan 2 cm per piksel.</p>';
+    if (S.canEdit) h += '<p class="muted small">Bertumpuk dengan titik lain? Klik kanan → <b>Naikkan / Turunkan satu lapis</b> (Ctrl+] / Ctrl+[), atau <b>Bawa ke paling depan / belakang</b> (+ Shift). Putar: tombol R atau pegangan bulat di denah.</p>';
     return h + '</div>';
   }
 
@@ -8269,7 +8309,7 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
           <text text-anchor="middle" y="${-10 * u}" font-size="${8 * u}" font-weight="700" fill="#5b21b6" stroke="#fff" stroke-width="${3 * u}" paint-order="stroke" font-family="Arial">${esc(p.nama)} · ${esc(m.lantaiById(m.lantaiOf(p)).nama)}</text></g>`;
       }
     }
-    for (const d of m.list) {
+    for (const d of NP.urutZ(m.list)) { // urutan tumpukan sama seperti di peta
       if (!tampil(d)) continue;
       if (d.jenis === 'furniture') {
         // Furniture: simbol denah 2D berskala, sama seperti di peta.

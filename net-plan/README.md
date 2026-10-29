@@ -727,13 +727,15 @@ Kartu tidak muncul saat menarik titik atau di layar sentuh (pakai panel info).
 
 **Label & panah di denah.** Kotak berwarna berisi keterangan bebas (bawaan hijau, teks putih; bisa beberapa baris)
 dengan panah ke titik di denah atau ke perangkat.
-- **Membuat**: alat **Label** di toolbar (pintasan **T**). Klik titik atau perangkat yang ditunjuk; label muncul di
-  kanan atasnya dan isiannya langsung bisa diketik di panel. Klik perangkat → teks awal = nama perangkat.
+- **Membuat**: alat **Label** di toolbar (pintasan **T**). Klik di denah; label baru **tanpa panah** diletakkan di titik
+  itu (klik perangkat → di sampingnya, teks awal = nama perangkat). Panah bisa ditambahkan lewat *Panah ke* di panel.
 - **Mengatur**:
   - geser kotak untuk memindah;
   - tarik ujung panah (bulatan saat label terpilih); lepas di atas perangkat agar panah **menempel** dan ikut saat
     perangkat digeser;
-  - klik ganda label untuk mengubah teks.
+  - klik ganda label untuk mengubah teks;
+  - **putar**: geser pegangan bulat di atas label terpilih (snap 15°, Alt = bebas), tombol **R** / **Shift+R** (±15°),
+    klik kanan → *Putar 90°*, atau isian *Rotasi* (0° / 90° / 180° / 270°) di panel.
 - **Panel label**: isi teks, warna (hijau, biru, kuning, merah, ungu, abu), *Panah ke* (titik bebas / tanpa panah /
   perangkat tertentu), **Hapus label** (atau tombol Delete).
 - **Tampilkan / sembunyikan**: tombol **Label (n)** di atas peta. Pilihan disimpan per event di browser; label yang

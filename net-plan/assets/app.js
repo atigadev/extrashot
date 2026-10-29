@@ -1921,6 +1921,17 @@
     ], x, y);
   }
 
+  /** Putar label sebesar delta derajat, atau set sudut tertentu (mutlak). Label terkunci tidak berubah. */
+  function putarAnot(aid, delta, mutlak) {
+    const a = anotList().find(z => z.id === aid);
+    if (!a || !S.canEdit) return;
+    if (a.kunci) return toast('Label terkunci — buka kunci dulu untuk memutar', true);
+    a.rot = ((Math.round(mutlak != null ? mutlak : (+a.rot || 0) + delta) % 360) + 360) % 360;
+    terapkanAnot();
+    simpanAnot();
+    if (S.anotSel === aid) renderPanel();
+  }
+
   function menuLabel(aid, x, y) {
     const a = anotList().find(z => z.id === aid);
     if (!a) return;
@@ -1930,6 +1941,9 @@
       edit && { label: 'Ubah teks', ikon: '✎', fn: () => pilihAnot(aid, true) },
       edit && { label: 'Duplikat label', ikon: '⧉', pintas: 'Ctrl+D', fn: () => duplikatAnot(aid) },
       { label: 'Salin teks', ikon: '📋', fn: () => copy(a.teks || '') },
+      edit && !a.kunci && { label: 'Putar 90° searah jarum jam', ikon: '↻', fn: () => putarAnot(aid, 90) },
+      edit && !a.kunci && { label: 'Putar 15°', ikon: '↻', pintas: 'R', fn: () => putarAnot(aid, 15) },
+      edit && !a.kunci && { label: 'Putar 90° berlawanan', ikon: '↺', fn: () => putarAnot(aid, -90) },
       edit && { label: a.kunci ? 'Buka kunci posisi' : 'Kunci posisi', ikon: a.kunci ? '🔓' : '🔒', pintas: 'K', fn: () => kunciLabel(aid) },
       edit && '-',
       edit && { label: 'Hapus label', ikon: '🗑', pintas: 'Del', bahaya: true, fn: () => hapusAnot(aid) },
@@ -1973,7 +1987,9 @@
     if (list.length >= 500) return toast('Maksimal 500 label per event', true);
     const no = Math.max(0, ...list.map(a => +String(a.id).slice(1) || 0)) + 1;
     const d = posisi.ke != null && S.model.byId.get(posisi.ke);
-    const a = Object.assign({ id: 'A' + no, teks: d ? d.nama : '', warna: 'hijau', lantai: S.lantai || 'F1', panah: true }, posisi);
+    // Bawaan tanpa panah: label diletakkan tepat di titik yang diklik (di samping perangkat bila mengklik perangkat).
+    const dekat = d ? { x: posisi.tx + (posisi.x - posisi.tx) * 0.5, y: posisi.ty + (posisi.y - posisi.ty) * 0.5 } : { x: posisi.tx, y: posisi.ty };
+    const a = Object.assign({ id: 'A' + no, teks: d ? d.nama : '', warna: 'hijau', lantai: S.lantai || 'F1', panah: false, rot: 0 }, posisi, dekat);
     list.push(a);
     // Label tampil walau sebelumnya disembunyikan, lalu langsung bisa diketik.
     try { localStorage.setItem(kunciAnot(), '1'); } catch (err) { /* abaikan */ }
@@ -2078,6 +2094,9 @@
           <option value="titik"${arah === 'titik' ? ' selected' : ''}>Titik di denah (tarik ujung panah)</option>
           <option value="tanpa"${arah === 'tanpa' ? ' selected' : ''}>Tanpa panah</option>
           <optgroup label="Perangkat">${devs.map(d => `<option value="${d.id}"${arah === String(d.id) ? ' selected' : ''}>${esc(d.nama)}</option>`).join('')}</optgroup></select></label>
+        <div class="field"><span>Rotasi</span><div class="inline">
+          <input type="number" data-anot-rot min="0" max="359" step="1" value="${+a.rot || 0}" style="max-width:90px"${dis || (a.kunci ? ' disabled' : '')}> °
+          ${S.canEdit && !a.kunci ? [0, 90, 180, 270].map(v => `<button type="button" class="small${(+a.rot || 0) === v ? ' primary' : ''}" data-anot-rotset="${v}">${v}°</button>`).join('') : ''}</div></div>
         <p class="muted small">${a.kunci ? '🔒 Posisi label & panah terkunci — tidak bisa tergeser saat menata denah. Teks & warna tetap bisa diubah.'
           : 'Geser kotak untuk memindah. Tarik ujung panah (bulatan) dan lepas di atas perangkat agar panah menempel ke perangkat itu. Klik ganda label untuk mengubah teks.'}</p>
         ${S.canEdit ? `<div class="btn-row"><button type="button" class="small${a.kunci ? ' primary' : ''}" data-anot-kunci title="Pintasan K">${a.kunci ? '🔓 Buka kunci' : '🔒 Kunci posisi'}</button>
@@ -2092,6 +2111,14 @@
     a.teks = t.value.slice(0, 500);
     peta.setAnotasi(anotList(), S.lantai || 'F1');
     simpanAnot();
+  });
+  $('#panel').addEventListener('change', e => {
+    const r = e.target.closest('[data-anot-rot]');
+    if (r && S.anotSel != null) return putarAnot(S.anotSel, 0, +r.value || 0);
+  });
+  $('#panel').addEventListener('click', e => {
+    const r = e.target.closest('[data-anot-rotset]');
+    if (r && S.anotSel != null) putarAnot(S.anotSel, 0, +r.dataset.anotRotset);
   });
   $('#panel').addEventListener('change', e => {
     const s = e.target.closest('[data-anot-arah]');
@@ -2168,6 +2195,7 @@
     } else if (k === 'p' && !mqSheet.matches) togglePanel();
     else if (k === 'k' && S.anotSel != null && S.canEdit) kunciLabel(S.anotSel);
     else if (k === 'k' && S.sel != null && S.canEdit) kunciPerangkat([S.sel], !NP.terkunci(S.model.byId.get(S.sel)));
+    else if (k === 'r' && !e.ctrlKey && !e.metaKey && S.anotSel != null && S.canEdit) putarAnot(S.anotSel, e.shiftKey ? -15 : 15);
     else if (k === 'r' && !e.ctrlKey && !e.metaKey && S.sel != null && S.canEdit && NP.isFurniture(S.model.byId.get(S.sel))) putarFurniture(S.sel, e.shiftKey ? -15 : 15);
     else if (k === 'v') setTool('pilih');
     else if (k === 'l' && S.canEdit) setTool('hubung');
@@ -8368,8 +8396,8 @@ Isian khusus, bandwidth, dan keterangan konfigurasi diganti nilai standar katalo
         }
         // Teks di tengah kotak: rata tengah, baris pertama digeser agar blok teks terpusat vertikal.
         const y0 = a.y - (baris.length - 1) * lh / 2 + fs * 0.36;
-        h += `<rect x="${a.x - w / 2}" y="${a.y - bh / 2}" width="${w}" height="${bh}" rx="${4 * u}" fill="${Wn.bg}" stroke="${Wn.tepi}" stroke-width="${1.2 * u}"/>
-          <text x="${a.x}" y="${y0}" text-anchor="middle" font-size="${fs}" font-weight="600" font-family="Arial" fill="${Wn.fg}">${baris.map((t, i) => `<tspan x="${a.x}" dy="${i ? lh : 0}">${esc(t)}</tspan>`).join('')}</text>`;
+        h += `<g transform="rotate(${+a.rot || 0} ${a.x} ${a.y})"><rect x="${a.x - w / 2}" y="${a.y - bh / 2}" width="${w}" height="${bh}" rx="${4 * u}" fill="${Wn.bg}" stroke="${Wn.tepi}" stroke-width="${1.2 * u}"/>
+          <text x="${a.x}" y="${y0}" text-anchor="middle" font-size="${fs}" font-weight="600" font-family="Arial" fill="${Wn.fg}">${baris.map((t, i) => `<tspan x="${a.x}" dy="${i ? lh : 0}">${esc(t)}</tspan>`).join('')}</text></g>`;
       }
     }
     const f = opts.focus != null && m.byId.get(opts.focus);

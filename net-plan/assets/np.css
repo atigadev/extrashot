@@ -1416,6 +1416,10 @@ body.geser-panel { cursor: col-resize; user-select: none; }
 .map .anot .an-head { stroke: none; }
 .map .anot.sel .an-box rect { stroke: #0f172a; stroke-width: 2.5px; stroke-dasharray: 5 3; }
 .map .anot .an-tip { fill: #fff; stroke: #0f172a; stroke-width: 2px; cursor: crosshair; }
+.map .anot .an-rotl { stroke: #a21caf; stroke-width: 1.5; stroke-dasharray: 3 3; pointer-events: none; }
+.map .anot .an-rot { fill: #fff; stroke: #a21caf; stroke-width: 3px; cursor: grab; }
+.map .anot .an-rot:hover { fill: #a21caf; }
+.map .anot .an-rott { font: 700 11px system-ui, sans-serif; text-anchor: middle; fill: #86198f; stroke: #fff; stroke-width: 3px; paint-order: stroke; pointer-events: none; }
 .map[data-tool="label"] { cursor: crosshair; }
 .anot-ed textarea { width: 100%; min-height: 84px; resize: vertical; font: inherit; }
 .anot-warna { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }

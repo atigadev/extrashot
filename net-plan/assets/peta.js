@@ -453,6 +453,8 @@
           // Label terkunci: gembok kecil di pojok kanan atas (sama dengan perangkat terkunci).
           (a.kunci ? `<g class="an-lock"><circle r="${BADGE + 0.5}"/><path d="M-2.6 -0.6h5.2v3.6h-5.2z M-1.6 -0.6v-1.3a1.6 1.6 0 0 1 3.2 0v1.3"/></g>` : '') + '</g>' +
           (a.id === st.anotSel && st.canEdit && !a.kunci && a.panah !== false ? '<circle class="an-tip" r="7"><title>Tarik ujung panah · lepas di atas perangkat agar menempel</title></circle>' : '') +
+          // Pegangan putar label terpilih (tidak terkunci): bulatan di atas kotak, ikut sudut label.
+          (a.id === st.anotSel && st.canEdit && !a.kunci ? '<g class="an-rotg"><line class="an-rotl"/><circle class="an-rot" r="7"><title>Geser untuk memutar label · tahan Alt = tanpa snap 15°</title></circle><text class="an-rott"></text></g>' : '') +
           (st.canEdit ? `<title>${a.kunci ? 'Posisi terkunci · klik untuk memilih, buka kunci di panel' : 'Geser untuk memindah · klik ganda untuk mengubah teks'}</title>` : '');
         gAnot.appendChild(g);
       }
@@ -469,7 +471,18 @@
         const bb = text.getBBox();
         const w = Math.max(36, bb.width + ANOT_PAD * 2.5), h = bb.height + ANOT_PAD * 1.4;
         const cx = sx(a.x), cy = sy(a.y);
-        box.setAttribute('transform', `translate(${(cx - w / 2).toFixed(1)},${(cy - h / 2).toFixed(1)})`);
+        const rot = +a.rot || 0;
+        box.setAttribute('transform', `translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${rot}) translate(${(-w / 2).toFixed(1)},${(-h / 2).toFixed(1)})`);
+        const rg = g.querySelector('.an-rotg');
+        if (rg) {
+          const q = polar(cx, cy, h / 2 + 22, rot);
+          const ln = rg.querySelector('line'), c = rg.querySelector('circle'), t = rg.querySelector('text');
+          ln.setAttribute('x1', cx.toFixed(1)); ln.setAttribute('y1', cy.toFixed(1));
+          ln.setAttribute('x2', q.x.toFixed(1)); ln.setAttribute('y2', q.y.toFixed(1));
+          c.setAttribute('cx', q.x.toFixed(1)); c.setAttribute('cy', q.y.toFixed(1));
+          t.setAttribute('x', q.x.toFixed(1)); t.setAttribute('y', (q.y - 12).toFixed(1));
+          t.textContent = Math.round(rot) + '°';
+        }
         const rect = box.querySelector('rect');
         rect.setAttribute('width', w.toFixed(1));
         rect.setAttribute('height', h.toFixed(1));
@@ -851,6 +864,10 @@
       // Label & panah: geser kotak, atau tarik ujung panah (pegangan bulat saat label terpilih).
       const an = !middle && (st.tool === 'pilih' || st.tool === 'label') && e.target.closest && e.target.closest('.anot');
       const a = an && st.anot.find(x => x.id === an.dataset.anot);
+      if (a && st.canEdit && !a.kunci && e.target.closest('.an-rot')) {
+        gesture = { type: 'anotRot', id: a.id, start: p, moved: false, orig: { rot: a.rot || 0 } };
+        return;
+      }
       if (a) {
         const tip = !!e.target.closest('.an-tip');
         // Label terkunci (atau tanpa hak ubah): tarikan menggeser peta, klik tetap memilih label.
@@ -936,6 +953,18 @@
       }
       const dx = p.x - gesture.start.x, dy = p.y - gesture.start.y;
       if (!gesture.moved && Math.hypot(dx, dy) < 5) return;
+      if (gesture.type === 'anotRot') {
+        // Putar label: sudut dari pusat kotak ke pointer (0° = tegak), snap 15° (Alt = bebas).
+        const a = st.anot.find(x => x.id === gesture.id);
+        if (!a) return;
+        gesture.moved = true;
+        let deg = Math.atan2(p.x - sx(a.x), -(p.y - sy(a.y))) * 180 / Math.PI;
+        deg = ((deg % 360) + 360) % 360;
+        if (!e.altKey) deg = (Math.round(deg / 15) * 15) % 360;
+        a.rot = Math.round(deg) % 360;
+        layoutAnot();
+        return;
+      }
       if (gesture.type === 'anot' || gesture.type === 'anotTip') {
         gesture.moved = true;
         if (!gesture.edit) {
@@ -1023,8 +1052,18 @@
       gesture = null;
       st.dragging = false;
       svg.classList.remove('dragging');
-      if (g.type === 'anot' || g.type === 'anotTip') {
+      if (g.type === 'anotRot') {
         const a = st.anot.find(x => x.id === g.id);
+        if (!a || !g.moved) return;
+        if (e.type === 'pointercancel') {
+          a.rot = g.orig.rot;
+          layoutAnot();
+        } else {
+          cb.onAnot && cb.onAnot(a, g.orig);
+        }
+        return;
+      }
+      if (g.type === 'anot' || g.type === 'anotTip') {
         if (!a) return;
         if (g.moved && !g.edit) return; // label terkunci: tadi menggeser peta
         if (g.moved && e.type === 'pointercancel') {

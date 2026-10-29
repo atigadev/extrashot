@@ -21,7 +21,7 @@
  * POST {"action":"lantai_save","id":N,"lantai":[{id:"F1",nama,tinggi},..]}  -> daftar lantai (bawah -> atas)
  * POST multipart action=lantai_denah, id=N, lantai_id=F2, denah=<file>, sesuaikan=1|0 -> denah lantai
  * POST {"action":"lantai_skala","id":N,"lantai_id":"F2","skala":0.05} -> skala denah lantai
- * POST {"action":"anotasi_save","id":N,"anotasi":[{id:"A1",teks,warna,x,y,tx,ty,ke,lantai,panah}]} -> label & panah denah
+ * POST {"action":"anotasi_save","id":N,"anotasi":[{id:"A1",teks,warna,x,y,tx,ty,ke,lantai,panah,kunci,rot}]} -> label & panah denah
  * GET  ?action=unit_list&katalog_id=N -> unit gudang satu alat (stok, dipakai di event mana, file konfigurasi)
  * POST {"action":"unit_save","id":N|null,"katalog_id":N,sn,mac,firmware,aset,ip_mgmt,user_admin,pass_admin,kondisi,lokasi,catatan}
  * POST {"action":"unit_massal","katalog_id":N,"baris":[{sn,mac,aset,firmware,lokasi}]} / {"action":"unit_delete","id":N}
@@ -1278,6 +1278,7 @@ function anotasi_json($arr)
             'lantai' => isset($a['lantai']) && preg_match('/^F\d{1,3}$/', (string) $a['lantai']) ? (string) $a['lantai'] : '',
             'panah' => !isset($a['panah']) || $a['panah'] !== false,
             'kunci' => !empty($a['kunci']),
+            'rot' => isset($a['rot']) && is_numeric($a['rot']) ? (int) round(fmod(fmod((float) $a['rot'], 360) + 360, 360)) % 360 : 0,
         ];
     }
     return $out ? json_encode($out, JSON_UNESCAPED_UNICODE) : null;
